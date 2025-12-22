@@ -70,18 +70,34 @@ if problem_type == "regression":
     sample_pred = preds_full[:30].tolist()
 
 else:  # classification
-    model = Pipeline([
-        ("scaler", StandardScaler(with_mean=False)),
-        ("model", LogisticRegression(max_iter=2000))
-    ])
+    else:  # classification
+    # Choose folds safely
+    n = len(df)
+n_classes = y.nunique()
+min_class_count = y.value_counts().min()
 
-    cv_folds = min(5, len(df))
-    if cv_folds < 2:
-        cv_folds = 2
+# 🚨 FRIENDLY ERROR MESSAGE (ADD HERE)
+if min_class_count < 2:
+    return {
+        "error": "Not enough samples in one class for cross-validation.",
+        "message": "Each class must have at least 2 rows. Add more data or reduce imbalance.",
+        "classCounts": y.value_counts().to_dict()
+    }
 
-    cv = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+# folds cannot exceed smallest class count (for stratified cv)
+cv_folds = min(5, n, min_class_count)
+if cv_folds < 2:
+    cv_folds = 2
+
+    cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
+
+    # Model (no scaler needed here for your demo; keeps it robust)
+    model = LogisticRegression(max_iter=2000)
+
+    # Cross-val accuracy
     cv_scores = cross_val_score(model, X, y, cv=cv, scoring="accuracy")
 
+    # Fit on full data for sample predictions
     model.fit(X, y)
     preds_full = model.predict(X)
 
