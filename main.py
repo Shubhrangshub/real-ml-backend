@@ -7,6 +7,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.metrics import r2_score, mean_absolute_error, accuracy_score, f1_score
 import uuid
+from sklearn.model_selection import cross_val_score, KFold
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
 from io import StringIO
 
 app = FastAPI()
@@ -36,26 +41,59 @@ def train(req: TrainRequest):
     if problem_type == "auto":
         problem_type = "classification" if y.nunique() < 20 else "regression"
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
+    # ===== OPTION C: CROSS-VALIDATION BASED TRAINING =====
 
-    if problem_type == "regression":
-        model = RandomForestRegressor(n_estimators=300, random_state=42)
-        model.fit(X_train, y_train)
-        preds = model.predict(X_test)
-        metrics = {
-            "r2": round(r2_score(y_test, preds), 4),
-            "mae": round(mean_absolute_error(y_test, preds), 4),
-        }
-    else:
-        model = RandomForestClassifier(n_estimators=300, random_state=42)
-        model.fit(X_train, y_train)
-        preds = model.predict(X_test)
-        metrics = {
-            "accuracy": round(accuracy_score(y_test, preds), 4),
-            "f1": round(f1_score(y_test, preds, average="weighted"), 4),
-        }
+if problem_type == "regression":
+    model = Pipeline([
+        ("scaler", StandardScaler(with_mean=False)),
+        ("model", LinearRegression())
+    ])
+
+    cv_folds = min(5, len(df))
+    if cv_folds < 2:
+        cv_folds = 2
+
+    cv = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+    cv_scores = cross_val_score(model, X, y, cv=cv, scoring="r2")
+
+    model.fit(X, y)
+    preds_full = model.predict(X)
+
+    metrics = {
+        "cv_r2_mean": float(cv_scores.mean()),
+        "cv_r2_std": float(cv_scores.std()),
+        "mae_full_fit": float(mean_absolute_error(y, preds_full))
+    }
+
+    feature_importance = []
+    sample_actual = y.head(30).tolist()
+    sample_pred = preds_full[:30].tolist()
+
+else:  # classification
+    model = Pipeline([
+        ("scaler", StandardScaler(with_mean=False)),
+        ("model", LogisticRegression(max_iter=2000))
+    ])
+
+    cv_folds = min(5, len(df))
+    if cv_folds < 2:
+        cv_folds = 2
+
+    cv = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+    cv_scores = cross_val_score(model, X, y, cv=cv, scoring="accuracy")
+
+    model.fit(X, y)
+    preds_full = model.predict(X)
+
+    metrics = {
+        "cv_accuracy_mean": float(cv_scores.mean()),
+        "cv_accuracy_std": float(cv_scores.std()),
+        "f1_full_fit": float(f1_score(y, preds_full, average="weighted"))
+    }
+
+    feature_importance = []
+    sample_actual = y.head(30).tolist()
+    sample_pred = preds_full[:30].tolist()
 
     model_id = str(uuid.uuid4())
     MODELS[model_id] = {"model": model, "columns": X.columns.tolist()}
@@ -67,12 +105,13 @@ def train(req: TrainRequest):
     )[:20]
 
     return {
-        "modelId": model_id,
-        "problemType": problem_type,
-        "metrics": metrics,
-        "featureImportance": fi,
-        "sample": {
-            "actual": y_test.head(30).tolist(),
-            "predicted": preds[:30].tolist()
-        }
+    "modelId": str(uuid.uuid4()),
+    "problemType": problem_type,
+    "metrics": metrics,
+    "featureImportance": feature_importance,
+    "sample": {
+        "actual": sample_actual,
+        "predicted": sample_pred
     }
+}
+
