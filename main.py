@@ -370,8 +370,14 @@ def predict(req: PredictRequest):
                     metrics["cv_r2_std"] = 0.0
 
             # full fit + sample preds
+            # full fit
             model.fit(X, y)
+
+            # inference timing
+            t_inf = time.time()
             preds_full = model.predict(X)
+            inference_ms = (time.time() - t_inf) * 1000.0
+
 
             if problem_type == "classification":
                 metrics["accuracy_full_fit"] = float(accuracy_score(y, preds_full))
@@ -403,6 +409,7 @@ def predict(req: PredictRequest):
             "primaryMetricName": primary_name,
             "cv_std": cv_std,
             "durationSec": float(duration),
+            "inferenceMs": float(inference_ms),   # ✅ ADD THIS
             "status": status,
             "metrics": metrics,
             "featureImportance": fi,
