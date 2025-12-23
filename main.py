@@ -48,6 +48,19 @@ class TrainRequest(BaseModel):
     # common
     problem_type: str = "auto"  # "auto" | "classification" | "regression"
 
+class PredictRequest(BaseModel):
+    modelId: str
+
+    # Base-44 style
+    file_url: Optional[str] = None
+    feature_columns: Optional[List[str]] = None
+
+    # Swagger/manual style
+    csv_text: Optional[str] = None
+
+    # Optional: if user sends raw JSON rows instead of CSV
+    rows: Optional[List[Dict[str, Any]]] = None
+
 
 # ----------- Helpers -----------
 
@@ -161,6 +174,19 @@ def _score_primary(problem_type: str, metrics: Dict[str, Any]) -> (str, float, f
         return "cv_accuracy_mean", float(metrics.get("cv_accuracy_mean", 0.0)), float(metrics.get("cv_accuracy_std", 0.0))
     return "cv_r2_mean", float(metrics.get("cv_r2_mean", -1e9)), float(metrics.get("cv_r2_std", 0.0))
 
+def _align_to_training_columns(X_new: pd.DataFrame, train_cols: List[str]) -> pd.DataFrame:
+    # one-hot encode
+    X_new = pd.get_dummies(X_new, drop_first=True)
+
+    # add missing cols as 0
+    for c in train_cols:
+        if c not in X_new.columns:
+            X_new[c] = 0
+
+    # drop extra cols
+    X_new = X_new[train_cols]
+    return X_new
+
 
 # ----------- API -----------
 
@@ -187,6 +213,74 @@ def train(req: TrainRequest):
                 "message": str(e),
                 "file_url": req.file_url
             }
+
+    @app.post("/predict")
+def predict(req: PredictRequest):
+    # 1) Validate model
+    if req.modelId not in MODELS:
+        return {"error": "Model not found", "message": "Invalid modelId", "modelId": req.modelId}
+
+    entry = MODELS[req.modelId]
+    model = entry["model"]
+    train_cols = entry["columns"]
+    problem_type = entry.get("problemType", "auto")
+
+    # 2) Get input data (csv_text OR file_url OR rows)
+    csv_text = req.csv_text
+    if not csv_text and req.file_url:
+        try:
+            r = requests.get(req.file_url, timeout=30)
+            r.raise_for_status()
+            csv_text = r.text
+        except Exception as e:
+            return {"error": "Failed to download CSV from file_url", "message": str(e), "file_url": req.file_url}
+
+    # 3) Build X_new
+    try:
+        if req.rows:
+            df_new = pd.DataFrame(req.rows)
+        else:
+            if not csv_text:
+                return {"error": "Missing data", "message": "Provide csv_text or file_url or rows"}
+            df_new = pd.read_csv(StringIO(csv_text))
+    except Exception as e:
+        return {"error": "Invalid input data", "message": str(e)}
+
+    # Optional: respect feature_columns if Base-44 sends selected features
+    if req.feature_columns:
+        missing = [c for c in req.feature_columns if c not in df_new.columns]
+        if missing:
+            return {"error": "Feature columns missing", "missing": missing, "columns": df_new.columns.tolist()}
+        X_new_raw = df_new[req.feature_columns].copy()
+    else:
+        X_new_raw = df_new.copy()
+
+    # 4) Align with training columns
+    try:
+        X_new = _align_to_training_columns(X_new_raw, train_cols)
+    except Exception as e:
+        return {"error": "Failed to align features", "message": str(e)}
+
+    # 5) Predict
+    try:
+        preds = model.predict(X_new)
+        preds_list = preds.tolist() if hasattr(preds, "tolist") else list(preds)
+
+        out = {
+            "modelId": req.modelId,
+            "problemType": problem_type,
+            "predictions": preds_list
+        }
+
+        # Probabilities for classification (if supported)
+        if problem_type == "classification" and hasattr(model, "predict_proba"):
+            proba = model.predict_proba(X_new)
+            out["proba"] = proba.tolist()
+
+        return out
+
+    except Exception as e:
+        return {"error": "Prediction failed", "message": str(e)}
 
     # --- normalize target ---
     target = req.target or req.target_column
