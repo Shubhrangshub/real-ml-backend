@@ -200,7 +200,11 @@ def predict(req: PredictRequest):
     if req.modelId not in MODELS:
         return {"error": "Model not found", "message": "Invalid modelId", "modelId": req.modelId}
 
-    entry = MODELS[req.modelId]
+@app.post("/train")
+def train(req: TrainRequest):
+    start_all = time.time()
+    warnings: List[str] = []
+entry = MODELS[req.modelId]
     model = entry["model"]
     train_cols = entry["columns"]
     problem_type = entry.get("problemType", "auto")
@@ -262,12 +266,6 @@ def predict(req: PredictRequest):
     except Exception as e:
         return {"error": "Prediction failed", "message": str(e)}
 
-
-@app.post("/train")
-def train(req: TrainRequest):
-    start_all = time.time()
-    warnings: List[str] = []
-
     # --- normalize input: get csv_text ---
     csv_text = req.csv_text
     if not csv_text and req.file_url:
@@ -281,7 +279,6 @@ def train(req: TrainRequest):
                 "message": str(e),
                 "file_url": req.file_url
             }
-
 
 
     # --- normalize target ---
