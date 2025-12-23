@@ -194,27 +194,7 @@ def _align_to_training_columns(X_new: pd.DataFrame, train_cols: List[str]) -> pd
 def root():
     return {"ok": True, "message": "ML backend running", "docs": "/docs"}
 
-
-@app.post("/train")
-def train(req: TrainRequest):
-    start_all = time.time()
-    warnings: List[str] = []
-
-    # --- normalize input: get csv_text ---
-    csv_text = req.csv_text
-    if not csv_text and req.file_url:
-        try:
-            r = requests.get(req.file_url, timeout=30)
-            r.raise_for_status()
-            csv_text = r.text
-        except Exception as e:
-            return {
-                "error": "Failed to download CSV from file_url",
-                "message": str(e),
-                "file_url": req.file_url
-            }
-
-    @app.post("/predict")
+@app.post("/predict")
 def predict(req: PredictRequest):
     # 1) Validate model
     if req.modelId not in MODELS:
@@ -282,6 +262,28 @@ def predict(req: PredictRequest):
     except Exception as e:
         return {"error": "Prediction failed", "message": str(e)}
 
+
+@app.post("/train")
+def train(req: TrainRequest):
+    start_all = time.time()
+    warnings: List[str] = []
+
+    # --- normalize input: get csv_text ---
+    csv_text = req.csv_text
+    if not csv_text and req.file_url:
+        try:
+            r = requests.get(req.file_url, timeout=30)
+            r.raise_for_status()
+            csv_text = r.text
+        except Exception as e:
+            return {
+                "error": "Failed to download CSV from file_url",
+                "message": str(e),
+                "file_url": req.file_url
+            }
+
+
+
     # --- normalize target ---
     target = req.target or req.target_column
     if not csv_text:
@@ -338,7 +340,8 @@ def predict(req: PredictRequest):
 
     leaderboard = []
 
-    for algo in candidates:
+   for algo in candidates:
+        inference_ms = None  # default, so it won't crash if training fails
         model_id = str(uuid.uuid4())
         t0 = time.time()
         status = "ok"
