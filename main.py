@@ -3,11 +3,12 @@ import uuid
 import requests
 import pandas as pd
 import numpy as np
+import os
 from io import StringIO
-from typing import Optional, List, Dict, Any, Tuple
-from fastapi import FastAPI
+from typing import Optional, List, Dict, Any
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 # ML Components
 from sklearn.pipeline import Pipeline
@@ -20,11 +21,10 @@ from sklearn.ensemble import (
     RandomForestClassifier, RandomForestRegressor,
     GradientBoostingClassifier, GradientBoostingRegressor
 )
-from sklearn.model_selection import cross_val_score, KFold, StratifiedKFold
-from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, r2_score
+from sklearn.model_selection import cross_val_score
 
 # --- App Initialization ---
-app = FastAPI(title="Gemini ML Engine", version="1.0.0")
+app = FastAPI(title="Gemini ML Engine Pro", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,190 +33,122 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global Registry for Trained Models
+# In-memory storage (Note: Resets on Railway deploy/restart)
 MODELS: Dict[str, Dict[str, Any]] = {}
 
-# --- Schemas ---
 class TrainRequest(BaseModel):
     file_url: Optional[str] = None
     csv_text: Optional[str] = None
-    target: Optional[str] = None
-    target_column: Optional[str] = None
-    feature_columns: Optional[List[str]] = None
+    target_column: str  # Required
     algorithm: str = "auto"
-    problem_type: str = "auto"
+    problem_type: str = "auto" # "classification", "regression", or "auto"
 
 class PredictRequest(BaseModel):
     modelId: str
     file_url: Optional[str] = None
-    csv_text: Optional[str] = None
     rows: Optional[List[Dict[str, Any]]] = None
-    feature_columns: Optional[List[str]] = None
 
-# --- Internal Helpers ---
-def _get_csv_text(file_url, csv_text):
-    if csv_text and csv_text.strip(): return csv_text, None
+# --- Internal Core ---
+
+def _fetch_data(file_url, csv_text):
+    if csv_text: return csv_text
     if file_url:
-        try:
-            r = requests.get(file_url, timeout=15)
-            r.raise_for_status()
-            return r.content.decode('utf-8-sig', errors='replace'), None
-        except Exception as e:
-            return None, {"error": "Download failed", "message": str(e)}
-    return None, None
+        r = requests.get(file_url, timeout=20)
+        r.raise_for_status()
+        return r.text
+    return None
 
-def _align_to_training_columns(X_raw: pd.DataFrame, train_cols: List[str]) -> pd.DataFrame:
-    X = pd.get_dummies(X_raw, drop_first=True)
-    return X.reindex(columns=train_cols, fill_value=0)
-
-def _build_model(problem_type: str, algo: str):
-    def make_pipe(est):
-        return Pipeline([
-            ("imputer", SimpleImputer(strategy="mean")),
-            ("scaler", StandardScaler(with_mean=False)),
-            ("model", est)
-        ])
-    
+def _get_pipeline(problem_type: str, algo: str):
+    """Tiered Logic: Ensures lightweight but powerful models for Railway."""
     if problem_type == "classification":
         mapping = {
-            "dummy": DummyClassifier(strategy="most_frequent"),
-            "logistic": LogisticRegression(max_iter=2000),
-            "decision_tree": DecisionTreeClassifier(random_state=42),
-            "random_forest": RandomForestClassifier(n_estimators=100, random_state=42),
-            "gradient_boosting": GradientBoostingClassifier(random_state=42)
+            "logistic": LogisticRegression(max_iter=1000, solver='liblinear'),
+            "random_forest": RandomForestClassifier(n_estimators=50, max_depth=10, n_jobs=-1),
+            "gradient_boosting": GradientBoostingClassifier(n_estimators=50),
+            "dummy": DummyClassifier(strategy="most_frequent")
         }
-    else:
+    else: # Regression
         mapping = {
-            "dummy": DummyRegressor(strategy="mean"),
             "linear": LinearRegression(),
-            "decision_tree": DecisionTreeRegressor(random_state=42),
-            "random_forest": RandomForestRegressor(n_estimators=100, random_state=42),
-            "gradient_boosting": GradientBoostingRegressor(random_state=42)
+            "random_forest": RandomForestRegressor(n_estimators=50, max_depth=10, n_jobs=-1),
+            "gradient_boosting": GradientBoostingRegressor(n_estimators=50),
+            "dummy": DummyRegressor(strategy="mean")
         }
-    return make_pipe(mapping[algo])
-
-def _safe_problem_type(y, requested):
-    if requested and requested != "auto": return requested
-    return "classification" if y.nunique() < 20 else "regression"
-
-def _safe_cv(problem_type, y, n_rows):
-    if n_rows < 5: return None, "Too few rows for CV."
-    if problem_type == "classification":
-        vc = y.value_counts()
-        if vc.min() < 2: return KFold(n_splits=3, shuffle=True), "Small class sizes: using KFold."
-        return StratifiedKFold(n_splits=min(5, vc.min()), shuffle=True), None
-    return KFold(n_splits=min(5, n_rows), shuffle=True), None
-
-def _feature_importance(model, cols):
-    try:
-        core = model.named_steps["model"]
-        if hasattr(core, "feature_importances_"): imp = core.feature_importances_
-        elif hasattr(core, "coef_"): imp = np.abs(core.coef_).ravel()
-        else: return []
-        return sorted([{"feature": f, "importance": float(v)} for f, v in zip(cols, imp)], 
-                      key=lambda x: x["importance"], reverse=True)[:15]
-    except: return []
-
-def _score_primary(p_type, m):
-    if p_type == "classification":
-        return "cv_accuracy", m.get("cv_acc", 0.0), m.get("cv_std", 0.0)
-    return "cv_r2", m.get("cv_r2", -1e9), m.get("cv_std", 0.0)
+    
+    model = mapping.get(algo, mapping["random_forest"]) # Default to RF if unknown
+    return Pipeline([
+        ("imputer", SimpleImputer(strategy="mean")),
+        ("scaler", StandardScaler(with_mean=False)),
+        ("model", model)
+    ])
 
 # --- API Endpoints ---
+
 @app.get("/")
-def root(): return {"ok": True, "status": "ML backend ready"}
+def health():
+    return {"status": "ready", "engine": "Gemini-ML-Pro", "port": os.getenv("PORT", "8000")}
 
 @app.post("/train")
-def train(req: TrainRequest):
-    start_all = time.time()
-    warnings = []
-    
-    # 1. Load Data
-    csv_text, err = _get_csv_text(req.file_url, req.csv_text)
-    if err: return err
-    target = req.target or req.target_column
-    if not csv_text or not target: return {"error": "Missing data or target"}
-    
-    df = pd.read_csv(StringIO(csv_text), low_memory=False).dropna(how='all')
-    if target not in df.columns: return {"error": f"Target '{target}' not in data"}
+async def train(req: TrainRequest):
+    try:
+        data_str = _fetch_data(req.file_url, req.csv_text)
+        if not data_str: return {"error": "No data source found"}
+        
+        df = pd.read_csv(StringIO(data_str)).dropna(subset=[req.target_column])
+        
+        X_raw = df.drop(columns=[req.target_column])
+        y = df[req.target_column]
 
-    # 2. Prepare X, y
-    X_raw = df[req.feature_columns].copy() if req.feature_columns else df.drop(columns=[target]).copy()
-    y = df[target].copy()
+        # 1. Seamless Problem Detection
+        p_type = req.problem_type
+        if p_type == "auto":
+            p_type = "classification" if y.nunique() < 15 else "regression"
 
-    # Clean target NaNs
-    if y.isnull().any():
-        mask = y.notnull()
-        X_raw, y = X_raw[mask], y[mask]
-        warnings.append("Rows with empty targets were dropped.")
+        # 2. Automated Feature Engineering (Handling Text/Categories)
+        X = pd.get_dummies(X_raw, drop_first=True)
+        feature_cols = X.columns.tolist()
 
-    problem_type = _safe_problem_type(y, req.problem_type)
-    X = pd.get_dummies(X_raw, drop_first=True)
-    cv, cv_warn = _safe_cv(problem_type, y, len(X))
-    if cv_warn: warnings.append(cv_warn)
+        # 3. Algorithm Selection (Auto-pick Tiers)
+        if req.algorithm == "auto":
+            algos = ["logistic", "random_forest"] if p_type == "classification" else ["linear", "random_forest"]
+        else:
+            algos = [req.algorithm]
 
-    candidates = [req.algorithm] if req.algorithm != "auto" else (
-        ["dummy", "logistic", "decision_tree", "random_forest", "gradient_boosting"] 
-        if problem_type == "classification" else ["dummy", "linear", "decision_tree", "random_forest", "gradient_boosting"]
-    )
-
-    leaderboard = []
-    for algo in candidates:
-        m_id, t0 = str(uuid.uuid4()), time.time()
-        metrics, status, inf_ms = {}, "ok", 0.0
-        try:
-            model = _build_model(problem_type, algo)
-            if cv:
-                score_key = "accuracy" if problem_type == "classification" else "r2"
-                cv_res = cross_val_score(model, X, y, cv=cv, scoring=score_key)
-                metrics[f"cv_{score_key}"] = float(cv_res.mean())
-                metrics["cv_std"] = float(cv_res.std())
-
-            model.fit(X, y)
-            t_inf = time.time()
-            preds = model.predict(X)
-            inf_ms = (time.time() - t_inf) * 1000
+        leaderboard = []
+        for algo in algos:
+            m_id = str(uuid.uuid4())
+            pipe = _get_pipeline(p_type, algo)
             
-            MODELS[m_id] = {"model": model, "columns": X.columns.tolist(), "problemType": problem_type}
-        except Exception as e:
-            status, metrics = "error", {"error": str(e)}
+            # Use R2 for Regression, Accuracy for Classification
+            metric_name = "accuracy" if p_type == "classification" else "r2"
+            scores = cross_val_score(pipe, X, y, cv=3, scoring=metric_name)
+            
+            pipe.fit(X, y)
+            
+            MODELS[m_id] = {"pipeline": pipe, "cols": feature_cols, "type": p_type}
+            leaderboard.append({"modelId": m_id, "algo": algo, "score": round(float(scores.mean()), 4)})
 
-        p_name, p_val, p_std = _score_primary(problem_type, metrics)
-        leaderboard.append({
-            "modelId": m_id, "algorithm": algo, "primaryMetric": p_val, "status": status,
-            "metrics": metrics, "inferenceMs": inf_ms, "durationSec": time.time() - t0,
-            "featureImportance": _feature_importance(model, X.columns.tolist()) if status == "ok" else []
-        })
-
-    ok_rows = [r for r in leaderboard if r["status"] == "ok"]
-    if not ok_rows: return {"error": "All models failed", "leaderboard": leaderboard}
-    best = sorted(ok_rows, key=lambda r: r["primaryMetric"], reverse=True)[0]
-
-    return {
-        "bestModelId": best["modelId"], "problemType": problem_type, 
-        "leaderboard": leaderboard, "warnings": warnings, "durationTotal": time.time() - start_all
-    }
+        # Sort to give the best model back
+        leaderboard = sorted(leaderboard, key=lambda x: x["score"], reverse=True)
+        
+        return {
+            "status": "success",
+            "bestModelId": leaderboard[0]["modelId"],
+            "problemType": p_type,
+            "leaderboard": leaderboard
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/predict")
-def predict(req: PredictRequest):
-    if req.modelId not in MODELS: return {"error": "Model not found"}
-    entry = MODELS[req.modelId]
+async def predict(req: PredictRequest):
+    if req.modelId not in MODELS: raise HTTPException(status_code=404, detail="Model not found")
     
-    csv_text, err = _get_csv_text(req.file_url, req.csv_text)
-    if err and not req.rows: return err
+    m = MODELS[req.modelId]
+    df_new = pd.DataFrame(req.rows) if req.rows else pd.read_csv(StringIO(_fetch_data(req.file_url, None)))
     
-    df_new = pd.DataFrame(req.rows) if req.rows else pd.read_csv(StringIO(csv_text))
-    X_new_raw = df_new[req.feature_columns].copy() if req.feature_columns else df_new.copy()
+    # 4. Seamless Column Alignment (Fixes missing columns on the fly)
+    X_new = pd.get_dummies(df_new).reindex(columns=m["cols"], fill_value=0)
     
-    try:
-        X_new = _align_to_training_columns(X_new_raw, entry["columns"])
-        t0 = time.time()
-        preds = entry["model"].predict(X_new)
-        res = {
-            "modelId": req.modelId, "predictions": preds.tolist(), 
-            "timeMs": (time.time() - t0) * 1000
-        }
-        if entry["problemType"] == "classification" and hasattr(entry["model"], "predict_proba"):
-            res["probabilities"] = entry["model"].predict_proba(X_new).tolist()
-        return res
-    except Exception as e: return {"error": "Prediction failed", "message": str(e)}
+    preds = m["pipeline"].predict(X_new)
+    return {"modelId": req.modelId, "predictions": preds.tolist()}
