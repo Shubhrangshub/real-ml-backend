@@ -483,7 +483,7 @@ function App() {
                 data-testid="prediction-input"
               />
               <p className="text-xs text-gray-500 mt-2">
-                Example: [{"age": 30, "income": 50000, "credit_score": 700}]
+                Example: {`[{"age": 30, "income": 50000, "credit_score": 700}]`}
               </p>
             </div>
 
