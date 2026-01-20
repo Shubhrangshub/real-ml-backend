@@ -477,7 +477,7 @@ function App() {
               <textarea
                 value={predictionInput}
                 onChange={(e) => setPredictionInput(e.target.value)}
-                placeholder='[{"feature1": value1, "feature2": value2, ...}]'
+                placeholder={`[{"feature1": "value1", "feature2": "value2", ...}]`}
                 rows={8}
                 className="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-mono text-sm"
                 data-testid="prediction-input"
