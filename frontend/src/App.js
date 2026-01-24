@@ -500,14 +500,14 @@ function App() {
                           </div>
                         ) : (
                           models.slice(0, 5).map((model, idx) => (
-                            <div key={idx} className="flex items-center justify-between rounded-lg border p-4 hover:bg-accent/50 transition-colors">
+                            <div key={model?.modelId || idx} className="flex items-center justify-between rounded-lg border p-4 hover:bg-accent/50 transition-colors">
                               <div className="flex items-center gap-4">
                                 <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                                   <Brain className="h-5 w-5 text-primary" />
                                 </div>
                                 <div>
-                                  <p className="font-medium">{model.algorithm}</p>
-                                  <p className="text-sm text-muted-foreground">{model.problemType}</p>
+                                  <p className="font-medium">{model?.algorithm || 'Unknown'}</p>
+                                  <p className="text-sm text-muted-foreground">{model?.problemType || 'Unknown'}</p>
                                 </div>
                               </div>
                               <div className="flex items-center gap-4">
