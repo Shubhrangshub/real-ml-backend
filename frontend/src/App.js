@@ -487,7 +487,7 @@ function App() {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
-                        {models.length === 0 ? (
+                        {models && models.length === 0 ? (
                           <div className="flex flex-col items-center justify-center py-12 text-center">
                             <Database className="h-12 w-12 text-muted-foreground/50 mb-4" />
                             <p className="text-muted-foreground">No models trained yet</p>
