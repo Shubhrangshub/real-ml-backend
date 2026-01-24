@@ -104,9 +104,14 @@ function App() {
   const loadModels = async () => {
     try {
       const response = await axios.get(`${BACKEND_URL}/api/models`);
-      setModels(response.data.models);
+      if (response.data && Array.isArray(response.data.models)) {
+        setModels(response.data.models);
+      } else {
+        setModels([]);
+      }
     } catch (err) {
       console.error('Failed to load models:', err);
+      setModels([]);
     }
   };
 
