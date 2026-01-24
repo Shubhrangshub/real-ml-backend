@@ -845,9 +845,9 @@ function App() {
                           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           <option value="">-- Select a Model --</option>
-                          {models.map((model) => (
-                            <option key={model.modelId} value={model.modelId}>
-                              {model.algorithm} ({model.problemType}) - {model.modelId.substring(0, 8)}...
+                          {models && models.map((model) => (
+                            <option key={model?.modelId || Math.random()} value={model?.modelId || ''}>
+                              {model?.algorithm || 'Unknown'} ({model?.problemType || 'Unknown'}) - {model?.modelId ? model.modelId.substring(0, 8) + '...' : 'Unknown'}
                             </option>
                           ))}
                         </select>
