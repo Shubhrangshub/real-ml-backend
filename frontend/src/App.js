@@ -830,7 +830,7 @@ function App() {
                       <CardDescription>Choose a trained model for predictions</CardDescription>
                     </CardHeader>
                     <CardContent>
-                      {models.length === 0 ? (
+                      {models && models.length === 0 ? (
                         <div className="text-center py-8">
                           <Database className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
                           <p className="text-muted-foreground mb-4">No trained models available</p>
