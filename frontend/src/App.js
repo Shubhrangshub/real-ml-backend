@@ -84,12 +84,19 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (models.length > 0) {
+    if (models && models.length > 0) {
       setStats({
         totalModels: models.length,
         avgAccuracy: 0.87,
         totalTrainings: models.length * 5,
-        bestModel: models[0]?.algorithm || '--'
+        bestModel: (models[0] && models[0].algorithm) || '--'
+      });
+    } else {
+      setStats({
+        totalModels: 0,
+        avgAccuracy: 0,
+        totalTrainings: 0,
+        bestModel: '--'
       });
     }
   }, [models]);
