@@ -969,9 +969,9 @@ function App() {
                             </tr>
                           </thead>
                           <tbody>
-                            {models.map((model, idx) => (
+                            {models && models.map((model, idx) => (
                               <motion.tr
-                                key={model.modelId}
+                                key={model?.modelId || idx}
                                 initial={{ opacity: 0, x: -20 }}
                                 animate={{ opacity: 1, x: 0 }}
                                 transition={{ delay: idx * 0.05 }}
@@ -983,19 +983,19 @@ function App() {
                                       <Brain className="h-4 w-4 text-primary" />
                                     </div>
                                     <code className="text-xs font-mono">
-                                      {model.modelId.substring(0, 12)}...
+                                      {model?.modelId ? model.modelId.substring(0, 12) + '...' : 'Unknown'}
                                     </code>
                                   </div>
                                 </td>
                                 <td className="p-4">
-                                  <Badge variant="outline">{model.algorithm}</Badge>
+                                  <Badge variant="outline">{model?.algorithm || 'Unknown'}</Badge>
                                 </td>
                                 <td className="p-4">
-                                  <span className="text-sm">{model.problemType}</span>
+                                  <span className="text-sm">{model?.problemType || 'Unknown'}</span>
                                 </td>
                                 <td className="p-4">
                                   <span className="text-sm text-muted-foreground">
-                                    {new Date(model.createdAt).toLocaleDateString()}
+                                    {model?.createdAt ? new Date(model.createdAt).toLocaleDateString() : 'Unknown'}
                                   </span>
                                 </td>
                                 <td className="p-4">
@@ -1004,8 +1004,10 @@ function App() {
                                       variant="ghost"
                                       size="sm"
                                       onClick={() => {
-                                        setSelectedModelId(model.modelId);
-                                        setActiveView('predict');
+                                        if (model?.modelId) {
+                                          setSelectedModelId(model.modelId);
+                                          setActiveView('predict');
+                                        }
                                       }}
                                     >
                                       <Eye className="h-4 w-4" />
@@ -1013,7 +1015,7 @@ function App() {
                                     <Button
                                       variant="ghost"
                                       size="sm"
-                                      onClick={() => handleDeleteModel(model.modelId)}
+                                      onClick={() => model?.modelId && handleDeleteModel(model.modelId)}
                                     >
                                       <Trash2 className="h-4 w-4 text-destructive" />
                                     </Button>
