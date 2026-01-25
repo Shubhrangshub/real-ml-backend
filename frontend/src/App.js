@@ -782,9 +782,9 @@ function App() {
                                       {idx + 1}
                                     </Badge>
                                     <div>
-                                      <p className="font-medium">{model.algorithm}</p>
+                                      <p className="font-medium">{model?.algorithm || 'Unknown'}</p>
                                       <p className="text-xs text-muted-foreground">
-                                        {model.status === 'ok' ? 'Success' : 'Failed'}
+                                        {model?.status === 'ok' ? 'Success' : 'Failed'}
                                       </p>
                                     </div>
                                   </div>
