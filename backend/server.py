@@ -684,6 +684,79 @@ async def delete_model(model_id: str):
         "message": f"Model {model_id} deleted"
     }
 
+@app.get("/api/models/{model_id}/download")
+async def download_model(model_id: str):
+    """
+    Download a trained model as a .pkl file.
+    
+    This endpoint exports the trained scikit-learn model in pickle format,
+    allowing users to:
+    - Deploy models in production environments
+    - Share models with team members
+    - Archive models for future use
+    - Load models in custom Python scripts
+    
+    Args:
+        model_id: Unique identifier of the trained model
+        
+    Returns:
+        StreamingResponse: Binary .pkl file download
+        
+    Usage Example (Python):
+        ```python
+        import pickle
+        import requests
+        
+        # Download model
+        response = requests.get(f"http://localhost:8001/api/models/{model_id}/download")
+        with open("model.pkl", "wb") as f:
+            f.write(response.content)
+        
+        # Load and use model
+        with open("model.pkl", "rb") as f:
+            model = pickle.load(f)
+        predictions = model.predict(X_new)
+        ```
+    """
+    if model_id not in MODELS:
+        # Try to load from MongoDB
+        if db is not None:
+            try:
+                model_doc = models_collection.find_one({"modelId": model_id})
+                if model_doc:
+                    model_obj = pickle.loads(base64.b64decode(model_doc["modelData"]))
+                    MODELS[model_id] = {
+                        "model": model_obj,
+                        "columns": model_doc["columns"],
+                        "problemType": model_doc["problemType"],
+                        "algorithm": model_doc["algorithm"]
+                    }
+                else:
+                    raise HTTPException(status_code=404, detail="Model not found")
+            except Exception as e:
+                raise HTTPException(status_code=404, detail=f"Model not found: {str(e)}")
+        else:
+            raise HTTPException(status_code=404, detail="Model not found")
+    
+    model_info = MODELS[model_id]
+    model = model_info["model"]
+    algorithm = model_info.get("algorithm", "model")
+    
+    # Serialize model to bytes
+    model_bytes = pickle.dumps(model)
+    
+    # Create BytesIO object
+    bytes_io = BytesIO(model_bytes)
+    
+    # Return as downloadable file
+    return StreamingResponse(
+        bytes_io,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename={algorithm}_{model_id[:8]}.pkl"
+        }
+    )
+
 @app.get("/api/columns")
 async def get_columns(file_url: Optional[str] = None):
     """Get column names from a CSV file."""
