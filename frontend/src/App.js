@@ -87,6 +87,31 @@ function App() {
       data: `size,bedrooms,age,location_score,price\n1200,2,5,7,250000\n1800,3,10,8,380000\n2500,4,3,9,520000\n1000,1,15,6,180000\n2200,3,7,8,450000`
     },
     {
+      name: 'Insurance Costs',
+      description: 'Financial regression with currency context',
+      data: `age,sex,bmi,children,smoker,region,charges
+19,female,27.9,0,yes,southwest,16884.92
+18,male,33.77,1,no,southeast,1725.55
+28,male,33.0,3,no,southeast,4449.46
+33,male,22.705,0,no,northwest,21984.47
+32,male,28.88,0,no,northwest,3866.86
+31,female,25.74,0,no,southeast,3756.62
+46,female,33.44,1,no,southeast,8240.59
+37,female,27.74,3,no,northwest,7281.51
+37,male,29.83,2,no,northeast,6406.41
+60,female,25.84,0,no,northwest,28923.14
+25,male,26.22,0,no,northeast,2721.32
+62,female,26.29,0,yes,southeast,27808.73
+23,male,34.4,0,no,southwest,1826.84
+56,female,39.82,0,no,southeast,11090.72
+27,male,42.13,0,yes,southeast,39611.76
+19,male,24.6,1,no,southwest,1837.24
+52,female,30.78,1,no,northeast,10797.34
+23,female,23.845,0,no,northeast,2395.17
+56,male,40.3,0,no,southwest,10602.39
+30,male,35.3,0,yes,southwest,36837.47`
+    },
+    {
       name: 'TV Shows (Text Analysis)',
       description: 'Regression with text processing',
       data: `show_id,type,title,director,cast,country,date_added,release_year,rating,duration,listed_in,description
