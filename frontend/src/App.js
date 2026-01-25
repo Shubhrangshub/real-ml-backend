@@ -745,6 +745,36 @@ s10,Movie,The Godfather,Francis Ford Coppola,Marlon Brando,United States,August 
                           </Card>
                         </div>
 
+                        {/* Data Leakage Warning */}
+                        {trainingResult?.dataInfo?.removedLeakageColumns && 
+                         trainingResult.dataInfo.removedLeakageColumns.length > 0 && (
+                          <Card className="border-2 border-orange-500 bg-orange-50 dark:bg-orange-950">
+                            <CardContent className="p-4">
+                              <div className="flex items-start gap-3">
+                                <div className="text-orange-600 text-2xl">🛡️</div>
+                                <div>
+                                  <p className="font-semibold text-orange-900 dark:text-orange-100">
+                                    Data Leakage Prevention
+                                  </p>
+                                  <p className="text-sm text-orange-800 dark:text-orange-200 mt-1">
+                                    The following columns were automatically removed to prevent data leakage:
+                                  </p>
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                    {trainingResult.dataInfo.removedLeakageColumns.map((col, idx) => (
+                                      <Badge key={idx} variant="outline" className="bg-orange-100 dark:bg-orange-900">
+                                        {col}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                  <p className="text-xs text-orange-700 dark:text-orange-300 mt-2">
+                                    These columns (IDs, dates, years) would artificially inflate accuracy.
+                                  </p>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        )}
+
                         {/* Metrics */}
                         <Card>
                           <CardHeader>
