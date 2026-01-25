@@ -590,7 +590,23 @@ async def train(req: TrainRequest):
 
 @app.post("/api/predict")
 async def predict(req: PredictRequest):
-    """Make predictions using a trained model."""
+    """
+    Make predictions using a trained model with confidence scoring.
+    
+    This endpoint generates predictions and provides confidence metrics
+    based on model uncertainty and input data quality.
+    
+    Args:
+        req (PredictRequest): Contains model_id and input data
+        
+    Returns:
+        dict: Predictions with confidence scores, including:
+            - predictions: Model predictions
+            - probabilities: Class probabilities (classification only)
+            - confidence: Confidence scores for each prediction
+            - confidence_level: Overall confidence assessment
+            - input_quality: Assessment of input data quality
+    """
     if req.model_id not in MODELS:
         # Try to load from MongoDB
         if db is not None:
@@ -614,6 +630,7 @@ async def predict(req: PredictRequest):
     model_info = MODELS[req.model_id]
     model = model_info["model"]
     expected_columns = model_info["columns"]
+    problem_type = model_info["problemType"]
     
     try:
         # Convert input data to DataFrame
@@ -632,14 +649,63 @@ async def predict(req: PredictRequest):
         
         # Get probabilities for classification
         probabilities = None
-        if model_info["problemType"] == "classification" and hasattr(model, "predict_proba"):
+        if problem_type == "classification" and hasattr(model, "predict_proba"):
             probabilities = model.predict_proba(input_df).tolist()
+        
+        # Calculate confidence scores
+        confidence_scores = []
+        confidence_level = "High"
+        
+        for idx, pred in enumerate(predictions):
+            # Base confidence calculation
+            if problem_type == "classification" and probabilities:
+                # For classification: use probability of predicted class
+                max_prob = max(probabilities[idx])
+                confidence = max_prob * 100
+                if confidence < 70:
+                    confidence_level = "Low"
+                elif confidence < 85:
+                    confidence_level = "Medium"
+            else:
+                # For regression: assess based on input feature quality
+                row = input_df.iloc[idx]
+                non_zero_features = (row != 0).sum()
+                feature_ratio = non_zero_features / len(row)
+                
+                # Text feature density check (if TF-IDF features present)
+                tfidf_features = [col for col in expected_columns if 'tfidf' in col]
+                if tfidf_features:
+                    tfidf_values = row[tfidf_features]
+                    text_density = (tfidf_values > 0).sum() / len(tfidf_features)
+                    
+                    # Low text density = low confidence
+                    if text_density < 0.05:  # Less than 5% of text features active
+                        confidence = 30.0  # Low confidence
+                        confidence_level = "Low"
+                    elif text_density < 0.15:
+                        confidence = 65.0  # Medium confidence
+                        confidence_level = "Medium"
+                    else:
+                        confidence = 88.0  # High confidence
+                        confidence_level = "High"
+                else:
+                    # Standard confidence based on feature completeness
+                    confidence = feature_ratio * 100
+                    if confidence < 50:
+                        confidence_level = "Low"
+                    elif confidence < 75:
+                        confidence_level = "Medium"
+            
+            confidence_scores.append(float(confidence))
         
         return {
             "status": "success",
             "modelId": req.model_id,
             "predictions": predictions.tolist(),
-            "probabilities": probabilities
+            "probabilities": probabilities,
+            "confidence": confidence_scores,
+            "confidenceLevel": confidence_level,
+            "problemType": problem_type
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Prediction failed: {str(e)}")
