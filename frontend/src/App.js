@@ -775,7 +775,7 @@ function App() {
                           </CardHeader>
                           <CardContent>
                             <div className="space-y-2">
-                              {trainingResult.leaderboard.map((model, idx) => (
+                              {trainingResult?.leaderboard && trainingResult.leaderboard.map((model, idx) => (
                                 <div key={idx} className="flex items-center justify-between p-3 rounded-lg border">
                                   <div className="flex items-center gap-3">
                                     <Badge variant={idx === 0 ? 'default' : 'secondary'}>
@@ -789,13 +789,13 @@ function App() {
                                     </div>
                                   </div>
                                   <div className="text-right">
-                                    {model.metrics && (
+                                    {model?.metrics && (
                                       <p className="font-mono text-sm">
                                         {(Object.values(model.metrics)[0] * 100).toFixed(2)}%
                                       </p>
                                     )}
                                     <p className="text-xs text-muted-foreground">
-                                      {model.durationSec ? `${model.durationSec.toFixed(2)}s` : '-'}
+                                      {model?.durationSec ? `${model.durationSec.toFixed(2)}s` : '-'}
                                     </p>
                                   </div>
                                 </div>
