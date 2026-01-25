@@ -395,6 +395,9 @@ async def train(req: TrainRequest):
         print(f"⚠️ Removing potential data leakage columns: {leakage_columns}")
         X_raw = X_raw.drop(columns=leakage_columns)
     
+    # ============================================================================
+    # TEXT FEATURE EXTRACTION WITH TF-IDF
+    # ============================================================================
     # Identify text and numeric columns
     text_columns = []
     numeric_columns = []
@@ -411,18 +414,44 @@ async def train(req: TrainRequest):
         else:
             numeric_columns.append(col)
     
-    # Process features
+    # Process features with advanced text handling
     if text_columns:
-        # Combine text columns into one
+        # Combine all text columns (description, listed_in, etc.)
         X_raw['combined_text'] = X_raw[text_columns].fillna('').astype(str).agg(' '.join, axis=1)
         
-        # Use TfidfVectorizer for text with bigrams
+        # ========================================================================
+        # TF-IDF VECTORIZATION (Term Frequency - Inverse Document Frequency)
+        # ========================================================================
+        # Converts text into numerical features that ML models can process
+        #
+        # Parameters Explained:
+        # - max_features=200: Extract top 200 most important words/phrases
+        #   (Increased from 100 for richer representation)
+        #
+        # - ngram_range=(1, 2): Include both single words AND two-word phrases
+        #   Examples: "high" (unigram), "high school" (bigram)
+        #   Captures: "special effects", "classic cinema", "crime drama"
+        #
+        # - stop_words='english': Remove common words (the, is, and, etc.)
+        #   Focuses on meaningful content words
+        #
+        # - min_df=1: Word must appear in at least 1 document
+        #   Keeps all words (small datasets benefit from this)
+        #
+        # - max_df=0.95: Ignore words appearing in >95% of documents
+        #   Filters out overly common words that don't discriminate
+        #
+        # Why TF-IDF?
+        # - Weighs words by importance (rare words get higher scores)
+        # - Normalizes for document length
+        # - Industry standard for text classification/regression
+        # ========================================================================
         vectorizer = TfidfVectorizer(
-            max_features=200,  # Increased from 100
-            stop_words='english',
-            ngram_range=(1, 2),  # Include bigrams for phrases
-            min_df=1,  # Minimum document frequency
-            max_df=0.95  # Maximum document frequency
+            max_features=200,      # Top 200 features (balance between detail and noise)
+            stop_words='english',  # Remove common English words
+            ngram_range=(1, 2),    # Include unigrams and bigrams for phrases
+            min_df=1,              # Minimum document frequency
+            max_df=0.95            # Maximum document frequency (filter common words)
         )
         text_features = vectorizer.fit_transform(X_raw['combined_text']).toarray()
         text_feature_names = [f'tfidf_{i}' for i in range(text_features.shape[1])]
