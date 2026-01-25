@@ -713,7 +713,7 @@ function App() {
                           <Card>
                             <CardContent className="p-4 text-center">
                               <p className="text-sm text-muted-foreground">Best Model</p>
-                              <p className="text-2xl font-bold mt-1">{trainingResult.bestModel.algorithm}</p>
+                              <p className="text-2xl font-bold mt-1">{trainingResult?.bestModel?.algorithm || 'Unknown'}</p>
                             </CardContent>
                           </Card>
                           <Card>
