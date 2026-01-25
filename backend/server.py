@@ -205,6 +205,7 @@ def train_single_model(algo, problem_type, X, y, cv):
         else:
             metrics["train_r2"] = float(r2_score(y, preds))
             metrics["train_mae"] = float(mean_absolute_error(y, preds))
+            metrics["train_mse"] = float(mean_squared_error(y, preds))
             metrics["train_rmse"] = float(np.sqrt(mean_squared_error(y, preds)))
         
         # Feature Importance
