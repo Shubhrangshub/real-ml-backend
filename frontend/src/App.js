@@ -748,7 +748,7 @@ function App() {
                         </Card>
 
                         {/* Feature Importance */}
-                        {trainingResult.bestModel.featureImportance && 
+                        {trainingResult?.bestModel?.featureImportance && 
                          trainingResult.bestModel.featureImportance.length > 0 && (
                           <Card>
                             <CardHeader>
