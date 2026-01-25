@@ -768,53 +768,106 @@ s10,Movie,The Godfather,Francis Ford Coppola,Marlon Brando,United States,August 
 
                         {/* Predicted vs Actual Plot for Regression */}
                         {trainingResult?.problemType === 'regression' && trainingResult?.predictionsVsActual && (
-                          <Card>
-                            <CardHeader>
-                              <CardTitle className="text-lg">Predicted vs Actual</CardTitle>
-                              <CardDescription>Scatter plot showing model predictions against actual values</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                              <ResponsiveContainer width="100%" height={300}>
-                                <ScatterChart>
-                                  <CartesianGrid strokeDasharray="3 3" />
-                                  <XAxis 
-                                    dataKey="actual" 
-                                    name="Actual" 
-                                    type="number"
-                                    label={{ value: 'Actual Values', position: 'insideBottom', offset: -5 }}
-                                  />
-                                  <YAxis 
-                                    dataKey="predicted" 
-                                    name="Predicted" 
-                                    type="number"
-                                    label={{ value: 'Predicted Values', angle: -90, position: 'insideLeft' }}
-                                  />
-                                  <ZAxis range={[50, 50]} />
-                                  <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                                  <Scatter 
-                                    name="Predictions" 
-                                    data={trainingResult.predictionsVsActual.actual.map((actual, idx) => ({
-                                      actual: actual,
-                                      predicted: trainingResult.predictionsVsActual.predicted[idx]
-                                    }))}
-                                    fill="hsl(var(--primary))"
-                                  />
-                                  {/* Perfect prediction line */}
-                                  <Line 
-                                    type="linear" 
-                                    dataKey="actual" 
-                                    stroke="hsl(var(--destructive))" 
-                                    strokeWidth={2}
-                                    dot={false}
-                                    legendType="line"
-                                  />
-                                </ScatterChart>
-                              </ResponsiveContainer>
-                              <p className="text-xs text-muted-foreground text-center mt-2">
-                                Red line represents perfect predictions. Points closer to the line indicate better model performance.
-                              </p>
-                            </CardContent>
-                          </Card>
+                          <>
+                            <Card>
+                              <CardHeader>
+                                <CardTitle className="text-lg">Predicted vs Actual</CardTitle>
+                                <CardDescription>Scatter plot showing model predictions against actual values</CardDescription>
+                              </CardHeader>
+                              <CardContent>
+                                <ResponsiveContainer width="100%" height={300}>
+                                  <ScatterChart>
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis 
+                                      dataKey="actual" 
+                                      name="Actual" 
+                                      type="number"
+                                      label={{ value: 'Actual Values', position: 'insideBottom', offset: -5 }}
+                                    />
+                                    <YAxis 
+                                      dataKey="predicted" 
+                                      name="Predicted" 
+                                      type="number"
+                                      label={{ value: 'Predicted Values', angle: -90, position: 'insideLeft' }}
+                                    />
+                                    <ZAxis range={[50, 50]} />
+                                    <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                                    <Scatter 
+                                      name="Predictions" 
+                                      data={trainingResult.predictionsVsActual.actual.map((actual, idx) => ({
+                                        actual: actual,
+                                        predicted: trainingResult.predictionsVsActual.predicted[idx]
+                                      }))}
+                                      fill="hsl(var(--primary))"
+                                    />
+                                  </ScatterChart>
+                                </ResponsiveContainer>
+                                <p className="text-xs text-muted-foreground text-center mt-2">
+                                  Points closer to a diagonal line indicate better model performance.
+                                </p>
+                              </CardContent>
+                            </Card>
+
+                            {/* Residual Plot */}
+                            <Card>
+                              <CardHeader>
+                                <CardTitle className="text-lg">Residual Plot</CardTitle>
+                                <CardDescription>Distribution of prediction errors (actual - predicted)</CardDescription>
+                              </CardHeader>
+                              <CardContent>
+                                <ResponsiveContainer width="100%" height={300}>
+                                  <ScatterChart>
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis 
+                                      dataKey="predicted" 
+                                      name="Predicted" 
+                                      type="number"
+                                      label={{ value: 'Predicted Values', position: 'insideBottom', offset: -5 }}
+                                    />
+                                    <YAxis 
+                                      dataKey="residual" 
+                                      name="Residual" 
+                                      type="number"
+                                      label={{ value: 'Residual (Actual - Predicted)', angle: -90, position: 'insideLeft' }}
+                                    />
+                                    <ZAxis range={[50, 50]} />
+                                    <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                                    <Scatter 
+                                      name="Residuals" 
+                                      data={trainingResult.predictionsVsActual.predicted.map((pred, idx) => ({
+                                        predicted: pred,
+                                        residual: trainingResult.predictionsVsActual.actual[idx] - pred
+                                      }))}
+                                      fill="hsl(var(--chart-2))"
+                                    />
+                                  </ScatterChart>
+                                </ResponsiveContainer>
+                                <p className="text-xs text-muted-foreground text-center mt-2">
+                                  Residuals should be randomly scattered around zero. Patterns indicate model issues.
+                                </p>
+                                
+                                {/* Warning for Low Predictive Power */}
+                                {trainingResult?.residualStats?.predictive_power === 'Low' && (
+                                  <div className="mt-4 p-4 bg-destructive/10 border-2 border-destructive rounded-lg">
+                                    <div className="flex items-start gap-3">
+                                      <div className="text-destructive text-2xl">⚠️</div>
+                                      <div>
+                                        <p className="font-semibold text-destructive">Low Predictive Power Detected</p>
+                                        <p className="text-sm text-muted-foreground mt-1">
+                                          The residuals show high variance, indicating the model may not be capturing 
+                                          meaningful patterns. Consider adding more relevant features or collecting more data.
+                                        </p>
+                                        <div className="mt-2 text-xs text-muted-foreground">
+                                          <p>Mean Residual: {trainingResult.residualStats.mean.toFixed(3)}</p>
+                                          <p>Std Residual: {trainingResult.residualStats.std.toFixed(3)}</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </CardContent>
+                            </Card>
+                          </>
                         )}
 
                         {/* Feature Importance */}
