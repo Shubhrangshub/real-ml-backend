@@ -19,7 +19,11 @@ import {
   Target,
   Cpu,
   BarChart3,
-  Download
+  Download,
+  Search,
+  Gauge,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
