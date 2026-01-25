@@ -90,7 +90,21 @@ class PredictRequest(BaseModel):
 # ==================== HELPER FUNCTIONS ====================
 
 def _get_csv_text(file_url: Optional[str], csv_text: Optional[str]) -> tuple:
-    """Fetch CSV data from URL or use provided text."""
+    """
+    Fetch CSV data from URL or use provided text.
+    
+    Args:
+        file_url: Optional URL to fetch CSV data from
+        csv_text: Optional raw CSV text data
+        
+    Returns:
+        tuple: (csv_data: str, error: dict or None)
+        
+    Example:
+        >>> csv_data, err = _get_csv_text(None, "col1,col2\\n1,2")
+        >>> if not err:
+        >>>     df = pd.read_csv(StringIO(csv_data))
+    """
     try:
         if csv_text:
             return csv_text, None
