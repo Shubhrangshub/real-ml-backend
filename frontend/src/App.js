@@ -754,8 +754,12 @@ s10,Movie,The Godfather,Francis Ford Coppola,Marlon Brando,United States,August 
                             <div className="grid gap-3 md:grid-cols-3">
                               {trainingResult?.bestModel?.metrics && Object.entries(trainingResult.bestModel.metrics).map(([key, value]) => (
                                 <div key={key} className="bg-muted/50 rounded-lg p-3">
-                                  <p className="text-xs text-muted-foreground uppercase">{key}</p>
-                                  <p className="text-lg font-bold">{(value * 100).toFixed(2)}%</p>
+                                  <p className="text-xs text-muted-foreground uppercase">{key.replace(/_/g, ' ')}</p>
+                                  <p className="text-lg font-bold">
+                                    {key.includes('mse') || key.includes('mae') || key.includes('rmse') 
+                                      ? value.toFixed(2) 
+                                      : (value * 100).toFixed(2) + '%'}
+                                  </p>
                                 </div>
                               ))}
                             </div>
