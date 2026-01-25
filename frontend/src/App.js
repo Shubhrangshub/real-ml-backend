@@ -1185,13 +1185,24 @@ s10,Movie,The Godfather,Francis Ford Coppola,Marlon Brando,United States,August 
                                           setActiveView('predict');
                                         }
                                       }}
+                                      title="Use for predictions"
                                     >
                                       <Eye className="h-4 w-4" />
                                     </Button>
                                     <Button
                                       variant="ghost"
                                       size="sm"
+                                      onClick={() => model?.modelId && handleDownloadModel(model.modelId, model.algorithm)}
+                                      title="Download model (.pkl)"
+                                      className="text-primary hover:text-primary"
+                                    >
+                                      <Download className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
                                       onClick={() => model?.modelId && handleDeleteModel(model.modelId)}
+                                      title="Delete model"
                                     >
                                       <Trash2 className="h-4 w-4 text-destructive" />
                                     </Button>
