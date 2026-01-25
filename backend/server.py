@@ -238,7 +238,7 @@ async def health_check():
 
 @app.post("/api/train")
 async def train(req: TrainRequest):
-    """Train multiple ML models and return leaderboard."""
+    """Train multiple ML models and return leaderboard with text processing support."""
     start_total = time.time()
     
     # 1. Data Ingestion
@@ -258,15 +258,49 @@ async def train(req: TrainRequest):
     if target not in df.columns:
         return {"error": "Column not found", "target": target, "available_columns": df.columns.tolist()}
 
-    # 2. Preprocessing
+    # 2. Advanced Preprocessing with Text Support
     X_raw = df[req.feature_columns] if req.feature_columns else df.drop(columns=[target])
     y = df[target]
     
-    # Handle missing values
-    X_raw = X_raw.fillna(X_raw.mean(numeric_only=True)).fillna(0)
+    # Identify text and numeric columns
+    text_columns = []
+    numeric_columns = []
     
-    # One-hot encode categorical variables
-    X = pd.get_dummies(X_raw, drop_first=True)
+    for col in X_raw.columns:
+        if X_raw[col].dtype == 'object' or X_raw[col].dtype.name == 'string':
+            # Check if it looks like text (longer strings, not just categories)
+            avg_length = X_raw[col].astype(str).str.len().mean()
+            if avg_length > 20:  # Likely text description
+                text_columns.append(col)
+            else:
+                # Categorical - will be one-hot encoded
+                numeric_columns.append(col)
+        else:
+            numeric_columns.append(col)
+    
+    # Process features
+    if text_columns:
+        # Combine text columns into one
+        X_raw['combined_text'] = X_raw[text_columns].fillna('').astype(str).agg(' '.join, axis=1)
+        
+        # Use TfidfVectorizer for text
+        vectorizer = TfidfVectorizer(max_features=100, stop_words='english')
+        text_features = vectorizer.fit_transform(X_raw['combined_text']).toarray()
+        text_feature_names = [f'tfidf_{i}' for i in range(text_features.shape[1])]
+        text_df = pd.DataFrame(text_features, columns=text_feature_names, index=X_raw.index)
+        
+        # Process numeric columns
+        if numeric_columns:
+            numeric_df = X_raw[numeric_columns].copy()
+            numeric_df = numeric_df.fillna(numeric_df.mean(numeric_only=True)).fillna(0)
+            numeric_df = pd.get_dummies(numeric_df, drop_first=True)
+            X = pd.concat([numeric_df, text_df], axis=1)
+        else:
+            X = text_df
+    else:
+        # No text columns - standard preprocessing
+        X = X_raw.fillna(X_raw.mean(numeric_only=True)).fillna(0)
+        X = pd.get_dummies(X, drop_first=True)
     
     problem_type = _safe_problem_type(y, req.problem_type)
     cv, cv_warning = _safe_cv(problem_type, y, len(df))
@@ -288,6 +322,89 @@ async def train(req: TrainRequest):
             if res["status"] == "ok":
                 # Store model in global memory
                 model_obj = res.pop("model_obj")
+                model_serialized = base64.b64encode(pickle.dumps(model_obj)).decode('utf-8')
+                
+                MODELS[res["modelId"]] = {
+                    "model": model_obj,
+                    "columns": X.columns.tolist(),
+                    "problemType": problem_type,
+                    "algorithm": res["algorithm"],
+                    "createdAt": datetime.utcnow().isoformat()
+                }
+                
+                # Store in MongoDB
+                if db is not None:
+                    try:
+                        models_collection.insert_one({
+                            "modelId": res["modelId"],
+                            "algorithm": res["algorithm"],
+                            "problemType": problem_type,
+                            "metrics": res["metrics"],
+                            "featureImportance": res["featureImportance"],
+                            "columns": X.columns.tolist(),
+                            "modelData": model_serialized,
+                            "createdAt": datetime.utcnow()
+                        })
+                    except Exception as e:
+                        print(f"MongoDB insert error: {e}")
+                
+            leaderboard.append(res)
+
+    # 4. Final Best Model Selection
+    ok_models = [m for m in leaderboard if m["status"] == "ok"]
+    if not ok_models:
+        return {"error": "Training failed for all models", "details": leaderboard}
+    
+    metric_key = "cv_accuracy_mean" if problem_type == "classification" else "cv_r2_mean"
+    best_model = max(ok_models, key=lambda x: x["metrics"].get(metric_key, -999))
+    
+    # Add residuals for regression
+    residuals = None
+    predictions_vs_actual = None
+    if problem_type == "regression":
+        best_model_obj = MODELS[best_model["modelId"]]["model"]
+        y_pred = best_model_obj.predict(X)
+        residuals = (y - y_pred).tolist()
+        predictions_vs_actual = {
+            "actual": y.tolist(),
+            "predicted": y_pred.tolist()
+        }
+    
+    # Store training history
+    if db is not None:
+        try:
+            training_history_collection.insert_one({
+                "timestamp": datetime.utcnow(),
+                "problemType": problem_type,
+                "bestModelId": best_model["modelId"],
+                "bestAlgorithm": best_model["algorithm"],
+                "numSamples": len(df),
+                "numFeatures": len(X.columns),
+                "targetColumn": target,
+                "totalTime": time.time() - start_total,
+                "textColumns": text_columns,
+                "numericColumns": numeric_columns
+            })
+        except Exception as e:
+            print(f"MongoDB history insert error: {e}")
+
+    return {
+        "status": "success",
+        "problemType": problem_type,
+        "bestModel": best_model,
+        "leaderboard": leaderboard,
+        "totalTime": time.time() - start_total,
+        "dataInfo": {
+            "numSamples": len(df),
+            "numFeatures": len(X.columns),
+            "targetColumn": target,
+            "columns": X.columns.tolist(),
+            "textColumns": text_columns,
+            "numericColumns": numeric_columns
+        },
+        "residuals": residuals,
+        "predictionsVsActual": predictions_vs_actual
+    }
                 model_serialized = base64.b64encode(pickle.dumps(model_obj)).decode('utf-8')
                 
                 MODELS[res["modelId"]] = {
