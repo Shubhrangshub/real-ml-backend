@@ -39,14 +39,14 @@ from pymongo import MongoClient
 
 # ML Imports
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, GradientBoostingClassifier, GradientBoostingRegressor
 from sklearn.dummy import DummyClassifier, DummyRegressor
-from sklearn.model_selection import cross_val_score, KFold, StratifiedKFold, ShuffleSplit
+from sklearn.model_selection import cross_val_score, KFold, StratifiedKFold, ShuffleSplit, GridSearchCV
 from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, r2_score, mean_squared_error
 
 app = FastAPI(title="AutoML Master Backend", version="2.0.0")
