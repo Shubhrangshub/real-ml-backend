@@ -1,3 +1,23 @@
+"""
+AutoML Master Backend - Professional Machine Learning Training Platform
+
+This FastAPI application provides enterprise-grade automated machine learning
+capabilities with advanced text processing, data leakage prevention, and
+scientifically rigorous validation.
+
+Key Features:
+    - Automatic data leakage detection and removal
+    - Text processing with TF-IDF vectorization (bigrams)
+    - Parallel model training with multiple algorithms
+    - Robust cross-validation (ShuffleSplit for regression)
+    - Model persistence with MongoDB
+    - Real-time prediction API
+    - Feature importance extraction
+
+Author: AutoML Master Team
+Version: 2.0 (Scientific Edition)
+"""
+
 import uuid
 import time
 import os
@@ -6,13 +26,14 @@ import base64
 import pandas as pd
 import numpy as np
 import requests
-from io import StringIO
+from io import StringIO, BytesIO
 from typing import Optional, List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pymongo import MongoClient
 
