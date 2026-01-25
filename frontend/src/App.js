@@ -259,6 +259,28 @@ s10,Movie,The Godfather,Francis Ford Coppola,Marlon Brando,United States,August 
     }
   };
 
+  const handleDownloadModel = async (modelId, algorithm) => {
+    try {
+      const response = await axios.get(`${BACKEND_URL}/api/models/${modelId}/download`, {
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${algorithm}_${modelId.substring(0, 8)}.pkl`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      setError('');
+    } catch (err) {
+      setError('Failed to download model');
+    }
+  };
+
   // Stats Cards
   const StatCard = ({ title, value, change, icon: Icon, trend }) => (
     <motion.div variants={fadeInUp}>
