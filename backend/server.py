@@ -263,6 +263,18 @@ async def train(req: TrainRequest):
     X_raw = df[req.feature_columns] if req.feature_columns else df.drop(columns=[target])
     y = df[target]
     
+    # CRITICAL: Remove columns that cause data leakage
+    leakage_columns = []
+    for col in X_raw.columns:
+        col_lower = col.lower()
+        # Remove ID columns, date columns, and anything with "year" in it
+        if any(keyword in col_lower for keyword in ['id', '_id', 'date', 'year', 'added', 'created', 'updated']):
+            leakage_columns.append(col)
+    
+    if leakage_columns:
+        print(f"⚠️ Removing potential data leakage columns: {leakage_columns}")
+        X_raw = X_raw.drop(columns=leakage_columns)
+    
     # Identify text and numeric columns
     text_columns = []
     numeric_columns = []
@@ -284,8 +296,14 @@ async def train(req: TrainRequest):
         # Combine text columns into one
         X_raw['combined_text'] = X_raw[text_columns].fillna('').astype(str).agg(' '.join, axis=1)
         
-        # Use TfidfVectorizer for text
-        vectorizer = TfidfVectorizer(max_features=100, stop_words='english')
+        # Use TfidfVectorizer for text with bigrams
+        vectorizer = TfidfVectorizer(
+            max_features=200,  # Increased from 100
+            stop_words='english',
+            ngram_range=(1, 2),  # Include bigrams for phrases
+            min_df=1,  # Minimum document frequency
+            max_df=0.95  # Maximum document frequency
+        )
         text_features = vectorizer.fit_transform(X_raw['combined_text']).toarray()
         text_feature_names = [f'tfidf_{i}' for i in range(text_features.shape[1])]
         text_df = pd.DataFrame(text_features, columns=text_feature_names, index=X_raw.index)
