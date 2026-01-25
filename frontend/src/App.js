@@ -707,7 +707,7 @@ function App() {
                           <Card>
                             <CardContent className="p-4 text-center">
                               <p className="text-sm text-muted-foreground">Problem Type</p>
-                              <p className="text-2xl font-bold mt-1">{trainingResult.problemType}</p>
+                              <p className="text-2xl font-bold mt-1">{trainingResult?.problemType || 'Unknown'}</p>
                             </CardContent>
                           </Card>
                           <Card>
