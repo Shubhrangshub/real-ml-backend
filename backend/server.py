@@ -382,13 +382,25 @@ async def train(req: TrainRequest):
     # Add residuals for regression
     residuals = None
     predictions_vs_actual = None
+    residual_stats = None
     if problem_type == "regression":
         best_model_obj = MODELS[best_model["modelId"]]["model"]
         y_pred = best_model_obj.predict(X)
-        residuals = (y - y_pred).tolist()
+        residuals_array = y - y_pred
+        residuals = residuals_array.tolist()
         predictions_vs_actual = {
             "actual": y.tolist(),
             "predicted": y_pred.tolist()
+        }
+        
+        # Calculate residual statistics for model quality assessment
+        residual_mean = float(residuals_array.mean())
+        residual_std = float(residuals_array.std())
+        residual_stats = {
+            "mean": residual_mean,
+            "std": residual_std,
+            "mean_abs": float(np.abs(residuals_array).mean()),
+            "predictive_power": "Good" if abs(residual_mean) < residual_std * 0.1 else "Low"
         }
     
     # Store training history
