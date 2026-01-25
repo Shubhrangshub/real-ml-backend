@@ -762,6 +762,57 @@ s10,Movie,The Godfather,Francis Ford Coppola,Marlon Brando,United States,August 
                           </CardContent>
                         </Card>
 
+                        {/* Predicted vs Actual Plot for Regression */}
+                        {trainingResult?.problemType === 'regression' && trainingResult?.predictionsVsActual && (
+                          <Card>
+                            <CardHeader>
+                              <CardTitle className="text-lg">Predicted vs Actual</CardTitle>
+                              <CardDescription>Scatter plot showing model predictions against actual values</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                              <ResponsiveContainer width="100%" height={300}>
+                                <ScatterChart>
+                                  <CartesianGrid strokeDasharray="3 3" />
+                                  <XAxis 
+                                    dataKey="actual" 
+                                    name="Actual" 
+                                    type="number"
+                                    label={{ value: 'Actual Values', position: 'insideBottom', offset: -5 }}
+                                  />
+                                  <YAxis 
+                                    dataKey="predicted" 
+                                    name="Predicted" 
+                                    type="number"
+                                    label={{ value: 'Predicted Values', angle: -90, position: 'insideLeft' }}
+                                  />
+                                  <ZAxis range={[50, 50]} />
+                                  <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                                  <Scatter 
+                                    name="Predictions" 
+                                    data={trainingResult.predictionsVsActual.actual.map((actual, idx) => ({
+                                      actual: actual,
+                                      predicted: trainingResult.predictionsVsActual.predicted[idx]
+                                    }))}
+                                    fill="hsl(var(--primary))"
+                                  />
+                                  {/* Perfect prediction line */}
+                                  <Line 
+                                    type="linear" 
+                                    dataKey="actual" 
+                                    stroke="hsl(var(--destructive))" 
+                                    strokeWidth={2}
+                                    dot={false}
+                                    legendType="line"
+                                  />
+                                </ScatterChart>
+                              </ResponsiveContainer>
+                              <p className="text-xs text-muted-foreground text-center mt-2">
+                                Red line represents perfect predictions. Points closer to the line indicate better model performance.
+                              </p>
+                            </CardContent>
+                          </Card>
+                        )}
+
                         {/* Feature Importance */}
                         {trainingResult?.bestModel?.featureImportance && 
                          trainingResult.bestModel.featureImportance.length > 0 && (
