@@ -719,13 +719,13 @@ function App() {
                           <Card>
                             <CardContent className="p-4 text-center">
                               <p className="text-sm text-muted-foreground">Training Time</p>
-                              <p className="text-2xl font-bold mt-1">{trainingResult.totalTime.toFixed(2)}s</p>
+                              <p className="text-2xl font-bold mt-1">{trainingResult?.totalTime ? trainingResult.totalTime.toFixed(2) + 's' : '-'}</p>
                             </CardContent>
                           </Card>
                           <Card>
                             <CardContent className="p-4 text-center">
                               <p className="text-sm text-muted-foreground">Samples</p>
-                              <p className="text-2xl font-bold mt-1">{trainingResult.dataInfo.numSamples}</p>
+                              <p className="text-2xl font-bold mt-1">{trainingResult?.dataInfo?.numSamples || 0}</p>
                             </CardContent>
                           </Card>
                         </div>
