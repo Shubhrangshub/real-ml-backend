@@ -175,7 +175,9 @@ def _safe_cv(problem_type: str, y: pd.Series, n_samples: int) -> tuple:
             n_splits = max(2, min_class_count)
         return StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42), None
     else:
-        return KFold(n_splits=n_splits, shuffle=True, random_state=42), None
+        # For regression, use ShuffleSplit for more robust validation
+        # This randomly shuffles and splits, preventing temporal bias
+        return ShuffleSplit(n_splits=5, test_size=0.2, random_state=42), None
 
 # ==================== PARALLEL TRAINING HELPER ====================
 
