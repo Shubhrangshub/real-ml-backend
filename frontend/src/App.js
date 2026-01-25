@@ -756,7 +756,7 @@ function App() {
                             </CardHeader>
                             <CardContent>
                               <ResponsiveContainer width="100%" height={300}>
-                                <BarChart data={trainingResult.bestModel.featureImportance}>
+                                <BarChart data={trainingResult?.bestModel?.featureImportance || []}>
                                   <CartesianGrid strokeDasharray="3 3" />
                                   <XAxis dataKey="feature" angle={-45} textAnchor="end" height={100} />
                                   <YAxis />
