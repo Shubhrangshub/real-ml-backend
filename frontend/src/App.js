@@ -76,6 +76,21 @@ function App() {
       name: 'House Prices', 
       description: 'Regression problem',
       data: `size,bedrooms,age,location_score,price\n1200,2,5,7,250000\n1800,3,10,8,380000\n2500,4,3,9,520000\n1000,1,15,6,180000\n2200,3,7,8,450000`
+    },
+    {
+      name: 'TV Shows (Text Analysis)',
+      description: 'Regression with text processing',
+      data: `show_id,type,title,director,cast,country,date_added,release_year,rating,duration,listed_in,description
+s1,TV Show,Breaking Bad,Vince Gilligan,Bryan Cranston,United States,July 1 2020,2008,TV-MA,5 Seasons,Crime TV Shows,A high school chemistry teacher turned meth producer teams up with a former student
+s2,Movie,The Shawshank Redemption,Frank Darabont,Tim Robbins,United States,June 15 2019,1994,R,142 min,Dramas,Two imprisoned men bond over a number of years finding redemption through acts of common decency
+s3,TV Show,Stranger Things,The Duffer Brothers,Millie Bobby Brown,United States,July 15 2016,2016,TV-14,4 Seasons,Sci-Fi TV Shows,When a young boy disappears his mother and friends must confront terrifying supernatural forces
+s4,Movie,The Dark Knight,Christopher Nolan,Christian Bale,United States,January 1 2021,2008,PG-13,152 min,Action & Adventure,When the menace known as the Joker wreaks havoc on Gotham Batman must accept one of the greatest tests
+s5,TV Show,Game of Thrones,David Benioff,Emilia Clarke,United States,April 17 2019,2011,TV-MA,8 Seasons,Fantasy TV Shows,Nine noble families fight for control over the lands of Westeros while an ancient enemy returns
+s6,Movie,Inception,Christopher Nolan,Leonardo DiCaprio,United States,March 1 2020,2010,PG-13,148 min,Sci-Fi Movies,A thief who steals corporate secrets through dream-sharing technology is given the inverse task of planting an idea
+s7,TV Show,The Crown,Peter Morgan,Claire Foy,United Kingdom,November 4 2016,2016,TV-MA,6 Seasons,British TV Shows,Follows the political rivalries and romance of Queen Elizabeth II reign and the events that shaped the second half
+s8,Movie,Pulp Fiction,Quentin Tarantino,John Travolta,United States,September 1 2020,1994,R,154 min,Crime Movies,The lives of two mob hitmen a boxer and a pair of diner bandits intertwine in four tales of violence and redemption
+s9,TV Show,The Office,Greg Daniels,Steve Carell,United States,January 1 2021,2005,TV-14,9 Seasons,TV Comedies,A mockumentary on a group of typical office workers where the workday consists of ego clashes and inappropriate behavior
+s10,Movie,The Godfather,Francis Ford Coppola,Marlon Brando,United States,August 1 2019,1972,R,175 min,Classic Movies,The aging patriarch of an organized crime dynasty transfers control of his clandestine empire to his reluctant son`
     }
   ];
 
