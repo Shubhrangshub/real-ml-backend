@@ -217,7 +217,43 @@ def _safe_cv(problem_type: str, y: pd.Series, n_samples: int) -> tuple:
 # ==================== PARALLEL TRAINING HELPER ====================
 
 def train_single_model(algo, problem_type, X, y, cv):
-    """Function to train one specific model and return its metrics."""
+    """
+    Train a single machine learning model and return performance metrics.
+    
+    This function trains one specific algorithm with cross-validation and
+    calculates comprehensive metrics for model evaluation.
+    
+    Args:
+        algo (str): Algorithm name ('random_forest', 'linear', etc.)
+        problem_type (str): 'classification' or 'regression'
+        X (pd.DataFrame): Feature matrix
+        y (pd.Series): Target variable
+        cv: Cross-validation splitter object
+        
+    Returns:
+        dict: Model results containing:
+            - modelId: Unique identifier
+            - algorithm: Algorithm name
+            - status: 'ok' or 'error'
+            - metrics: Performance metrics (R², MSE, Accuracy, etc.)
+            - durationSec: Training time in seconds
+            - featureImportance: Top feature importances
+            - model_obj: Trained scikit-learn model object
+            
+    Metrics for Regression:
+        - cv_r2_mean: Cross-validated R² score (mean)
+        - cv_r2_std: Cross-validated R² score (std dev)
+        - train_r2: Training set R² score
+        - train_mae: Mean Absolute Error
+        - train_mse: Mean Squared Error
+        - train_rmse: Root Mean Squared Error
+        
+    Metrics for Classification:
+        - cv_accuracy_mean: Cross-validated accuracy (mean)
+        - cv_accuracy_std: Cross-validated accuracy (std dev)
+        - train_accuracy: Training set accuracy
+        - train_f1: F1 score (weighted)
+    """
     model_id = str(uuid.uuid4())
     t0 = time.time()
     try:
