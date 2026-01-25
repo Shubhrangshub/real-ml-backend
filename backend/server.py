@@ -312,7 +312,38 @@ async def health_check():
 
 @app.post("/api/train")
 async def train(req: TrainRequest):
-    """Train multiple ML models and return leaderboard with text processing support."""
+    """
+    Train multiple ML models with advanced text processing and leakage prevention.
+    
+    This endpoint performs end-to-end automated machine learning including:
+    1. Data ingestion and validation
+    2. Automatic data leakage detection and removal
+    3. Text feature extraction using TF-IDF
+    4. Parallel model training with cross-validation
+    5. Model persistence and metric calculation
+    
+    Args:
+        req (TrainRequest): Training request containing:
+            - csv_text or file_url: Input data
+            - target_column: Column to predict
+            - feature_columns: Optional list of features
+            - algorithm: Specific algorithm or 'auto'
+            - problem_type: 'classification', 'regression', or 'auto'
+            
+    Returns:
+        dict: Training results with leaderboard, best model, metrics,
+              visualizations data, and data quality warnings
+              
+    Scientific Features:
+        - **Data Leakage Prevention**: Automatically removes ID, date, and
+          temporal columns that would artificially inflate accuracy
+        - **Text Processing**: TF-IDF vectorization with bigrams (1,2)
+          captures phrases like "Special Effects", "Classic Cinema"
+        - **Robust Validation**: ShuffleSplit for regression prevents
+          temporal bias in cross-validation
+        - **Transparency**: Returns residual statistics and warnings
+          for low predictive power
+    """
     start_total = time.time()
     
     # 1. Data Ingestion
@@ -336,7 +367,23 @@ async def train(req: TrainRequest):
     X_raw = df[req.feature_columns] if req.feature_columns else df.drop(columns=[target])
     y = df[target]
     
-    # CRITICAL: Remove columns that cause data leakage
+    # ============================================================================
+    # CRITICAL: DATA LEAKAGE PREVENTION
+    # ============================================================================
+    # Data leakage occurs when features contain information about the target
+    # that wouldn't be available at prediction time. Common sources:
+    #
+    # 1. ID Columns: 'user_id', 'transaction_id' - Often correlate with time
+    # 2. Date Columns: 'created_at', 'date_added' - Directly encode temporal info
+    # 3. Year Columns: 'release_year' when predicting year - Perfect correlation
+    #
+    # Why This Matters:
+    # - Model appears to have 85% accuracy but is actually memorizing IDs
+    # - Fails completely on new, unseen data
+    # - Violates fundamental ML principle: features must be available at inference
+    #
+    # Solution: Automatically detect and remove these columns
+    # ============================================================================
     leakage_columns = []
     for col in X_raw.columns:
         col_lower = col.lower()
