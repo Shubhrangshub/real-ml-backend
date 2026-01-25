@@ -63,9 +63,10 @@ function App() {
   const [predictionInput, setPredictionInput] = useState('');
   const [predictionResult, setPredictionResult] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedShow, setSelectedShow] = useState(null);
+  const [selectedSample, setSelectedSample] = useState(null);
   const [actualValue, setActualValue] = useState(null);
-  const [tvShowsData, setTvShowsData] = useState([]);
+  const [sampleData, setSampleData] = useState([]);
+  const [showManualEntry, setShowManualEntry] = useState(false);
   const [error, setError] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [stats, setStats] = useState({
