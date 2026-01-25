@@ -433,10 +433,12 @@ async def train(req: TrainRequest):
             "targetColumn": target,
             "columns": X.columns.tolist(),
             "textColumns": text_columns,
-            "numericColumns": numeric_columns
+            "numericColumns": numeric_columns,
+            "removedLeakageColumns": leakage_columns
         },
         "residuals": residuals,
-        "predictionsVsActual": predictions_vs_actual
+        "predictionsVsActual": predictions_vs_actual,
+        "residualStats": residual_stats
     }
 
 @app.post("/api/predict")
