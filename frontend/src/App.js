@@ -131,7 +131,7 @@ s10,Movie,The Godfather,Francis Ford Coppola,Marlon Brando,United States,August 
 
   useEffect(() => {
     loadModels();
-    loadTvShowsData();
+    loadSampleDatasets();
   }, []);
 
   useEffect(() => {
