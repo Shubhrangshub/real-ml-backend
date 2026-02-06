@@ -166,6 +166,31 @@ s10,Movie,The Godfather,Francis Ford Coppola,Marlon Brando,United States,August 
     }
   };
 
+  const loadSampleDatasets = () => {
+    // Parse all sample datasets into structured data
+    const allSamples = [];
+    
+    sampleDatasets.forEach(dataset => {
+      const lines = dataset.data.split('\n');
+      if (lines.length > 1) {
+        const headers = lines[0].split(',').map(h => h.trim());
+        
+        for (let i = 1; i < lines.length; i++) {
+          const values = lines[i].split(',');
+          if (values.length === headers.length) {
+            const row = { _dataset: dataset.name };
+            headers.forEach((header, idx) => {
+              row[header] = values[idx].trim();
+            });
+            allSamples.push(row);
+          }
+        }
+      }
+    });
+    
+    setSampleData(allSamples);
+  };
+
   const loadTvShowsData = () => {
     const tvData = sampleDatasets.find(ds => ds.name === 'TV Shows (Text Analysis)');
     if (tvData) {
