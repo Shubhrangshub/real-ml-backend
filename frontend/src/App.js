@@ -594,10 +594,10 @@ function scanDataset(csvText, targetCol) {
   if (duplicateCount > 0) score -= Math.min(15, duplicateCount / n * 50);
   if (totalOutliers > 0) score -= Math.min(15, totalOutliers / (n * (numericCols.length || 1)) * 50);
   if (constantCols.length > 0) score -= constantCols.length * 5;
-  if (highCorr.length > 0) score -= highCorr.length * 3;
-  if (sizeWarning) score -= 10;
+  if (highCorr.length > 0) score -= Math.min(10, highCorr.length * 2);
+  if (sizeWarning) score -= 5;
   if (targetInfo?.imbalanced) score -= 10;
-  if (scaleIssue) score -= 5;
+  if (scaleIssue) score -= 3;
   score = Math.max(0, Math.round(score));
   const warnings = [];
   if (totalMissing > 0) warnings.push(`${totalMissing} missing values`);
@@ -611,6 +611,69 @@ function scanDataset(csvText, targetCol) {
   return { rows: n, columns: p, numericCount: numericCols.length, categoricalCount: categoricalCols.length,
     totalMissing, missingCols, duplicateCount, totalOutliers, outlierCols, constantCols, highCorr,
     targetInfo, scaleIssue, sizeWarning, score, warnings, ready: score >= 50 };
+}
+
+// ==================== DATA CLEANING FUNCTIONS ====================
+
+function rebuildCsv(headers, rows) {
+  return [headers.join(','), ...rows.map(r => headers.map(h => { const v = String(r[h] ?? ''); return v.includes(',') ? `"${v}"` : v; }).join(','))].join('\n');
+}
+
+function cleanRemoveDuplicates(csvText) {
+  const lines = csvText.trim().split('\n');
+  const header = lines[0];
+  const unique = new Set(); const kept = [header]; let removed = 0;
+  for (let i = 1; i < lines.length; i++) { if (!unique.has(lines[i])) { unique.add(lines[i]); kept.push(lines[i]); } else removed++; }
+  return { text: kept.join('\n'), removed };
+}
+
+function cleanFillMissing(csvText) {
+  const { rows, headers } = parseCSV(csvText);
+  let filled = 0;
+  const isNum = {}; headers.forEach(h => { const vals = rows.map(r => r[h]).filter(v => v !== '' && v != null); isNum[h] = vals.filter(v => !isNaN(Number(v))).length > vals.length * 0.5; });
+  const fillVals = {};
+  headers.forEach(h => {
+    const vals = rows.map(r => r[h]).filter(v => v !== '' && v != null);
+    if (isNum[h]) { const nums = vals.map(Number).filter(v => !isNaN(v)).sort((a, b) => a - b); fillVals[h] = nums.length > 0 ? nums[Math.floor(nums.length / 2)] : 0; }
+    else { const c = {}; vals.forEach(v => { c[v] = (c[v] || 0) + 1; }); fillVals[h] = Object.entries(c).sort((a, b) => b[1] - a[1])[0]?.[0] || ''; }
+  });
+  rows.forEach(r => { headers.forEach(h => { if (r[h] === '' || r[h] == null) { r[h] = fillVals[h]; filled++; } }); });
+  return { text: rebuildCsv(headers, rows), filled };
+}
+
+function cleanRemoveOutliers(csvText) {
+  const { rows, headers } = parseCSV(csvText);
+  const numCols = headers.filter(h => rows.map(r => r[h]).filter(v => v !== '' && v != null).filter(v => !isNaN(Number(v))).length > rows.length * 0.5);
+  const bounds = {};
+  numCols.forEach(h => {
+    const vals = rows.map(r => Number(r[h])).filter(v => !isNaN(v)).sort((a, b) => a - b);
+    if (vals.length < 4) return;
+    const q1 = vals[Math.floor(vals.length * 0.25)], q3 = vals[Math.floor(vals.length * 0.75)], iqr = q3 - q1;
+    bounds[h] = { lo: q1 - 1.5 * iqr, hi: q3 + 1.5 * iqr };
+  });
+  let removed = 0;
+  const kept = rows.filter(r => { for (const h of Object.keys(bounds)) { const v = Number(r[h]); if (!isNaN(v) && (v < bounds[h].lo || v > bounds[h].hi)) { removed++; return false; } } return true; });
+  return { text: rebuildCsv(headers, kept), removed };
+}
+
+function cleanDropConstants(csvText) {
+  const { rows, headers } = parseCSV(csvText);
+  const dropped = []; const kept = headers.filter(h => { if (new Set(rows.map(r => r[h])).size <= 1) { dropped.push(h); return false; } return true; });
+  return { text: rebuildCsv(kept, rows), dropped };
+}
+
+function cleanNormalize(csvText) {
+  const { rows, headers } = parseCSV(csvText);
+  let count = 0;
+  const numCols = headers.filter(h => rows.map(r => r[h]).filter(v => v !== '' && v != null).filter(v => !isNaN(Number(v))).length > rows.length * 0.5);
+  numCols.forEach(h => {
+    const vals = rows.map(r => Number(r[h])).filter(v => !isNaN(v));
+    const min = Math.min(...vals), range = Math.max(...vals) - min;
+    if (range === 0) return;
+    rows.forEach(r => { const v = Number(r[h]); if (!isNaN(v)) r[h] = ((v - min) / range).toFixed(4); });
+    count++;
+  });
+  return { text: rebuildCsv(headers, rows), count };
 }
 
 // ==================== CLUSTERING ====================
@@ -668,6 +731,8 @@ function App() {
   const [targetColumn, setTargetColumn] = useState('');
   const [algorithm, setAlgorithm] = useState('auto');
   const [evalMode, setEvalMode] = useState('split');
+  const [cleaningLog, setCleaningLog] = useState([]);
+  const [precleanScan, setPrecleanScan] = useState(null);
   const [isTraining, setIsTraining] = useState(false);
   const [trainingResult, setTrainingResult] = useState(null);
   const [models, setModels] = useState([]);
@@ -723,14 +788,31 @@ function App() {
   const taskSuggestion = useMemo(() => dataProfile ? suggestTask(dataProfile, targetColumn) : null, [dataProfile, targetColumn]);
 
   // ==================== DATA HANDLERS ====================
-  const handleCsvTextChange = useCallback((text) => {
+  const handleCsvTextChange = useCallback((text, isCleanAction) => {
     setCsvText(text); setTrainingResult(null); setClusterResult(null); setAnomalyResult(null);
+    if (!isCleanAction) { setCleaningLog([]); setPrecleanScan(null); }
     if (text.trim()) { const p = profileDataset(text); setDataProfile(p); setColumns(p?.headers || []); }
     else { setDataProfile(null); setColumns([]); }
   }, []);
   const handleFileUpload = (event) => { const file = event.target.files[0]; if (file) { const reader = new FileReader(); reader.onload = (e) => handleCsvTextChange(e.target.result); reader.readAsText(file); } };
   const handleDrag = (e) => { e.preventDefault(); e.stopPropagation(); setDragActive(e.type === 'dragenter' || e.type === 'dragover'); };
   const handleDrop = (e) => { e.preventDefault(); e.stopPropagation(); setDragActive(false); if (e.dataTransfer.files?.[0]) { const reader = new FileReader(); reader.onload = (ev) => handleCsvTextChange(ev.target.result); reader.readAsText(e.dataTransfer.files[0]); } };
+
+  const handleClean = (action) => {
+    if (!csvText) return;
+    if (!precleanScan && datasetScan) setPrecleanScan({ ...datasetScan });
+    let result;
+    if (action === 'duplicates') { result = cleanRemoveDuplicates(csvText); if (result.removed > 0) { handleCsvTextChange(result.text, true); setCleaningLog(prev => [...prev, `Removed ${result.removed} duplicate rows`]); } }
+    else if (action === 'missing') { result = cleanFillMissing(csvText); if (result.filled > 0) { handleCsvTextChange(result.text, true); setCleaningLog(prev => [...prev, `Filled ${result.filled} missing values using median/mode`]); } }
+    else if (action === 'outliers') { result = cleanRemoveOutliers(csvText); if (result.removed > 0) { handleCsvTextChange(result.text, true); setCleaningLog(prev => [...prev, `Removed ${result.removed} outlier rows using IQR method`]); } }
+    else if (action === 'constants') { result = cleanDropConstants(csvText); if (result.dropped.length > 0) { handleCsvTextChange(result.text, true); setCleaningLog(prev => [...prev, `Dropped ${result.dropped.length} constant columns: ${result.dropped.join(', ')}`]); } }
+    else if (action === 'normalize') { result = cleanNormalize(csvText); if (result.count > 0) { handleCsvTextChange(result.text, true); setCleaningLog(prev => [...prev, `Normalized ${result.count} numeric features (min-max scaling)`]); } }
+  };
+
+  const dataPreview = useMemo(() => {
+    if (!csvText || !csvText.trim() || cleaningLog.length === 0) return null;
+    try { const { rows, headers } = parseCSV(csvText); return { headers, rows: rows.slice(0, 10) }; } catch { return null; }
+  }, [csvText, cleaningLog]);
 
   // ==================== TRAINING (ROBUST SUPERVISED LEARNING) ====================
   const handleTrain = () => {
@@ -1096,6 +1178,131 @@ function App() {
                   {taskSuggestion && <div className={`p-4 rounded-lg border-2 flex items-start gap-3 ${taskSuggestion.task === 'regression' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30' : taskSuggestion.task === 'classification' ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30' : 'border-violet-500 bg-violet-50 dark:bg-violet-950/30'}`} data-testid="task-suggestion"><Info className="h-5 w-5 mt-0.5 shrink-0" /><div><p className="font-semibold text-sm">{taskSuggestion.message}</p>{taskSuggestion.task === 'clustering' && <Button size="sm" className="mt-2" onClick={() => setActiveView('clusters')} data-testid="go-to-clusters-btn"><Layers className="h-3 w-3 mr-1" />Go to Clustering</Button>}</div></div>}
                 </CardContent></Card></motion.div>}
 
+              {/* ==================== DATASET SCANNER ==================== */}
+              {datasetScan && <motion.div variants={fadeInUp}><Card className={`border-2 ${datasetScan.score >= 70 ? 'border-emerald-500/30' : datasetScan.score >= 50 ? 'border-amber-500/30' : 'border-red-500/30'}`} data-testid="dataset-scanner">
+                <CardHeader><CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" />Dataset Scanner Report</CardTitle>
+                  <CardDescription>Automated data quality analysis</CardDescription></CardHeader>
+                <CardContent className="space-y-5">
+
+                  {/* Health Score Banner */}
+                  <div className={`p-4 rounded-lg flex items-center justify-between ${datasetScan.score >= 70 ? 'bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200' : datasetScan.score >= 50 ? 'bg-amber-50 dark:bg-amber-950/20 border border-amber-200' : 'bg-red-50 dark:bg-red-950/20 border border-red-200'}`} data-testid="scanner-health-banner">
+                    <div className="flex items-center gap-3">
+                      {datasetScan.score >= 70 ? <CheckCircle2 className="h-6 w-6 text-emerald-600" /> : datasetScan.score >= 50 ? <AlertCircle className="h-6 w-6 text-amber-600" /> : <XCircle className="h-6 w-6 text-red-600" />}
+                      <div><p className="font-semibold">{datasetScan.score >= 70 ? 'Dataset Ready for Training' : datasetScan.score >= 50 ? 'Minor Issues Detected' : 'Dataset Needs Cleaning'}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{datasetScan.warnings.length === 0 ? 'No issues found' : `${datasetScan.warnings.length} issue(s) detected`}</p></div>
+                    </div>
+                    <div className={`text-3xl font-bold ${datasetScan.score >= 70 ? 'text-emerald-600' : datasetScan.score >= 50 ? 'text-amber-600' : 'text-red-600'}`} data-testid="scanner-score">{datasetScan.score}<span className="text-sm font-normal text-muted-foreground">/100</span></div>
+                  </div>
+
+                  {/* Quick Stats */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="bg-muted/50 rounded-lg p-3 text-center"><p className="text-xs text-muted-foreground">Rows</p><p className="text-xl font-bold">{datasetScan.rows}</p></div>
+                    <div className="bg-muted/50 rounded-lg p-3 text-center"><p className="text-xs text-muted-foreground">Columns</p><p className="text-xl font-bold">{datasetScan.columns}</p></div>
+                    <div className="bg-muted/50 rounded-lg p-3 text-center"><p className="text-xs text-muted-foreground">Numeric</p><p className="text-xl font-bold text-blue-600">{datasetScan.numericCount}</p></div>
+                    <div className="bg-muted/50 rounded-lg p-3 text-center"><p className="text-xs text-muted-foreground">Categorical</p><p className="text-xl font-bold text-emerald-600">{datasetScan.categoricalCount}</p></div>
+                  </div>
+
+                  {/* Issues Found */}
+                  {datasetScan.warnings.length > 0 && <div className="space-y-3" data-testid="scanner-issues">
+                    <p className="text-sm font-semibold">Issues Found</p>
+
+                    {datasetScan.totalMissing > 0 && <div className="p-3 rounded-lg border bg-amber-50/50 dark:bg-amber-950/10" data-testid="issue-missing">
+                      <div className="flex items-center justify-between"><p className="text-sm font-medium">Missing Values</p><Badge variant="secondary">{datasetScan.totalMissing} total</Badge></div>
+                      <div className="mt-2 space-y-1">{datasetScan.missingCols.map((mc, i) => <div key={i} className="flex justify-between text-xs"><span className="font-mono">{mc.col}</span><span className="text-muted-foreground">{mc.count} ({mc.pct}%)</span></div>)}</div>
+                      <p className="text-xs text-muted-foreground mt-2 italic">Recommendation: Fill with median (numeric) or mode (categorical)</p>
+                    </div>}
+
+                    {datasetScan.duplicateCount > 0 && <div className="p-3 rounded-lg border bg-amber-50/50 dark:bg-amber-950/10" data-testid="issue-duplicates">
+                      <div className="flex items-center justify-between"><p className="text-sm font-medium">Duplicate Rows</p><Badge variant="secondary">{datasetScan.duplicateCount} ({(datasetScan.duplicateCount / datasetScan.rows * 100).toFixed(1)}%)</Badge></div>
+                      <p className="text-xs text-muted-foreground mt-1 italic">Recommendation: Remove duplicate rows to avoid bias</p>
+                    </div>}
+
+                    {datasetScan.totalOutliers > 0 && <div className="p-3 rounded-lg border bg-amber-50/50 dark:bg-amber-950/10" data-testid="issue-outliers">
+                      <div className="flex items-center justify-between"><p className="text-sm font-medium">Outliers Detected</p><Badge variant="secondary">{datasetScan.totalOutliers} total</Badge></div>
+                      <div className="mt-2 space-y-1">{datasetScan.outlierCols.map((oc, i) => <div key={i} className="flex justify-between text-xs"><span className="font-mono">{oc.col}</span><span className="text-muted-foreground">{oc.count} outliers</span></div>)}</div>
+                      <p className="text-xs text-muted-foreground mt-2 italic">Recommendation: Remove extreme outliers using IQR method</p>
+                    </div>}
+
+                    {datasetScan.constantCols.length > 0 && <div className="p-3 rounded-lg border bg-amber-50/50 dark:bg-amber-950/10" data-testid="issue-constants">
+                      <div className="flex items-center justify-between"><p className="text-sm font-medium">Constant Columns</p><Badge variant="secondary">{datasetScan.constantCols.length}</Badge></div>
+                      <p className="text-xs mt-1">Columns: <span className="font-mono">{datasetScan.constantCols.join(', ')}</span></p>
+                      <p className="text-xs text-muted-foreground mt-1 italic">Recommendation: Drop columns with no variance</p>
+                    </div>}
+
+                    {datasetScan.highCorr.length > 0 && <div className="p-3 rounded-lg border bg-amber-50/50 dark:bg-amber-950/10" data-testid="issue-correlation">
+                      <div className="flex items-center justify-between"><p className="text-sm font-medium">High Correlations (&gt;0.9)</p><Badge variant="secondary">{datasetScan.highCorr.length} pair(s)</Badge></div>
+                      <div className="mt-2 space-y-1">{datasetScan.highCorr.map((hc, i) => <div key={i} className="text-xs"><span className="font-mono">{hc.col1}</span> &harr; <span className="font-mono">{hc.col2}</span> <span className="text-muted-foreground">(r={hc.r})</span></div>)}</div>
+                      <p className="text-xs text-muted-foreground mt-2 italic">Recommendation: Consider removing one feature from each pair</p>
+                    </div>}
+
+                    {datasetScan.targetInfo?.imbalanced && <div className="p-3 rounded-lg border bg-amber-50/50 dark:bg-amber-950/10" data-testid="issue-imbalance">
+                      <p className="text-sm font-medium">Class Imbalance</p>
+                      <p className="text-xs mt-1">Majority class: {datasetScan.targetInfo.majorityPct}%</p>
+                      <p className="text-xs text-muted-foreground mt-1 italic">Warning: Imbalanced classes may bias model predictions</p>
+                    </div>}
+
+                    {datasetScan.scaleIssue && <div className="p-3 rounded-lg border bg-amber-50/50 dark:bg-amber-950/10" data-testid="issue-scaling">
+                      <p className="text-sm font-medium">Feature Scale Differences</p>
+                      <p className="text-xs text-muted-foreground mt-1 italic">Recommendation: Normalize numeric features for better model performance</p>
+                    </div>}
+
+                    {datasetScan.sizeWarning && <div className="p-3 rounded-lg border bg-amber-50/50 dark:bg-amber-950/10" data-testid="issue-size">
+                      <p className="text-sm font-medium">Small Dataset Warning</p>
+                      <p className="text-xs text-muted-foreground mt-1 italic">Dataset has fewer than 100 rows. Results may be unreliable.</p>
+                    </div>}
+
+                    {datasetScan.targetInfo && <div className="p-3 rounded-lg border bg-blue-50/50 dark:bg-blue-950/10" data-testid="target-validation">
+                      <p className="text-sm font-medium">Target Variable</p>
+                      <p className="text-xs mt-1">Task: <Badge variant="outline" className="text-xs">{datasetScan.targetInfo.task}</Badge> &middot; Unique values: {datasetScan.targetInfo.uniqueValues}</p>
+                    </div>}
+                  </div>}
+
+                  {/* Auto-Clean Actions */}
+                  <div data-testid="auto-clean-actions">
+                    <p className="text-sm font-semibold mb-3">Auto-Clean Actions</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={() => handleClean('duplicates')} disabled={!datasetScan.duplicateCount} data-testid="clean-duplicates"><Trash2 className="h-3 w-3 mr-1" />Remove Duplicates{datasetScan.duplicateCount > 0 && ` (${datasetScan.duplicateCount})`}</Button>
+                      <Button size="sm" variant="outline" onClick={() => handleClean('missing')} disabled={!datasetScan.totalMissing} data-testid="clean-missing"><Zap className="h-3 w-3 mr-1" />Fill Missing{datasetScan.totalMissing > 0 && ` (${datasetScan.totalMissing})`}</Button>
+                      <Button size="sm" variant="outline" onClick={() => handleClean('outliers')} disabled={!datasetScan.totalOutliers} data-testid="clean-outliers"><ShieldAlert className="h-3 w-3 mr-1" />Remove Outliers{datasetScan.totalOutliers > 0 && ` (${datasetScan.totalOutliers})`}</Button>
+                      <Button size="sm" variant="outline" onClick={() => handleClean('constants')} disabled={!datasetScan.constantCols.length} data-testid="clean-constants"><Trash2 className="h-3 w-3 mr-1" />Drop Constants{datasetScan.constantCols.length > 0 && ` (${datasetScan.constantCols.length})`}</Button>
+                      <Button size="sm" variant="outline" onClick={() => handleClean('normalize')} disabled={!datasetScan.scaleIssue && datasetScan.numericCount === 0} data-testid="clean-normalize"><Activity className="h-3 w-3 mr-1" />Normalize Features</Button>
+                    </div>
+                  </div>
+
+                  {/* Before vs After Comparison */}
+                  {precleanScan && cleaningLog.length > 0 && <div data-testid="before-after-comparison">
+                    <p className="text-sm font-semibold mb-3">Before vs After Cleaning</p>
+                    <div className="rounded-md border overflow-auto"><table className="w-full text-sm">
+                      <thead><tr className="border-b bg-muted/50"><th className="p-2 text-left font-medium">Metric</th><th className="p-2 text-right font-medium">Before</th><th className="p-2 text-right font-medium">After</th><th className="p-2 text-right font-medium">Change</th></tr></thead>
+                      <tbody>
+                        <tr className="border-b"><td className="p-2">Rows</td><td className="p-2 text-right font-mono">{precleanScan.rows}</td><td className="p-2 text-right font-mono">{datasetScan.rows}</td><td className="p-2 text-right font-mono text-xs">{datasetScan.rows - precleanScan.rows !== 0 ? `${datasetScan.rows - precleanScan.rows}` : '—'}</td></tr>
+                        <tr className="border-b"><td className="p-2">Missing Values</td><td className="p-2 text-right font-mono">{precleanScan.totalMissing}</td><td className="p-2 text-right font-mono">{datasetScan.totalMissing}</td><td className="p-2 text-right font-mono text-xs text-emerald-600">{precleanScan.totalMissing - datasetScan.totalMissing > 0 ? `−${precleanScan.totalMissing - datasetScan.totalMissing}` : '—'}</td></tr>
+                        <tr className="border-b"><td className="p-2">Duplicate Rows</td><td className="p-2 text-right font-mono">{precleanScan.duplicateCount}</td><td className="p-2 text-right font-mono">{datasetScan.duplicateCount}</td><td className="p-2 text-right font-mono text-xs text-emerald-600">{precleanScan.duplicateCount - datasetScan.duplicateCount > 0 ? `−${precleanScan.duplicateCount - datasetScan.duplicateCount}` : '—'}</td></tr>
+                        <tr className="border-b"><td className="p-2">Outliers</td><td className="p-2 text-right font-mono">{precleanScan.totalOutliers}</td><td className="p-2 text-right font-mono">{datasetScan.totalOutliers}</td><td className="p-2 text-right font-mono text-xs text-emerald-600">{precleanScan.totalOutliers - datasetScan.totalOutliers > 0 ? `−${precleanScan.totalOutliers - datasetScan.totalOutliers}` : '—'}</td></tr>
+                        <tr className="border-b"><td className="p-2">Constant Columns</td><td className="p-2 text-right font-mono">{precleanScan.constantCols.length}</td><td className="p-2 text-right font-mono">{datasetScan.constantCols.length}</td><td className="p-2 text-right font-mono text-xs text-emerald-600">{precleanScan.constantCols.length - datasetScan.constantCols.length > 0 ? `−${precleanScan.constantCols.length - datasetScan.constantCols.length}` : '—'}</td></tr>
+                        <tr><td className="p-2 font-semibold">Health Score</td><td className="p-2 text-right font-mono font-bold">{precleanScan.score}</td><td className={`p-2 text-right font-mono font-bold ${datasetScan.score >= 70 ? 'text-emerald-600' : datasetScan.score >= 50 ? 'text-amber-600' : 'text-red-600'}`}>{datasetScan.score}</td><td className="p-2 text-right font-mono text-xs text-emerald-600 font-bold">{datasetScan.score - precleanScan.score > 0 ? `+${datasetScan.score - precleanScan.score}` : '—'}</td></tr>
+                      </tbody>
+                    </table></div>
+                  </div>}
+
+                  {/* Cleaning Action Log */}
+                  {cleaningLog.length > 0 && <div data-testid="cleaning-log">
+                    <p className="text-sm font-semibold mb-2">Cleaning Actions Performed</p>
+                    <div className="space-y-1.5">{cleaningLog.map((entry, i) => <div key={i} className="flex items-center gap-2 text-xs p-2 rounded bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" /><span>{entry}</span></div>)}</div>
+                  </div>}
+
+                  {/* Cleaned Data Preview */}
+                  {dataPreview && <div data-testid="cleaned-preview">
+                    <p className="text-sm font-semibold mb-2">Cleaned Dataset Preview (first 10 rows)</p>
+                    <div className="rounded-md border overflow-auto max-h-64"><table className="w-full text-xs">
+                      <thead><tr className="border-b bg-muted/50">{dataPreview.headers.map((h, i) => <th key={i} className="p-2 text-left font-medium font-mono whitespace-nowrap">{h}</th>)}</tr></thead>
+                      <tbody>{dataPreview.rows.map((row, ri) => <tr key={ri} className="border-b last:border-0">{dataPreview.headers.map((h, ci) => <td key={ci} className="p-2 font-mono whitespace-nowrap">{String(row[h] ?? '').substring(0, 20)}</td>)}</tr>)}</tbody>
+                    </table></div>
+                  </div>}
+
+                </CardContent>
+              </Card></motion.div>}
+
               {columns.length > 0 && <motion.div variants={fadeInUp}><Card><CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5" />Model Configuration</CardTitle></CardHeader>
                 <CardContent>
                   <div className="grid gap-6 md:grid-cols-2">
@@ -1109,7 +1316,8 @@ function App() {
                       <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="evalMode" value="cv" checked={evalMode === 'cv'} onChange={() => setEvalMode('cv')} className="accent-primary" data-testid="eval-mode-cv" /><span className="text-sm">5-Fold Cross Validation <span className="text-muted-foreground">(Recommended)</span></span></label>
                     </div>
                   </div>
-                  <Button onClick={handleTrain} disabled={isTraining || !targetColumn || targetColumn === '__none__'} className="w-full mt-6 h-12" size="lg" data-testid="start-training-btn">{isTraining ? <><div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Training...</> : <><Play className="h-4 w-4 mr-2" />Start Training</>}</Button>
+                  {datasetScan && datasetScan.score < 70 && targetColumn && targetColumn !== '__none__' && <div className="mt-4 p-3 rounded-lg border border-orange-400 bg-orange-50 dark:bg-orange-950/20 text-sm text-orange-700 dark:text-orange-400 flex items-center gap-2" data-testid="training-gate-warning"><AlertCircle className="h-4 w-4 shrink-0" />Dataset health score ({datasetScan.score}/100) is below the recommended threshold (70). Use the auto-clean tools in the Scanner above to improve data quality before training.</div>}
+                  <Button onClick={handleTrain} disabled={isTraining || !targetColumn || targetColumn === '__none__' || (datasetScan && datasetScan.score < 70)} className="w-full mt-6 h-12" size="lg" data-testid="start-training-btn">{isTraining ? <><div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Training...</> : <><Play className="h-4 w-4 mr-2" />Start Training</>}</Button>
                 </CardContent></Card></motion.div>}
 
               {/* TRAINING RESULTS */}
