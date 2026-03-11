@@ -5,86 +5,68 @@ Build a 100% client-side Universal AI Dashboard in React. All ML analysis runs d
 
 ## Architecture
 - **Frontend**: React + Tailwind CSS + Shadcn UI + Recharts + Framer Motion
-- **ML Engine**: Client-side JS (Linear/Ridge/Logistic Regression, Decision Tree, Random Forest, Gradient Boosting, KNN, SVM, Naive Bayes, K-Means, Anomaly Detection)
+- **ML Engine**: Client-side JS (11 algorithms + K-Fold CV)
 - **Storage**: React state + localStorage persistence
 - **Backend**: DEPRECATED (not used)
 
 ## Core Features Implemented
 
 ### Phase 1 - Bug Fixes (Completed)
-- [x] Fix Predictions tab navigation
-- [x] Fix model persistence
-- [x] Fix Total Models dashboard metric
-- [x] Fix trend indicators
-- [x] Fix Predictions page auto-uses latest model
+- [x] Fix Predictions tab, model persistence, dashboard metrics, trend indicators
 
 ### Phase 2 - Universal Dashboard (Completed)
-- [x] Universal Analysis Engine: Auto-profiles datasets
-- [x] K-Means Clustering Dashboard
-- [x] Anomaly Detection Module (Z-Score/IQR)
-- [x] localStorage Persistence with race condition fix
-- [x] Sample datasets
+- [x] Universal Analysis Engine, K-Means Clustering, Anomaly Detection, localStorage Persistence, Sample datasets
 
 ### Phase 3 - Supervised Learning Engine (Completed - Feb 2026)
-- [x] Automatic task detection: Regression vs Classification
-- [x] 80/20 Train-Test Split
-- [x] Regression: Linear Regression, Ridge Regression
-- [x] Classification: Logistic Regression, Decision Tree
-- [x] Regression metrics: R², MAE, RMSE
-- [x] Classification metrics: Accuracy, Precision, Recall, Confusion Matrix
+- [x] Auto task detection, 80/20 train-test split
+- [x] Regression: Linear, Ridge | Classification: Logistic, Decision Tree
+- [x] Metrics: R², MAE, RMSE, Accuracy, Precision, Recall, Confusion Matrix
 - [x] Algorithm Leaderboard, Feature Importance, Data Leakage Prevention
 
 ### Phase 4 - Advanced Algorithms & Visual Explainability (Completed - Feb 2026)
-- [x] **New Regression Algorithms:** Decision Tree Regressor, Random Forest Regressor, Gradient Boosting Regressor
-- [x] **New Classification Algorithms:** Random Forest Classifier, KNN Classifier, SVM (Linear), Naive Bayes (Gaussian)
-- [x] **F1 Score** (Macro + Per-Class) added to classification metrics
-- [x] **Model Comparison Bar Chart** with color-coded algorithm bars and explanation
-- [x] **Confusion Matrix Heatmap** with green diagonal (correct) / red off-diagonal (errors) + explanation
-- [x] **Actual vs Predicted Scatter Plot** with perfect-fit reference line + explanation
-- [x] **Residual Plot** with y=0 reference line + explanation
-- [x] **Feature Importance Chart** with explanation (especially for tree-based models)
-- [x] **Graph Explanations** on every visualization (3-4 line plain-English descriptions)
-- [x] **Algorithm Dropdown** with optgroups (Regression, Classification, Both)
-- [x] **Human-readable Algorithm Names** across all views (ALGO_NAMES constant)
-- [x] **Best Model Highlighting** in leaderboard with colored border and label
-- [x] Auto mode trains ALL relevant algorithms and selects the best
+- [x] Regression: Decision Tree Regressor, Random Forest Regressor, Gradient Boosting Regressor
+- [x] Classification: Random Forest Classifier, KNN, SVM (Linear), Naive Bayes (Gaussian)
+- [x] F1 Score (Macro + Per-Class)
+- [x] Model Comparison Bar Chart, Confusion Matrix Heatmap, Actual vs Predicted with reference line
+- [x] Graph explanations on all visualizations, human-readable algorithm names (ALGO_NAMES)
+
+### Phase 5 - K-Fold Cross Validation (Completed - Feb 2026)
+- [x] Reusable `kFoldCrossValidation(X, y, k, trainFn, problemType)` function
+- [x] `buildModelForAlgo` helper for DRY model training
+- [x] Evaluation Mode selector: Train/Test Split (Fast) vs 5-Fold CV (Recommended)
+- [x] CV applied to all 11 supervised algorithms (5 regression + 6 classification)
+- [x] CV scores displayed in leaderboard (green "CV: XX.XX%" text)
+- [x] Best model selected by CV score when CV mode is active
+- [x] Cross-Validation Performance Chart (dual bars: CV Score + Test Score)
+- [x] Chart explanation text for CV
+- [x] Split info banner updated for CV mode
+- [x] Default remains Train/Test Split for fast execution
 
 ## Algorithms Available
 ### Regression (Auto trains all)
-- Linear Regression, Ridge Regression, Decision Tree, Random Forest, Gradient Boosting, Baseline
+Linear Regression, Ridge Regression, Decision Tree, Random Forest, Gradient Boosting, Baseline
 
 ### Classification (Auto trains all)
-- Logistic Regression, Decision Tree, Random Forest, KNN, SVM (Linear), Naive Bayes, Baseline
-
-## Sidebar Navigation (6 tabs)
-1. Dashboard - ML operations overview
-2. Analysis - Upload data, auto-profile, train models
-3. Predictions - Generate predictions from trained models
-4. Clusters - K-Means clustering dashboard
-5. Anomalies - Outlier detection with Z-score/IQR
-6. Model Library - Manage trained models
+Logistic Regression, Decision Tree, Random Forest, KNN, SVM (Linear), Naive Bayes, Baseline
 
 ## Test Results
-- Phase 1: 21/21 tests passed
-- Phase 2: 21/21 tests passed
-- Phase 3: 25/25 tests passed (iteration_4.json)
-- Phase 4: 18/20 tests passed, 2 partial (iteration_5.json)
+- Phase 3: 25/25 passed (iteration_4.json)
+- Phase 4: 18/20 passed, 2 partial (iteration_5.json)
+- Phase 5: 20/20 passed (iteration_6.json)
 
 ## Tech Stack
-- React 18, Tailwind CSS, Shadcn UI, Recharts, Framer Motion
-- simple-statistics, ml-kmeans, danfojs
+React 18, Tailwind CSS, Shadcn UI, Recharts, Framer Motion, simple-statistics, ml-kmeans, danfojs
 
 ## Key File
-- `/app/frontend/src/App.js` - All application logic (~950+ lines)
+`/app/frontend/src/App.js` — All application logic (~1100 lines)
 
 ## Upcoming Tasks
-- [ ] P1: Refactor App.js into modular components (AnalysisTab, ClusteringTab, etc.)
+- [ ] P1: Refactor App.js into modular components
 
 ## Future/Backlog
 - [ ] Unsupervised: Hierarchical Clustering, DBSCAN, PCA
 - [ ] Batch predictions from CSV upload
 - [ ] Export reports as PDF
 - [ ] Dark mode toggle
-- [ ] Data visualization tab (histograms, correlation matrix)
+- [ ] Data visualization tab
 - [ ] Model comparison dashboard (dedicated page)
-- [ ] Text processing (TF-IDF)
