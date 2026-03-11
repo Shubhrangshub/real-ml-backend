@@ -13,7 +13,7 @@
     "axios": "^1.6.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "danfojs-node": "^1.2.0",
+    "danfojs": "^1.2.0",
     "framer-motion": "^12.29.0",
     "lucide-react": "^0.563.0",
     "ml-kmeans": "^7.0.0",
