@@ -24,6 +24,24 @@ const staggerContainer = { animate: { transition: { staggerChildren: 0.1 } } };
 const ALGO_NAMES = { linear_regression: 'Linear Regression', ridge_regression: 'Ridge Regression', logistic_regression: 'Logistic Regression', decision_tree: 'Decision Tree', random_forest: 'Random Forest', random_forest_regressor: 'Random Forest', random_forest_classifier: 'Random Forest', gradient_boosting: 'Gradient Boosting', knn: 'KNN', svm: 'SVM', naive_bayes: 'Naive Bayes', baseline: 'Baseline' };
 const ALGO_COLORS = { linear_regression: '#2563eb', ridge_regression: '#7c3aed', logistic_regression: '#2563eb', decision_tree: '#16a34a', random_forest_regressor: '#059669', random_forest_classifier: '#059669', gradient_boosting: '#d97706', knn: '#dc2626', svm: '#9333ea', naive_bayes: '#0891b2', baseline: '#6b7280' };
 
+const METRIC_EXPLANATIONS = {
+  r2: { name: 'R\u00B2 Score', description: 'Measures how well the model explains variance in the data. 1.0 = perfect predictions, 0 = no better than predicting the average.', higherBetter: true },
+  mae: { name: 'Mean Absolute Error', description: 'The average size of prediction errors. Lower values mean predictions are closer to actual values.', higherBetter: false },
+  rmse: { name: 'Root Mean Squared Error', description: 'Like MAE but penalizes larger errors more. Lower is better.', higherBetter: false },
+  accuracy: { name: 'Accuracy', description: 'Percentage of predictions that were exactly correct. 100% = every prediction was right.', higherBetter: true },
+  precision: { name: 'Precision', description: 'When the model predicts a class, how often is it correct? High precision = fewer false alarms.', higherBetter: true },
+  recall: { name: 'Recall', description: 'Of all actual positives, how many did the model find? High recall = fewer missed cases.', higherBetter: true },
+  f1: { name: 'F1 Score', description: 'Harmonic mean of precision and recall. Best when both false positives and false negatives matter.', higherBetter: true },
+};
+
+function getScoreColor(score, higherBetter = true) {
+  const s = higherBetter ? score : Math.max(0, 1 - score);
+  if (s >= 0.9) return { bg: 'bg-emerald-50 dark:bg-emerald-950/30', border: 'border-emerald-300 dark:border-emerald-800', text: 'text-emerald-700 dark:text-emerald-400', label: 'Excellent' };
+  if (s >= 0.7) return { bg: 'bg-sky-50 dark:bg-sky-950/30', border: 'border-sky-300 dark:border-sky-800', text: 'text-sky-700 dark:text-sky-400', label: 'Good' };
+  if (s >= 0.5) return { bg: 'bg-amber-50 dark:bg-amber-950/30', border: 'border-amber-300 dark:border-amber-800', text: 'text-amber-700 dark:text-amber-400', label: 'Fair' };
+  return { bg: 'bg-red-50 dark:bg-red-950/30', border: 'border-red-300 dark:border-red-800', text: 'text-red-700 dark:text-red-400', label: 'Needs Work' };
+}
+
 // ==================== CLIENT-SIDE ML ENGINE ====================
 
 function generateId() {
@@ -736,7 +754,7 @@ function App() {
   const [isTraining, setIsTraining] = useState(false);
   const [trainingResult, setTrainingResult] = useState(null);
   const [models, setModels] = useState([]);
-  const [predictionInput, setPredictionInput] = useState('');
+  const [predictionFormData, setPredictionFormData] = useState({});
   const [predictionResult, setPredictionResult] = useState(null);
   const [numClusters, setNumClusters] = useState(3);
   const [clusterResult, setClusterResult] = useState(null);
@@ -943,18 +961,18 @@ function App() {
     setError(''); setPredictionResult(null);
     const am = models[models.length - 1];
     if (!am) { setError('No trained model available.'); return; }
-    if (!predictionInput) { setError('Please provide prediction data'); return; }
     try {
-      const rawData = JSON.parse(predictionInput);
-      const items = Array.isArray(rawData) ? rawData : [rawData];
-      const fvs = prepareInputForPrediction(items, am.modelData);
+      const row = {};
+      am.modelData.numericCols.forEach(col => { row[col] = Number(predictionFormData[col]) || 0; });
+      am.modelData.categoricalCols.forEach(col => { row[col] = predictionFormData[col] || ''; });
+      const fvs = prepareInputForPrediction([row], am.modelData);
       const predictions = fvs.map(x => {
         const raw = predictOne(am.modelData, x);
         return am.modelData.targetEncoding ? am.modelData.targetEncoding[raw] : raw;
       });
       const sigmoid = (z) => 1 / (1 + Math.exp(-Math.max(-500, Math.min(500, z))));
       const probabilities = am.modelData.type === 'logistic_regression' ? fvs.map(x => { const z = am.modelData.coefficients[0] + x.reduce((s, v, i) => s + v * am.modelData.coefficients[i + 1], 0); const p = sigmoid(z); return [1 - p, p]; }) : null;
-      setPredictionResult({ status: 'success', modelId: am.modelId, algorithm: am.algorithm, predictions, probabilities, problemType: am.problemType });
+      setPredictionResult({ status: 'success', modelId: am.modelId, algorithm: am.algorithm, predictions, probabilities, problemType: am.problemType, inputData: row });
     } catch (err) { setError('Prediction failed: ' + err.message); }
   };
 
@@ -983,13 +1001,29 @@ function App() {
     </div></CardContent></Card>
   );
 
-  // Metric display helper
-  const MetricCard = ({ label, value, isBetter }) => (
-    <div className={`rounded-lg p-3 ${isBetter === false ? 'bg-destructive/10' : 'bg-muted/50'}`}>
-      <p className="text-xs text-muted-foreground uppercase">{label}</p>
-      <p className="text-lg font-bold">{value}</p>
-    </div>
-  );
+  // Metric display helper with color coding and tooltips
+  const MetricCard = ({ label, value, score, metricKey }) => {
+    const explanation = METRIC_EXPLANATIONS[metricKey];
+    const color = score !== undefined ? getScoreColor(score, explanation?.higherBetter !== false) : null;
+    return (
+      <div className={`rounded-xl p-4 border-2 transition-all ${color ? `${color.bg} ${color.border}` : 'bg-muted/50 border-transparent'}`} data-testid={`metric-${metricKey || label}`}>
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</p>
+          {explanation && (
+            <div className="group relative">
+              <Info className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help hover:text-foreground transition-colors" />
+              <div className="invisible group-hover:visible opacity-0 group-hover:opacity-100 absolute z-50 bottom-full right-0 mb-2 w-64 p-3 rounded-lg bg-popover border shadow-lg text-xs text-popover-foreground transition-all duration-200 pointer-events-none">
+                <p className="font-semibold mb-1">{explanation.name}</p>
+                <p className="text-muted-foreground leading-relaxed">{explanation.description}</p>
+              </div>
+            </div>
+          )}
+        </div>
+        <p className={`text-2xl font-bold ${color ? color.text : ''}`}>{value}</p>
+        {color && <div className={`inline-flex items-center gap-1 mt-1.5 text-xs font-semibold ${color.text}`}>{color.label === 'Excellent' || color.label === 'Good' ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}{color.label}</div>}
+      </div>
+    );
+  };
 
   // ==================== RENDER ====================
   return (
@@ -1321,7 +1355,8 @@ function App() {
                 </CardContent></Card></motion.div>}
 
               {/* TRAINING RESULTS */}
-              {trainingResult && <motion.div variants={fadeInUp} initial="initial" animate="animate" data-testid="training-results"><Card className="border-2 border-primary"><CardHeader><CardTitle className="flex items-center gap-2 text-primary"><Sparkles className="h-5 w-5" />Training Complete!</CardTitle></CardHeader>
+              {trainingResult && <motion.div variants={fadeInUp} initial="initial" animate="animate" data-testid="training-results"><Card className="border-2 border-primary"><CardHeader><CardTitle className="flex items-center gap-2 text-primary"><Sparkles className="h-5 w-5" />Training Complete!</CardTitle>
+                <CardDescription className="text-sm mt-2">Your <strong>{trainingResult.problemType}</strong> model was trained on {trainingResult.dataInfo?.numSamples} samples in {trainingResult.totalTime?.toFixed(2)}s. The best algorithm is <strong>{ALGO_NAMES[trainingResult.bestModel?.algorithm] || trainingResult.bestModel?.algorithm}</strong> with {trainingResult.problemType === 'regression' ? `an R\u00B2 of ${(trainingResult.bestModel.testMetrics.r2 * 100).toFixed(1)}%` : `${(trainingResult.bestModel.testMetrics.accuracy * 100).toFixed(1)}% accuracy`}.</CardDescription></CardHeader>
                 <CardContent className="space-y-6">
                   {/* Summary Cards */}
                   <div className="grid gap-4 md:grid-cols-4">
@@ -1341,28 +1376,28 @@ function App() {
                   {trainingResult.dataInfo?.removedLeakageColumns?.length > 0 && <Card className="border-2 border-orange-500 bg-orange-50 dark:bg-orange-950" data-testid="leakage-warning"><CardContent className="p-4"><div className="flex items-start gap-3"><AlertCircle className="h-6 w-6 text-orange-600 mt-0.5 shrink-0" /><div><p className="font-semibold text-orange-900 dark:text-orange-100">Data Leakage Prevention</p><div className="flex flex-wrap gap-2 mt-2">{trainingResult.dataInfo.removedLeakageColumns.map((col, idx) => <Badge key={idx} variant="outline" className="bg-orange-100 dark:bg-orange-900">{col}</Badge>)}</div></div></div></CardContent></Card>}
 
                   {/* Test Metrics */}
-                  <Card><CardHeader><CardTitle className="text-lg">Test Set Metrics (Best Model)</CardTitle><CardDescription>Evaluated on {trainingResult.splitInfo?.testSize} held-out samples</CardDescription></CardHeader>
+                  <Card><CardHeader><CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="h-4 w-4" />How Well Did My Model Perform?</CardTitle><CardDescription>These metrics show how accurately {ALGO_NAMES[trainingResult.bestModel?.algorithm]} predicts on {trainingResult.splitInfo?.testSize} unseen test samples. Green = great, amber = okay, red = needs improvement.</CardDescription></CardHeader>
                     <CardContent>
                       {trainingResult.problemType === 'regression' ? (
                         <div className="grid gap-3 md:grid-cols-3" data-testid="test-metrics-grid">
-                          <MetricCard label="R² Score" value={`${(trainingResult.bestModel.testMetrics.r2 * 100).toFixed(2)}%`} />
-                          <MetricCard label="MAE" value={trainingResult.bestModel.testMetrics.mae.toFixed(2)} />
-                          <MetricCard label="RMSE" value={trainingResult.bestModel.testMetrics.rmse.toFixed(2)} />
+                          <MetricCard label="R\u00B2 Score" value={`${(trainingResult.bestModel.testMetrics.r2 * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.r2} metricKey="r2" />
+                          <MetricCard label="MAE" value={trainingResult.bestModel.testMetrics.mae.toFixed(2)} metricKey="mae" />
+                          <MetricCard label="RMSE" value={trainingResult.bestModel.testMetrics.rmse.toFixed(2)} metricKey="rmse" />
                         </div>
                       ) : (
                         <div className="space-y-4">
                           <div className="grid gap-3 md:grid-cols-4" data-testid="test-metrics-grid">
-                            <MetricCard label="Accuracy" value={`${(trainingResult.bestModel.testMetrics.accuracy * 100).toFixed(2)}%`} />
-                            <MetricCard label="Precision (Macro)" value={`${(trainingResult.bestModel.testMetrics.precision * 100).toFixed(2)}%`} />
-                            <MetricCard label="Recall (Macro)" value={`${(trainingResult.bestModel.testMetrics.recall * 100).toFixed(2)}%`} />
-                            <MetricCard label="F1 Score (Macro)" value={`${(trainingResult.bestModel.testMetrics.f1 * 100).toFixed(2)}%`} data-testid="f1-score" />
+                            <MetricCard label="Accuracy" value={`${(trainingResult.bestModel.testMetrics.accuracy * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.accuracy} metricKey="accuracy" />
+                            <MetricCard label="Precision" value={`${(trainingResult.bestModel.testMetrics.precision * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.precision} metricKey="precision" />
+                            <MetricCard label="Recall" value={`${(trainingResult.bestModel.testMetrics.recall * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.recall} metricKey="recall" />
+                            <MetricCard label="F1 Score" value={`${(trainingResult.bestModel.testMetrics.f1 * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.f1} metricKey="f1" />
                           </div>
 
                           {/* Confusion Matrix Heatmap */}
                           {trainingResult.bestModel.testMetrics.confusionMatrix && (
                             <div data-testid="confusion-matrix">
-                              <p className="text-sm font-medium mb-2">Confusion Matrix Heatmap</p>
-                              <p className="text-xs text-muted-foreground mb-4">This heatmap shows how many predictions were correct and incorrect for each class. Diagonal values (highlighted in green) represent correct predictions. Off-diagonal values (in red) indicate misclassifications between classes.</p>
+                              <p className="text-sm font-medium mb-2 flex items-center gap-2"><Target className="h-4 w-4" />Confusion Matrix</p>
+                              <p className="text-xs text-muted-foreground mb-4">Green cells on the diagonal = correct predictions. Red cells = misclassifications. A perfect model would only have green diagonal cells.</p>
                               <div className="overflow-auto"><table className="text-sm border-collapse">
                                 <thead><tr><td className="p-2"></td><td className="p-2 text-xs text-center text-muted-foreground font-medium" colSpan={trainingResult.bestModel.testMetrics.confusionMatrix.classes.length}>Predicted</td></tr>
                                 <tr><td className="p-2 text-xs text-muted-foreground font-medium">Actual</td>{trainingResult.bestModel.testMetrics.confusionMatrix.classes.map((cls, i) => <td key={i} className="p-2 text-center font-mono text-xs font-medium min-w-[60px]">{trainingResult.bestModel.testMetrics.confusionMatrix.classes.length <= 2 && trainingResult.problemType === 'classification' && models[models.length - 1]?.modelData?.targetEncoding ? models[models.length - 1].modelData.targetEncoding[cls] : cls}</td>)}</tr></thead>
@@ -1395,44 +1430,46 @@ function App() {
                     </CardContent></Card>
 
                   {/* Train vs Test Comparison */}
-                  <Card><CardHeader><CardTitle className="text-lg">Train vs Test Comparison</CardTitle><CardDescription>Detect overfitting by comparing metrics</CardDescription></CardHeader>
+                  <Card><CardHeader><CardTitle className="text-lg flex items-center gap-2"><SplitSquareVertical className="h-4 w-4" />Train vs Test Comparison</CardTitle><CardDescription>If training scores are much higher than test scores, the model may be overfitting (memorizing data instead of learning patterns).</CardDescription></CardHeader>
                     <CardContent>
-                      <div className="rounded-md border" data-testid="train-test-comparison"><table className="w-full text-sm"><thead><tr className="border-b bg-muted/50"><th className="p-3 text-left font-medium">Metric</th><th className="p-3 text-right font-medium">Train</th><th className="p-3 text-right font-medium">Test</th></tr></thead>
-                      <tbody>{Object.keys(trainingResult.bestModel.testMetrics).filter(k => typeof trainingResult.bestModel.testMetrics[k] === 'number').map(k => (
-                        <tr key={k} className="border-b last:border-0"><td className="p-3 text-xs uppercase">{k.replace(/_/g, ' ')}</td>
-                        <td className="p-3 text-right font-mono">{k === 'accuracy' || k === 'precision' || k === 'recall' || k === 'r2' ? `${(trainingResult.bestModel.trainMetrics[k] * 100).toFixed(2)}%` : trainingResult.bestModel.trainMetrics[k]?.toFixed(2)}</td>
-                        <td className="p-3 text-right font-mono font-bold">{k === 'accuracy' || k === 'precision' || k === 'recall' || k === 'r2' ? `${(trainingResult.bestModel.testMetrics[k] * 100).toFixed(2)}%` : trainingResult.bestModel.testMetrics[k]?.toFixed(2)}</td></tr>
-                      ))}</tbody></table></div>
+                      <div className="rounded-md border" data-testid="train-test-comparison"><table className="w-full text-sm"><thead><tr className="border-b bg-muted/50"><th className="p-3 text-left font-medium">Metric</th><th className="p-3 text-right font-medium">Train</th><th className="p-3 text-right font-medium">Test</th><th className="p-3 text-right font-medium">Gap</th></tr></thead>
+                      <tbody>{Object.keys(trainingResult.bestModel.testMetrics).filter(k => typeof trainingResult.bestModel.testMetrics[k] === 'number').map(k => {
+                        const isPercent = k === 'accuracy' || k === 'precision' || k === 'recall' || k === 'r2' || k === 'f1';
+                        const trainVal = trainingResult.bestModel.trainMetrics[k] || 0;
+                        const testVal = trainingResult.bestModel.testMetrics[k] || 0;
+                        const gap = isPercent ? ((trainVal - testVal) * 100) : (trainVal - testVal);
+                        const isOverfit = isPercent ? gap > 15 : false;
+                        return (
+                        <tr key={k} className={`border-b last:border-0 ${isOverfit ? 'bg-red-50 dark:bg-red-950/10' : ''}`}><td className="p-3 text-xs uppercase font-medium">{k.replace(/_/g, ' ')}</td>
+                        <td className="p-3 text-right font-mono">{isPercent ? `${(trainVal * 100).toFixed(2)}%` : trainVal?.toFixed(2)}</td>
+                        <td className="p-3 text-right font-mono font-bold">{isPercent ? `${(testVal * 100).toFixed(2)}%` : testVal?.toFixed(2)}</td>
+                        <td className={`p-3 text-right font-mono text-xs ${isOverfit ? 'text-red-600 font-semibold' : 'text-muted-foreground'}`}>{isPercent ? `${gap > 0 ? '+' : ''}${gap.toFixed(1)}pp` : `${gap > 0 ? '+' : ''}${gap.toFixed(2)}`}{isOverfit && ' (overfit)'}</td></tr>);
+                      })}</tbody></table></div>
                     </CardContent></Card>
 
                   {/* Regression Visualizations */}
                   {trainingResult.problemType === 'regression' && trainingResult.predictionsVsActual && (<>
-                    <Card><CardHeader><CardTitle className="text-lg">Actual vs Predicted (Test Set)</CardTitle></CardHeader><CardContent>
-                      <p className="text-xs text-muted-foreground mb-4">This scatter plot compares predicted values against actual values from the test set. Points close to the diagonal reference line indicate accurate predictions. Points further from the line suggest the model is over or under-predicting for those samples.</p>
-                      <ResponsiveContainer width="100%" height={300}><ScatterChart><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="actual" name="Actual" type="number" /><YAxis dataKey="predicted" name="Predicted" type="number" /><ZAxis range={[50, 50]} /><Tooltip /><ReferenceLine segment={[{ x: Math.min(...trainingResult.predictionsVsActual.actual), y: Math.min(...trainingResult.predictionsVsActual.actual) }, { x: Math.max(...trainingResult.predictionsVsActual.actual), y: Math.max(...trainingResult.predictionsVsActual.actual) }]} stroke="#9ca3af" strokeDasharray="5 5" label="Perfect Fit" /><Scatter name="Predictions" data={trainingResult.predictionsVsActual.actual.map((a, i) => ({ actual: a, predicted: trainingResult.predictionsVsActual.predicted[i] }))} fill="hsl(var(--primary))" /></ScatterChart></ResponsiveContainer></CardContent></Card>
-                    <Card><CardHeader><CardTitle className="text-lg">Residual Plot (Test Set)</CardTitle></CardHeader><CardContent>
-                      <p className="text-xs text-muted-foreground mb-4">This plot shows the difference between actual and predicted values (residuals). Points clustered around the zero line indicate a well-calibrated model. Patterns in the residuals may reveal systematic prediction errors.</p>
-                      <ResponsiveContainer width="100%" height={300}><ScatterChart><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="predicted" name="Predicted" type="number" /><YAxis dataKey="residual" name="Residual" type="number" /><ZAxis range={[50, 50]} /><Tooltip /><ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="5 5" /><Scatter name="Residuals" data={trainingResult.predictionsVsActual.predicted.map((p, i) => ({ predicted: p, residual: trainingResult.predictionsVsActual.actual[i] - p }))} fill="hsl(var(--chart-2))" /></ScatterChart></ResponsiveContainer></CardContent></Card>
+                    <Card><CardHeader><CardTitle className="text-lg flex items-center gap-2"><Target className="h-4 w-4" />Actual vs Predicted</CardTitle><CardDescription>Points on the diagonal line represent perfect predictions. Spread away from the line indicates prediction error.</CardDescription></CardHeader><CardContent>
+                      <ResponsiveContainer width="100%" height={300}><ScatterChart><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="actual" name="Actual" type="number" tick={{fontSize: 11}} /><YAxis dataKey="predicted" name="Predicted" type="number" tick={{fontSize: 11}} /><ZAxis range={[60, 60]} /><Tooltip cursor={{strokeDasharray: '3 3'}} /><ReferenceLine segment={[{ x: Math.min(...trainingResult.predictionsVsActual.actual), y: Math.min(...trainingResult.predictionsVsActual.actual) }, { x: Math.max(...trainingResult.predictionsVsActual.actual), y: Math.max(...trainingResult.predictionsVsActual.actual) }]} stroke="#22c55e" strokeDasharray="5 5" strokeWidth={2} /><Scatter name="Predictions" data={trainingResult.predictionsVsActual.actual.map((a, i) => ({ actual: a, predicted: trainingResult.predictionsVsActual.predicted[i] }))} fill="hsl(var(--primary))" /></ScatterChart></ResponsiveContainer></CardContent></Card>
+                    <Card><CardHeader><CardTitle className="text-lg flex items-center gap-2"><Activity className="h-4 w-4" />Residual Analysis</CardTitle><CardDescription>Points near the zero line mean accurate predictions. Patterns may reveal systematic errors.</CardDescription></CardHeader><CardContent>
+                      <ResponsiveContainer width="100%" height={300}><ScatterChart><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="predicted" name="Predicted" type="number" tick={{fontSize: 11}} /><YAxis dataKey="residual" name="Residual" type="number" tick={{fontSize: 11}} /><ZAxis range={[60, 60]} /><Tooltip cursor={{strokeDasharray: '3 3'}} /><ReferenceLine y={0} stroke="#22c55e" strokeDasharray="5 5" strokeWidth={2} /><Scatter name="Residuals" data={trainingResult.predictionsVsActual.predicted.map((p, i) => ({ predicted: p, residual: trainingResult.predictionsVsActual.actual[i] - p }))} fill="hsl(var(--chart-2))" /></ScatterChart></ResponsiveContainer></CardContent></Card>
                   </>)}
 
-                  {trainingResult.bestModel?.featureImportance?.length > 0 && <Card data-testid="feature-importance-chart"><CardHeader><CardTitle className="text-lg">Feature Importance</CardTitle></CardHeader><CardContent>
-                    <p className="text-xs text-muted-foreground mb-4">This chart shows which features had the greatest influence on the model's predictions. Taller bars indicate features that contributed more to the model's decision-making. Understanding feature importance helps identify key drivers in your data and can guide feature selection for improved models.</p>
-                    <ResponsiveContainer width="100%" height={300}><BarChart data={trainingResult.bestModel.featureImportance}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="feature" angle={-45} textAnchor="end" height={100} /><YAxis /><Tooltip /><Bar dataKey="importance" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></CardContent></Card>}
+                  {trainingResult.bestModel?.featureImportance?.length > 0 && <Card data-testid="feature-importance-chart"><CardHeader><CardTitle className="text-lg flex items-center gap-2"><TrendingUp className="h-4 w-4" />Which Features Matter Most?</CardTitle><CardDescription>Features ranked by their influence on predictions. Taller bars = more impact on the model's decisions.</CardDescription></CardHeader><CardContent>
+                    <ResponsiveContainer width="100%" height={300}><BarChart data={trainingResult.bestModel.featureImportance}><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="feature" angle={-45} textAnchor="end" height={100} tick={{fontSize: 11}} /><YAxis tickFormatter={v => `${(v * 100).toFixed(0)}%`} /><Tooltip formatter={(v) => `${(v * 100).toFixed(1)}%`} /><Bar dataKey="importance" radius={[6, 6, 0, 0]}>{trainingResult.bestModel.featureImportance.map((_, i) => <Cell key={i} fill={`hsl(${210 + i * 15}, 70%, ${45 + i * 3}%)`} />)}</Bar></BarChart></ResponsiveContainer></CardContent></Card>}
 
                   {/* Model Comparison Chart */}
-                  {trainingResult.leaderboard?.length > 1 && <Card data-testid="model-comparison-chart"><CardHeader><CardTitle className="text-lg">Model Comparison</CardTitle></CardHeader><CardContent>
-                    <p className="text-xs text-muted-foreground mb-4">This chart compares the performance of different machine learning models trained on your data. Higher bars indicate better predictive performance. The system automatically selects the best-performing model for predictions.</p>
+                  {trainingResult.leaderboard?.length > 1 && <Card data-testid="model-comparison-chart"><CardHeader><CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="h-4 w-4" />Model Comparison</CardTitle><CardDescription>Side-by-side comparison of all algorithms. The best model is automatically selected for predictions.</CardDescription></CardHeader><CardContent>
                     <ResponsiveContainer width="100%" height={300}><BarChart data={trainingResult.leaderboard.filter(m => m.algorithm !== 'baseline').map(m => ({
                       name: ALGO_NAMES[m.algorithm] || m.algorithm,
                       score: trainingResult.problemType === 'regression' ? +(m.testMetrics.r2 * 100).toFixed(2) : +(m.testMetrics.accuracy * 100).toFixed(2),
                       fill: ALGO_COLORS[m.algorithm] || '#6b7280'
-                    }))}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} /><Tooltip formatter={(v) => `${v}%`} /><Bar dataKey="score" radius={[4, 4, 0, 0]}>{trainingResult.leaderboard.filter(m => m.algorithm !== 'baseline').map((m, i) => <Cell key={i} fill={ALGO_COLORS[m.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
+                    }))}><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="name" tick={{fontSize: 11}} /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} /><Tooltip formatter={(v) => `${v}%`} /><ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="8 4" label={{ value: '50% baseline', position: 'right', fontSize: 10, fill: '#94a3b8' }} /><Bar dataKey="score" radius={[6, 6, 0, 0]}>{trainingResult.leaderboard.filter(m => m.algorithm !== 'baseline').map((m, i) => <Cell key={i} fill={ALGO_COLORS[m.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
                   </CardContent></Card>}
 
                   {/* Cross-Validation Performance Chart */}
                   {trainingResult.evalMode === 'cv' && trainingResult.leaderboard?.some(m => m.cvScore !== null) && (
-                    <Card data-testid="cv-performance-chart"><CardHeader><CardTitle className="text-lg">Cross-Validation Performance</CardTitle></CardHeader><CardContent>
-                      <p className="text-xs text-muted-foreground mb-4">This chart shows the average performance of each model across multiple validation folds. Cross-validation helps ensure the model performs consistently across different subsets of the data. Higher scores indicate more reliable models.</p>
+                    <Card data-testid="cv-performance-chart"><CardHeader><CardTitle className="text-lg flex items-center gap-2"><Activity className="h-4 w-4" />Cross-Validation Performance</CardTitle><CardDescription>Average performance across 5 data folds. Higher CV scores indicate more reliable, consistent models.</CardDescription></CardHeader><CardContent>
                       <ResponsiveContainer width="100%" height={300}><BarChart data={trainingResult.leaderboard.filter(m => m.cvScore !== null && m.algorithm !== 'baseline').map(m => ({
                         name: ALGO_NAMES[m.algorithm] || m.algorithm,
                         cvScore: +(m.cvScore * 100).toFixed(2),
@@ -1448,7 +1485,7 @@ function App() {
                       <div key={idx} className="flex items-center justify-between p-3 rounded-lg border" data-testid={`leaderboard-entry-${idx}`} style={idx === 0 ? { borderColor: ALGO_COLORS[model.algorithm], borderWidth: 2 } : {}}>
                         <div className="flex items-center gap-3"><Badge variant={idx === 0 ? 'default' : 'secondary'} style={idx === 0 ? { backgroundColor: ALGO_COLORS[model.algorithm] } : {}}>{idx + 1}</Badge><div><p className="font-medium">{ALGO_NAMES[model.algorithm] || model.algorithm}</p><p className="text-xs text-muted-foreground">{model.durationSec ? `${model.durationSec.toFixed(3)}s` : '-'}{idx === 0 && ' — Best Model'}</p></div></div>
                         <div className="text-right font-mono text-sm" data-testid={`leaderboard-score-${idx}`}>
-                          <div>{(() => { const m = model.testMetrics; if (m.accuracy !== undefined) return `${(m.accuracy * 100).toFixed(2)}% acc`; if (m.r2 !== undefined) return `${(m.r2 * 100).toFixed(2)}% R²`; return '-'; })()}</div>
+                          {(() => { const m = model.testMetrics; const s = m.accuracy !== undefined ? m.accuracy : (m.r2 !== undefined ? m.r2 : 0); const c = getScoreColor(s); return <div className={`font-semibold ${c.text}`}>{m.accuracy !== undefined ? `${(m.accuracy * 100).toFixed(2)}% acc` : m.r2 !== undefined ? `${(m.r2 * 100).toFixed(2)}% R\u00B2` : '-'}</div>; })()}
                           {model.cvScore !== null && model.cvScore !== undefined && <div className="text-xs text-emerald-600 font-semibold" data-testid={`cv-score-${idx}`}>CV: {(model.cvScore * 100).toFixed(2)}%</div>}
                         </div>
                       </div>
@@ -1461,14 +1498,78 @@ function App() {
           {activeView === 'predict' && (
             <motion.div key="predict" variants={staggerContainer} initial="initial" animate="animate" exit="exit" className="space-y-6" data-testid="predict-view">
               {models.length === 0 ? <motion.div variants={fadeInUp}><Card className="border-2 border-orange-500" data-testid="no-model-warning"><CardContent className="py-16 text-center"><AlertCircle className="h-16 w-16 text-orange-500 mx-auto mb-6" /><h3 className="text-xl font-semibold mb-3" data-testid="no-model-warning-title">No trained model available</h3><p className="text-muted-foreground mb-6" data-testid="no-model-warning-message">Please train a model in the Analysis section before making predictions.</p><Button onClick={() => setActiveView('analysis')} size="lg" data-testid="go-to-train-btn"><Zap className="h-4 w-4 mr-2" />Go to Analysis</Button></CardContent></Card></motion.div>
-              : (<>
-                <motion.div variants={fadeInUp}><Card data-testid="active-model-card"><CardHeader><CardTitle className="flex items-center gap-2"><Cpu className="h-5 w-5" />Active Model</CardTitle><CardDescription>Using the best trained model</CardDescription></CardHeader>
-                  <CardContent>{(() => { const am = models[models.length - 1]; return <div className="flex items-center gap-4 p-4 rounded-lg border bg-primary/5 border-primary/20"><div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center"><Brain className="h-6 w-6 text-primary" /></div><div className="flex-1"><p className="font-semibold" data-testid="active-model-algorithm">{ALGO_NAMES[am.algorithm] || am.algorithm}</p><p className="text-sm text-muted-foreground">{am.problemType} &middot; ID: {am.modelId.substring(0, 8)}...</p></div><Badge variant="default">Active</Badge></div>; })()}</CardContent></Card></motion.div>
-                <motion.div variants={fadeInUp}><Card><CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" />Input Data</CardTitle></CardHeader>
-                  <CardContent className="space-y-4"><textarea value={predictionInput} onChange={(e) => setPredictionInput(e.target.value)} placeholder={'[{"feature1": "value1", "feature2": "value2"}]'} rows={10} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="prediction-input" /><Button onClick={handlePredict} className="w-full h-12" size="lg" data-testid="generate-predictions-btn"><Sparkles className="h-4 w-4 mr-2" />Generate Predictions</Button></CardContent></Card></motion.div>
-                {predictionResult && <motion.div variants={fadeInUp} initial="initial" animate="animate"><Card className="border-2 border-primary" data-testid="prediction-results"><CardHeader><CardTitle className="flex items-center gap-2 text-primary"><Eye className="h-5 w-5" />Prediction Results</CardTitle></CardHeader>
-                  <CardContent><div className="space-y-4">{predictionResult.predictions.map((pred, idx) => <div key={idx} className="bg-muted/50 rounded-lg p-4" data-testid={`prediction-result-${idx}`}><div className="flex items-center justify-between"><span className="text-sm font-medium text-muted-foreground">Prediction {idx + 1}</span><span className="text-2xl font-bold text-primary">{typeof pred === 'number' ? pred.toFixed(4) : pred}</span></div>{predictionResult.probabilities?.[idx] && <div className="mt-2 text-xs text-muted-foreground">Probabilities: [{predictionResult.probabilities[idx].map(p => p.toFixed(4)).join(', ')}]</div>}</div>)}</div></CardContent></Card></motion.div>}
-              </>)}
+              : (() => { const am = models[models.length - 1]; return (<>
+                <motion.div variants={fadeInUp}><Card data-testid="active-model-card"><CardHeader><CardTitle className="flex items-center gap-2"><Cpu className="h-5 w-5" />Active Model</CardTitle><CardDescription>Using your best trained model for predictions</CardDescription></CardHeader>
+                  <CardContent><div className="flex items-center gap-4 p-4 rounded-lg border bg-primary/5 border-primary/20"><div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center"><Brain className="h-6 w-6 text-primary" /></div><div className="flex-1"><p className="font-semibold" data-testid="active-model-algorithm">{ALGO_NAMES[am.algorithm] || am.algorithm}</p><p className="text-sm text-muted-foreground">{am.problemType} &middot; Target: {am.targetColumn} &middot; {am.modelData.featureNames.length} features</p></div><Badge variant="default">Active</Badge></div></CardContent></Card></motion.div>
+
+                <motion.div variants={fadeInUp}><Card><CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" />Enter Feature Values</CardTitle><CardDescription>Fill in the values for each feature to generate a prediction for "{am.targetColumn}"</CardDescription></CardHeader>
+                  <CardContent className="space-y-6">
+                    {am.modelData.numericCols.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium mb-3 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-blue-500" />Numeric Features</p>
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                          {am.modelData.numericCols.map(col => (
+                            <div key={col} className="space-y-1.5">
+                              <label className="text-sm font-medium text-muted-foreground">{col}</label>
+                              <input type="number" step="any" value={predictionFormData[col] ?? ''} onChange={e => setPredictionFormData(prev => ({ ...prev, [col]: e.target.value }))} placeholder={`Enter ${col}`} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`predict-input-${col}`} />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {am.modelData.categoricalCols.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium mb-3 flex items-center gap-2"><Layers className="h-4 w-4 text-emerald-500" />Categorical Features</p>
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                          {am.modelData.categoricalCols.map(col => (
+                            <div key={col} className="space-y-1.5">
+                              <label className="text-sm font-medium text-muted-foreground">{col}</label>
+                              <select value={predictionFormData[col] ?? ''} onChange={e => setPredictionFormData(prev => ({ ...prev, [col]: e.target.value }))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid={`predict-input-${col}`}>
+                                <option value="">-- Select --</option>
+                                {am.modelData.encodingMap[col]?.map(val => <option key={val} value={val}>{val}</option>)}
+                              </select>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <Button onClick={handlePredict} className="w-full h-12" size="lg" data-testid="generate-predictions-btn"><Sparkles className="h-4 w-4 mr-2" />Generate Prediction</Button>
+                  </CardContent></Card></motion.div>
+
+                {predictionResult && <motion.div variants={fadeInUp} initial="initial" animate="animate"><Card className="border-2 border-primary" data-testid="prediction-results"><CardHeader><CardTitle className="flex items-center gap-2 text-primary"><Eye className="h-5 w-5" />Prediction Result</CardTitle><CardDescription>Generated using {ALGO_NAMES[predictionResult.algorithm] || predictionResult.algorithm}</CardDescription></CardHeader>
+                  <CardContent><div className="space-y-4">{predictionResult.predictions.map((pred, idx) => {
+                    const isClassification = predictionResult.problemType === 'classification';
+                    return (
+                      <div key={idx} className="rounded-xl border-2 border-primary/20 bg-primary/5 p-6" data-testid={`prediction-result-${idx}`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-muted-foreground mb-1">{isClassification ? 'Predicted Class' : 'Predicted Value'}</p>
+                            <p className="text-4xl font-bold text-primary" data-testid="prediction-value">{typeof pred === 'number' ? (isClassification ? pred : pred.toFixed(4)) : pred}</p>
+                          </div>
+                          <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center"><Target className="h-8 w-8 text-primary" /></div>
+                        </div>
+                        {predictionResult.probabilities?.[idx] && (
+                          <div className="mt-4 pt-4 border-t">
+                            <p className="text-xs font-medium text-muted-foreground mb-2">Class Probabilities</p>
+                            <div className="space-y-2">{predictionResult.probabilities[idx].map((p, ci) => (
+                              <div key={ci} className="flex items-center gap-3">
+                                <span className="text-xs font-mono w-16">Class {ci}</span>
+                                <div className="flex-1 h-3 bg-muted rounded-full overflow-hidden"><div className="h-full bg-primary rounded-full transition-all" style={{ width: `${(p * 100).toFixed(1)}%` }} /></div>
+                                <span className="text-xs font-mono w-14 text-right">{(p * 100).toFixed(1)}%</span>
+                              </div>
+                            ))}</div>
+                          </div>
+                        )}
+                        {predictionResult.inputData && (
+                          <div className="mt-4 pt-4 border-t">
+                            <p className="text-xs font-medium text-muted-foreground mb-2">Input Summary</p>
+                            <div className="flex flex-wrap gap-2">{Object.entries(predictionResult.inputData).filter(([,v]) => v !== '' && v !== 0).map(([k, v]) => <Badge key={k} variant="secondary" className="text-xs">{k}: {v}</Badge>)}</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}</div></CardContent></Card></motion.div>}
+              </>); })()}
             </motion.div>
           )}
 
