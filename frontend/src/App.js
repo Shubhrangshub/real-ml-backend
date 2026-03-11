@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Brain, Sparkles, TrendingUp, Activity, Database, Zap, Settings, Upload, Play,
   Eye, Trash2, ChevronRight, ArrowUpRight, FileText, Target, Cpu, BarChart3,
-  Download, AlertCircle, Layers, ShieldAlert, Table2, Info, SplitSquareVertical
+  Download, AlertCircle, Layers, ShieldAlert, Table2, Info, SplitSquareVertical,
+  Clock, Trophy, CheckCircle2, XCircle, Shield
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,7 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, ScatterChart, Scatter, ZAxis, Cell, ReferenceLine
+  ResponsiveContainer, ScatterChart, Scatter, ZAxis, Cell, ReferenceLine, PieChart, Pie
 } from 'recharts';
 import { kmeans } from 'ml-kmeans';
 import './App.css';
@@ -532,6 +533,86 @@ function buildModelForAlgo(algo, X_train, y_train, problemType) {
   return trainBaseline(y_train, problemType);
 }
 
+// ==================== DATASET SCANNER ====================
+
+function scanDataset(csvText, targetCol) {
+  const { rows, headers } = parseCSV(csvText);
+  const n = rows.length, p = headers.length;
+  const numericCols = [], categoricalCols = [];
+  headers.forEach(h => {
+    const vals = rows.map(r => r[h]).filter(v => v !== '' && v != null);
+    (vals.filter(v => !isNaN(Number(v))).length > vals.length * 0.5 ? numericCols : categoricalCols).push(h);
+  });
+  let totalMissing = 0;
+  const missingCols = [];
+  headers.forEach(h => {
+    const missing = rows.filter(r => r[h] === '' || r[h] == null).length;
+    totalMissing += missing;
+    if (missing > 0) missingCols.push({ col: h, count: missing, pct: +(missing / n * 100).toFixed(1) });
+  });
+  const duplicateCount = n - new Set(rows.map(r => headers.map(h => String(r[h])).join('|'))).size;
+  let totalOutliers = 0;
+  const outlierCols = [];
+  numericCols.forEach(h => {
+    const vals = rows.map(r => Number(r[h])).filter(v => !isNaN(v)).sort((a, b) => a - b);
+    if (vals.length < 4) return;
+    const q1 = vals[Math.floor(vals.length * 0.25)], q3 = vals[Math.floor(vals.length * 0.75)], iqr = q3 - q1;
+    const cnt = vals.filter(v => v < q1 - 1.5 * iqr || v > q3 + 1.5 * iqr).length;
+    if (cnt > 0) { outlierCols.push({ col: h, count: cnt }); totalOutliers += cnt; }
+  });
+  const constantCols = headers.filter(h => new Set(rows.map(r => r[h])).size <= 1);
+  const highCorr = [];
+  for (let i = 0; i < numericCols.length; i++) {
+    for (let j = i + 1; j < numericCols.length; j++) {
+      const a = rows.map(r => Number(r[numericCols[i]])), b = rows.map(r => Number(r[numericCols[j]]));
+      const ma = a.reduce((s, v) => s + v, 0) / n, mb = b.reduce((s, v) => s + v, 0) / n;
+      let cov = 0, sa = 0, sb = 0;
+      for (let k = 0; k < n; k++) { cov += (a[k] - ma) * (b[k] - mb); sa += (a[k] - ma) ** 2; sb += (b[k] - mb) ** 2; }
+      const corr = sa > 0 && sb > 0 ? cov / Math.sqrt(sa * sb) : 0;
+      if (Math.abs(corr) > 0.9) highCorr.push({ col1: numericCols[i], col2: numericCols[j], r: +corr.toFixed(3) });
+    }
+  }
+  let targetInfo = null;
+  if (targetCol && targetCol !== '__none__' && headers.includes(targetCol)) {
+    const vals = rows.map(r => r[targetCol]).filter(v => v !== '' && v != null);
+    const isNum = numericCols.includes(targetCol);
+    targetInfo = { exists: true, uniqueValues: [...new Set(vals)].length, task: isNum ? 'regression' : 'classification' };
+    if (!isNum) {
+      const counts = {}; vals.forEach(v => { counts[v] = (counts[v] || 0) + 1; });
+      const maxPct = Math.max(...Object.values(counts)) / vals.length;
+      targetInfo.imbalanced = maxPct > 0.8; targetInfo.majorityPct = +(maxPct * 100).toFixed(1);
+    }
+  }
+  let scaleIssue = false;
+  if (numericCols.length > 1) {
+    const ranges = numericCols.map(h => { const v = rows.map(r => Number(r[h])).filter(v => !isNaN(v)); return Math.max(...v) - Math.min(...v); }).filter(r => r > 0);
+    if (ranges.length > 1 && Math.max(...ranges) / Math.min(...ranges) > 100) scaleIssue = true;
+  }
+  const sizeWarning = n < 100;
+  let score = 100;
+  if (totalMissing > 0) score -= Math.min(25, totalMissing / (n * p) * 100);
+  if (duplicateCount > 0) score -= Math.min(15, duplicateCount / n * 50);
+  if (totalOutliers > 0) score -= Math.min(15, totalOutliers / (n * (numericCols.length || 1)) * 50);
+  if (constantCols.length > 0) score -= constantCols.length * 5;
+  if (highCorr.length > 0) score -= highCorr.length * 3;
+  if (sizeWarning) score -= 10;
+  if (targetInfo?.imbalanced) score -= 10;
+  if (scaleIssue) score -= 5;
+  score = Math.max(0, Math.round(score));
+  const warnings = [];
+  if (totalMissing > 0) warnings.push(`${totalMissing} missing values`);
+  if (duplicateCount > 0) warnings.push(`${duplicateCount} duplicate rows`);
+  if (totalOutliers > 0) warnings.push(`${totalOutliers} outliers detected`);
+  if (constantCols.length > 0) warnings.push(`${constantCols.length} constant column(s)`);
+  if (highCorr.length > 0) warnings.push(`${highCorr.length} high-correlation pair(s)`);
+  if (sizeWarning) warnings.push('Small dataset (<100 rows)');
+  if (targetInfo?.imbalanced) warnings.push('Class imbalance detected');
+  if (scaleIssue) warnings.push('Feature scale differences');
+  return { rows: n, columns: p, numericCount: numericCols.length, categoricalCount: categoricalCols.length,
+    totalMissing, missingCols, duplicateCount, totalOutliers, outlierCols, constantCols, highCorr,
+    targetInfo, scaleIssue, sizeWarning, score, warnings, ready: score >= 50 };
+}
+
 // ==================== CLUSTERING ====================
 
 function runKMeansClustering(rows, numericCols, k) {
@@ -612,10 +693,31 @@ function App() {
   ];
 
   // ==================== COMPUTED STATS ====================
+  const datasetScan = useMemo(() => {
+    if (!csvText || !csvText.trim()) return null;
+    try { return scanDataset(csvText, targetColumn); } catch { return null; }
+  }, [csvText, targetColumn]);
+
   const stats = useMemo(() => {
-    const t = models.length; let avg = 0;
-    if (t > 0) { const m = models.map(m => m.problemType === 'classification' ? (m.metrics?.accuracy || 0) : (m.metrics?.r2 || 0)); avg = m.reduce((a, b) => a + b, 0) / m.length; }
-    return { totalModels: t, avgMetric: avg, totalTrainings: t, bestModel: t > 0 ? (ALGO_NAMES[models[models.length - 1].algorithm] || models[models.length - 1].algorithm) : '--' };
+    const t = models.length;
+    if (t === 0) return { totalModels: 0, avgScore: 0, bestAlgoByScore: '--', mostUsedAlgo: '--', highestScore: 0, lastTraining: null, totalTrainings: 0 };
+    const scores = models.map(m => m.problemType === 'classification' ? (m.metrics?.accuracy || 0) : (m.metrics?.r2 || 0));
+    const avgScore = scores.reduce((a, b) => a + b, 0) / t;
+    const highestScore = Math.max(...scores);
+    const bestIdx = scores.indexOf(highestScore);
+    const bestAlgoByScore = ALGO_NAMES[models[bestIdx].algorithm] || models[bestIdx].algorithm;
+    const algoCounts = {};
+    models.forEach(m => { const name = ALGO_NAMES[m.algorithm] || m.algorithm; algoCounts[name] = (algoCounts[name] || 0) + 1; });
+    const mostUsedAlgo = Object.entries(algoCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '--';
+    return { totalModels: t, avgScore, bestAlgoByScore, mostUsedAlgo, highestScore, lastTraining: models[t - 1]?.createdAt, totalTrainings: t };
+  }, [models]);
+
+  const topModels = useMemo(() => {
+    return [...models].sort((a, b) => {
+      const aS = a.problemType === 'classification' ? (a.metrics?.accuracy || 0) : (a.metrics?.r2 || 0);
+      const bS = b.problemType === 'classification' ? (b.metrics?.accuracy || 0) : (b.metrics?.r2 || 0);
+      return bS - aS;
+    }).slice(0, 5);
   }, [models]);
 
   const taskSuggestion = useMemo(() => dataProfile ? suggestTask(dataProfile, targetColumn) : null, [dataProfile, targetColumn]);
@@ -738,7 +840,8 @@ function App() {
           modelId: best.modelId, algorithm: best.algorithm, problemType,
           metrics: best.testMetrics, trainMetrics: best.trainMetrics,
           featureImportance: best.featureImportance,
-          createdAt: new Date().toISOString(), durationSec: best.durationSec, modelData
+          createdAt: new Date().toISOString(), durationSec: best.durationSec,
+          evalMode, targetColumn, modelData
         }]);
 
         setTrainingResult({
@@ -837,21 +940,139 @@ function App() {
 
           {/* ==================== DASHBOARD ==================== */}
           {activeView === 'dashboard' && (
-            <motion.div key="dashboard" variants={staggerContainer} initial="initial" animate="animate" exit="exit" className="space-y-8" data-testid="dashboard-view">
-              <motion.div variants={staggerContainer} className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-                <StatCard title="Total Models" value={stats.totalModels} metricValue={stats.totalModels} icon={Database} />
-                <StatCard title="Avg Metric" value={stats.totalModels > 0 ? `${(stats.avgMetric * 100).toFixed(0)}%` : '0%'} metricValue={stats.totalModels > 0 ? `${(stats.avgMetric * 100).toFixed(0)}%` : 0} icon={TrendingUp} />
-                <StatCard title="Total Trainings" value={stats.totalTrainings} metricValue={stats.totalTrainings} icon={Activity} />
-                <StatCard title="Best Algorithm" value={stats.bestModel} icon={Sparkles} />
-              </motion.div>
-              <div className="grid gap-6 lg:grid-cols-2">
-                <motion.div variants={fadeInUp}><Card className="h-[400px]"><CardHeader><CardTitle>Model Performance</CardTitle><CardDescription>{models.length > 0 ? 'Metrics per model' : 'Train models to see data'}</CardDescription></CardHeader><CardContent><ResponsiveContainer width="100%" height={280}><LineChart data={models.map((m, i) => ({ name: `#${i + 1}`, metric: m.problemType === 'classification' ? (m.metrics?.accuracy || 0) : (m.metrics?.r2 || 0) }))}><CartesianGrid strokeDasharray="3 3" className="stroke-muted" /><XAxis dataKey="name" className="text-xs" /><YAxis className="text-xs" /><Tooltip /><Line type="monotone" dataKey="metric" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ fill: 'hsl(var(--primary))' }} /></LineChart></ResponsiveContainer></CardContent></Card></motion.div>
-                <motion.div variants={fadeInUp}><Card className="h-[400px]"><CardHeader><CardTitle>Algorithm Distribution</CardTitle></CardHeader><CardContent><ResponsiveContainer width="100%" height={280}><BarChart data={(() => { const c = {}; models.forEach(m => { c[m.algorithm] = (c[m.algorithm] || 0) + 1; }); return Object.entries(c).map(([name, count]) => ({ name, count })); })()}><CartesianGrid strokeDasharray="3 3" className="stroke-muted" /><XAxis dataKey="name" className="text-xs" /><YAxis className="text-xs" /><Tooltip /><Bar dataKey="count" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></CardContent></Card></motion.div>
-              </div>
-              <motion.div variants={fadeInUp}><Card><CardHeader><CardTitle>Recent Training Jobs</CardTitle></CardHeader><CardContent><div className="space-y-4">
-                {models.length === 0 ? <div className="flex flex-col items-center justify-center py-12 text-center" data-testid="empty-dashboard"><Database className="h-12 w-12 text-muted-foreground/50 mb-4" /><p className="text-muted-foreground">No models trained yet</p><Button className="mt-4" onClick={() => setActiveView('analysis')} data-testid="train-first-model-btn">Train Your First Model</Button></div>
-                : models.slice(-5).reverse().map((model, idx) => <div key={model.modelId} className="flex items-center justify-between rounded-lg border p-4 hover:bg-accent/50 transition-colors" data-testid={`recent-model-${idx}`}><div className="flex items-center gap-4"><div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center"><Brain className="h-5 w-5 text-primary" /></div><div><p className="font-medium">{ALGO_NAMES[model.algorithm] || model.algorithm}</p><p className="text-sm text-muted-foreground">{model.problemType}</p></div></div><div className="flex items-center gap-4"><Badge variant="secondary">Success</Badge><ChevronRight className="h-4 w-4 text-muted-foreground" /></div></div>)}
-              </div></CardContent></Card></motion.div>
+            <motion.div key="dashboard" variants={staggerContainer} initial="initial" animate="animate" exit="exit" className="space-y-6" data-testid="dashboard-view">
+              {models.length === 0 ? (
+                <motion.div variants={fadeInUp} className="space-y-6">
+                  <Card className="border-2 border-dashed"><CardContent className="py-16 text-center">
+                    <Database className="h-14 w-14 text-muted-foreground/30 mx-auto mb-5" />
+                    <h3 className="text-lg font-semibold mb-2">No Models Trained Yet</h3>
+                    <p className="text-muted-foreground mb-6 max-w-md mx-auto text-sm">Go to the Analysis tab to upload a dataset and train your first machine learning model.</p>
+                    <Button size="lg" onClick={() => setActiveView('analysis')} data-testid="train-first-model-btn"><Zap className="h-4 w-4 mr-2" />Train Your First Model</Button>
+                  </CardContent></Card>
+                  {datasetScan && (
+                    <Card data-testid="dataset-health-empty"><CardHeader><CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" />Dataset Health</CardTitle></CardHeader><CardContent>
+                      <div className={`p-3 rounded-lg border-2 flex items-center gap-3 ${datasetScan.ready ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20' : 'border-orange-500 bg-orange-50 dark:bg-orange-950/20'}`}>
+                        {datasetScan.ready ? <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" /> : <XCircle className="h-5 w-5 text-orange-600 shrink-0" />}
+                        <p className="font-medium text-sm">{datasetScan.ready ? 'Dataset Ready for Training' : 'Dataset Needs Cleaning'}</p>
+                        <Badge className="ml-auto" variant={datasetScan.score >= 80 ? 'default' : datasetScan.score >= 50 ? 'secondary' : 'destructive'}>{datasetScan.score}/100</Badge>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 text-sm">
+                        <div className="bg-muted/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Rows</p><p className="font-bold text-lg">{datasetScan.rows}</p></div>
+                        <div className="bg-muted/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Columns</p><p className="font-bold text-lg">{datasetScan.columns}</p></div>
+                        <div className="bg-muted/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Missing</p><p className="font-bold text-lg">{datasetScan.totalMissing}</p></div>
+                        <div className="bg-muted/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Outliers</p><p className="font-bold text-lg">{datasetScan.totalOutliers}</p></div>
+                      </div>
+                    </CardContent></Card>
+                  )}
+                </motion.div>
+              ) : (<>
+                {/* Stat Cards */}
+                <motion.div variants={staggerContainer} className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+                  <StatCard title="Total Models" value={stats.totalModels} metricValue={stats.totalModels} icon={Database} />
+                  <StatCard title="Avg Score" value={`${(stats.avgScore * 100).toFixed(1)}%`} metricValue={`${(stats.avgScore * 100).toFixed(0)}%`} icon={TrendingUp} />
+                  <StatCard title="Best Algorithm" value={stats.bestAlgoByScore} icon={Trophy} />
+                  <StatCard title="Highest Score" value={`${(stats.highestScore * 100).toFixed(1)}%`} metricValue={`${(stats.highestScore * 100).toFixed(0)}%`} icon={Sparkles} />
+                  <StatCard title="Last Training" value={stats.lastTraining ? new Date(stats.lastTraining).toLocaleDateString() : '--'} icon={Clock} />
+                </motion.div>
+
+                {/* Quick Insights */}
+                <motion.div variants={fadeInUp} className="grid gap-4 md:grid-cols-3" data-testid="quick-insights">
+                  <Card><CardContent className="p-4 flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0"><Trophy className="h-5 w-5 text-emerald-600" /></div>
+                    <div><p className="text-xs text-muted-foreground">Best Performing</p><p className="font-semibold text-sm" data-testid="insight-best">{stats.bestAlgoByScore}</p></div>
+                  </CardContent></Card>
+                  <Card><CardContent className="p-4 flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0"><Activity className="h-5 w-5 text-blue-600" /></div>
+                    <div><p className="text-xs text-muted-foreground">Most Used</p><p className="font-semibold text-sm" data-testid="insight-most-used">{stats.mostUsedAlgo}</p></div>
+                  </CardContent></Card>
+                  <Card><CardContent className="p-4 flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0"><Sparkles className="h-5 w-5 text-amber-600" /></div>
+                    <div><p className="text-xs text-muted-foreground">Highest Accuracy</p><p className="font-semibold text-sm" data-testid="insight-highest">{(stats.highestScore * 100).toFixed(1)}%</p></div>
+                  </CardContent></Card>
+                </motion.div>
+
+                {/* Dataset Health + Model Leaderboard */}
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <motion.div variants={fadeInUp}><Card className="h-full" data-testid="dataset-health-widget"><CardHeader><CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" />Dataset Health</CardTitle></CardHeader><CardContent>
+                    {datasetScan ? (<div className="space-y-4">
+                      <div className={`p-3 rounded-lg border-2 flex items-center gap-3 ${datasetScan.ready ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20' : 'border-orange-500 bg-orange-50 dark:bg-orange-950/20'}`} data-testid="dataset-readiness">
+                        {datasetScan.ready ? <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" /> : <XCircle className="h-5 w-5 text-orange-600 shrink-0" />}
+                        <p className="font-medium text-sm">{datasetScan.ready ? 'Dataset Ready for Training' : 'Dataset Needs Cleaning'}</p>
+                        <Badge className="ml-auto" variant={datasetScan.score >= 80 ? 'default' : datasetScan.score >= 50 ? 'secondary' : 'destructive'} data-testid="health-score">{datasetScan.score}/100</Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div className="bg-muted/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Rows</p><p className="font-bold text-lg" data-testid="scan-rows">{datasetScan.rows}</p></div>
+                        <div className="bg-muted/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Columns</p><p className="font-bold text-lg" data-testid="scan-cols">{datasetScan.columns}</p></div>
+                        <div className="bg-muted/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Missing Values</p><p className="font-bold text-lg" data-testid="scan-missing">{datasetScan.totalMissing}</p></div>
+                        <div className="bg-muted/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Outliers</p><p className="font-bold text-lg" data-testid="scan-outliers">{datasetScan.totalOutliers}</p></div>
+                      </div>
+                      {datasetScan.warnings.length > 0 && <div className="space-y-1.5">{datasetScan.warnings.map((w, i) => <div key={i} className="flex items-center gap-2 text-xs text-orange-600"><AlertCircle className="h-3 w-3 shrink-0" />{w}</div>)}</div>}
+                    </div>) : (
+                      <div className="text-center py-8"><Shield className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" /><p className="text-sm text-muted-foreground">Load a dataset in Analysis to see health metrics</p></div>
+                    )}
+                  </CardContent></Card></motion.div>
+
+                  <motion.div variants={fadeInUp}><Card className="h-full" data-testid="model-leaderboard"><CardHeader><CardTitle className="flex items-center gap-2"><Trophy className="h-5 w-5" />Top Models</CardTitle><CardDescription>Top 5 by performance score</CardDescription></CardHeader><CardContent>
+                    <div className="space-y-2">{topModels.map((model, idx) => {
+                      const score = model.problemType === 'classification' ? (model.metrics?.accuracy || 0) : (model.metrics?.r2 || 0);
+                      return (<div key={model.modelId} className="flex items-center gap-3 p-2.5 rounded-lg border hover:bg-accent/50 transition-colors" data-testid={`top-model-${idx}`}>
+                        <Badge variant={idx === 0 ? 'default' : 'secondary'} className="shrink-0 w-7 justify-center">{idx + 1}</Badge>
+                        <div className="flex-1 min-w-0"><p className="font-medium text-sm truncate">{ALGO_NAMES[model.algorithm] || model.algorithm}</p><p className="text-xs text-muted-foreground">{model.problemType}{model.evalMode === 'cv' ? ' (CV)' : ''}</p></div>
+                        <span className="font-mono text-sm font-semibold shrink-0" style={{color: ALGO_COLORS[model.algorithm]}}>{(score * 100).toFixed(1)}%</span>
+                      </div>);
+                    })}</div>
+                  </CardContent></Card></motion.div>
+                </div>
+
+                {/* Charts Row */}
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <motion.div variants={fadeInUp}><Card className="h-[400px]" data-testid="model-performance-chart"><CardHeader><CardTitle>Model Performance</CardTitle><CardDescription>Score per trained model</CardDescription></CardHeader><CardContent>
+                    <ResponsiveContainer width="100%" height={270}><BarChart data={models.map((m, i) => ({
+                      name: `${ALGO_NAMES[m.algorithm] || m.algorithm}`.substring(0, 12), score: +((m.problemType === 'classification' ? (m.metrics?.accuracy || 0) : (m.metrics?.r2 || 0)) * 100).toFixed(1)
+                    }))}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" angle={-30} textAnchor="end" height={80} tick={{fontSize: 10}} /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} /><Tooltip formatter={v => `${v}%`} /><Bar dataKey="score" radius={[4, 4, 0, 0]}>{models.map((m, i) => <Cell key={i} fill={ALGO_COLORS[m.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
+                  </CardContent></Card></motion.div>
+
+                  <motion.div variants={fadeInUp}><Card className="h-[400px]" data-testid="algorithm-usage-chart"><CardHeader><CardTitle>Algorithm Usage</CardTitle><CardDescription>Training frequency per algorithm</CardDescription></CardHeader><CardContent>
+                    <ResponsiveContainer width="100%" height={270}><PieChart><Pie data={(() => {
+                      const c = {}; models.forEach(m => { const nm = ALGO_NAMES[m.algorithm] || m.algorithm; c[nm] = (c[nm] || 0) + 1; });
+                      return Object.entries(c).map(([name, value], i) => ({ name, value, fill: Object.values(ALGO_COLORS)[i % Object.values(ALGO_COLORS).length] }));
+                    })()} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label={({name, percent}) => `${name} ${(percent*100).toFixed(0)}%`} /><Tooltip /></PieChart></ResponsiveContainer>
+                  </CardContent></Card></motion.div>
+                </div>
+
+                {/* Training Timeline */}
+                <motion.div variants={fadeInUp}><Card data-testid="training-timeline"><CardHeader><CardTitle>Training Timeline</CardTitle><CardDescription>Cumulative model count over time</CardDescription></CardHeader><CardContent>
+                  <ResponsiveContainer width="100%" height={250}><LineChart data={(() => {
+                    const dc = {}; models.forEach(m => { const d = m.createdAt ? new Date(m.createdAt).toLocaleDateString() : 'Today'; dc[d] = (dc[d] || 0) + 1; });
+                    let cum = 0; return Object.entries(dc).map(([date, count]) => { cum += count; return { date, count, cumulative: cum }; });
+                  })()}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="date" /><YAxis /><Tooltip /><Legend /><Line type="monotone" dataKey="cumulative" name="Total Models" stroke="hsl(var(--primary))" strokeWidth={2} dot={{fill:'hsl(var(--primary))'}} /><Line type="monotone" dataKey="count" name="Trained" stroke="#16a34a" strokeWidth={2} dot={{fill:'#16a34a'}} /></LineChart></ResponsiveContainer>
+                </CardContent></Card></motion.div>
+
+                {/* Recent Models Table */}
+                <motion.div variants={fadeInUp}><Card data-testid="recent-models-table"><CardHeader><CardTitle>Recent Models</CardTitle><CardDescription>Latest trained models</CardDescription></CardHeader><CardContent>
+                  <div className="rounded-md border overflow-auto"><table className="w-full text-sm">
+                    <thead><tr className="border-b bg-muted/50">
+                      <th className="p-3 text-left font-medium">Algorithm</th>
+                      <th className="p-3 text-left font-medium">Problem Type</th>
+                      <th className="p-3 text-left font-medium">Target</th>
+                      <th className="p-3 text-left font-medium">Eval Mode</th>
+                      <th className="p-3 text-right font-medium">Score</th>
+                      <th className="p-3 text-right font-medium">Date</th>
+                    </tr></thead>
+                    <tbody>{models.slice(-10).reverse().map((model, idx) => {
+                      const score = model.problemType === 'classification' ? (model.metrics?.accuracy || 0) : (model.metrics?.r2 || 0);
+                      return (<tr key={model.modelId} className="border-b last:border-0 hover:bg-accent/50 transition-colors" data-testid={`recent-model-row-${idx}`}>
+                        <td className="p-3"><div className="flex items-center gap-2"><div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0"><Brain className="h-3.5 w-3.5 text-primary" /></div><span className="font-medium">{ALGO_NAMES[model.algorithm] || model.algorithm}</span></div></td>
+                        <td className="p-3"><Badge variant="outline">{model.problemType || '—'}</Badge></td>
+                        <td className="p-3 text-xs font-mono">{model.targetColumn || '—'}</td>
+                        <td className="p-3"><Badge variant="secondary">{model.evalMode === 'cv' ? '5-Fold CV' : 'Train/Test'}</Badge></td>
+                        <td className="p-3 text-right font-mono font-semibold">{(score * 100).toFixed(1)}%</td>
+                        <td className="p-3 text-right text-muted-foreground text-xs">{model.createdAt ? new Date(model.createdAt).toLocaleDateString() : '—'}</td>
+                      </tr>);
+                    })}</tbody>
+                  </table></div>
+                </CardContent></Card></motion.div>
+              </>)}
             </motion.div>
           )}
 
