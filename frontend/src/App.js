@@ -573,7 +573,7 @@ function App() {
   const stats = useMemo(() => {
     const t = models.length; let avg = 0;
     if (t > 0) { const m = models.map(m => m.problemType === 'classification' ? (m.metrics?.accuracy || 0) : (m.metrics?.r2 || 0)); avg = m.reduce((a, b) => a + b, 0) / m.length; }
-    return { totalModels: t, avgMetric: avg, totalTrainings: t, bestModel: t > 0 ? models[models.length - 1].algorithm : '--' };
+    return { totalModels: t, avgMetric: avg, totalTrainings: t, bestModel: t > 0 ? (ALGO_NAMES[models[models.length - 1].algorithm] || models[models.length - 1].algorithm) : '--' };
   }, [models]);
 
   const taskSuggestion = useMemo(() => dataProfile ? suggestTask(dataProfile, targetColumn) : null, [dataProfile, targetColumn]);
