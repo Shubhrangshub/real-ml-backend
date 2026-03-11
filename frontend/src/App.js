@@ -491,6 +491,47 @@ function prepareInputForPrediction(inputRows, modelData) {
   });
 }
 
+// ==================== K-FOLD CROSS VALIDATION ====================
+
+function kFoldCrossValidation(X, y, k, trainFn, problemType) {
+  const n = X.length;
+  const indices = Array.from({ length: n }, (_, i) => i);
+  for (let i = n - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [indices[i], indices[j]] = [indices[j], indices[i]]; }
+  const foldSize = Math.floor(n / k);
+  const foldScores = [];
+  for (let fold = 0; fold < k; fold++) {
+    const vs = fold * foldSize, ve = fold === k - 1 ? n : (fold + 1) * foldSize;
+    const valIdx = indices.slice(vs, ve);
+    const trainIdx = [...indices.slice(0, vs), ...indices.slice(ve)];
+    try {
+      const model = trainFn(trainIdx.map(i => X[i]), trainIdx.map(i => y[i]));
+      const preds = predictBatch(model, valIdx.map(i => X[i]));
+      const metrics = problemType === 'regression' ? calcRegressionMetrics(valIdx.map(i => y[i]), preds) : calcClassificationMetrics(valIdx.map(i => y[i]), preds);
+      foldScores.push(problemType === 'regression' ? metrics.r2 : metrics.accuracy);
+    } catch { foldScores.push(0); }
+  }
+  return { cvScore: foldScores.reduce((a, b) => a + b, 0) / foldScores.length, foldScores };
+}
+
+function buildModelForAlgo(algo, X_train, y_train, problemType) {
+  if (algo === 'linear_regression') return trainLinearRegression(X_train, y_train);
+  if (algo === 'ridge_regression') return trainRidgeRegression(X_train, y_train, 1.0);
+  if (algo === 'logistic_regression') return trainLogisticRegression(X_train, y_train);
+  if (algo === 'decision_tree') {
+    const maxDepth = Math.min(15, Math.max(3, Math.floor(Math.log2(X_train.length))));
+    return { type: 'decision_tree', tree: buildDecisionTree(X_train, y_train, maxDepth, 2, problemType === 'classification') };
+  }
+  if (algo === 'random_forest') {
+    const maxDepth = Math.min(8, Math.max(3, Math.floor(Math.log2(X_train.length))));
+    return trainRandomForest(X_train, y_train, problemType === 'classification', 10, maxDepth);
+  }
+  if (algo === 'gradient_boosting') return trainGradientBoosting(X_train, y_train, 30, 0.1, 4);
+  if (algo === 'knn') return trainKNN(X_train, y_train, Math.min(5, Math.floor(X_train.length / 2)));
+  if (algo === 'svm') return trainSVM(X_train, y_train, 1.0, 0.01, 200);
+  if (algo === 'naive_bayes') return trainNaiveBayes(X_train, y_train);
+  return trainBaseline(y_train, problemType);
+}
+
 // ==================== CLUSTERING ====================
 
 function runKMeansClustering(rows, numericCols, k) {
@@ -545,6 +586,7 @@ function App() {
   const [dataProfile, setDataProfile] = useState(null);
   const [targetColumn, setTargetColumn] = useState('');
   const [algorithm, setAlgorithm] = useState('auto');
+  const [evalMode, setEvalMode] = useState('split');
   const [isTraining, setIsTraining] = useState(false);
   const [trainingResult, setTrainingResult] = useState(null);
   const [models, setModels] = useState([]);
@@ -631,29 +673,7 @@ function App() {
         for (const algo of algosToTrain) {
           const t0 = performance.now();
           let modelObj;
-          try {
-            if (algo === 'linear_regression') modelObj = trainLinearRegression(X_train, y_train);
-            else if (algo === 'ridge_regression') modelObj = trainRidgeRegression(X_train, y_train, 1.0);
-            else if (algo === 'logistic_regression') modelObj = trainLogisticRegression(X_train, y_train);
-            else if (algo === 'decision_tree') {
-              const maxDepth = Math.min(15, Math.max(3, Math.floor(Math.log2(X_train.length))));
-              const tree = buildDecisionTree(X_train, y_train, maxDepth, 2, problemType === 'classification');
-              modelObj = { type: 'decision_tree', tree };
-            } else if (algo === 'random_forest') {
-              const maxDepth = Math.min(8, Math.max(3, Math.floor(Math.log2(X_train.length))));
-              modelObj = trainRandomForest(X_train, y_train, problemType === 'classification', 10, maxDepth);
-            } else if (algo === 'gradient_boosting') {
-              modelObj = trainGradientBoosting(X_train, y_train, 30, 0.1, 4);
-            } else if (algo === 'knn') {
-              modelObj = trainKNN(X_train, y_train, Math.min(5, Math.floor(X_train.length / 2)));
-            } else if (algo === 'svm') {
-              modelObj = trainSVM(X_train, y_train, 1.0, 0.01, 200);
-            } else if (algo === 'naive_bayes') {
-              modelObj = trainNaiveBayes(X_train, y_train);
-            } else {
-              modelObj = trainBaseline(y_train, problemType);
-            }
-          } catch { continue; }
+          try { modelObj = buildModelForAlgo(algo, X_train, y_train, problemType); } catch { continue; }
 
           const trainPreds = predictBatch(modelObj, X_train);
           const testPreds = predictBatch(modelObj, X_test);
@@ -662,13 +682,33 @@ function App() {
           const fi = extractImportance(modelObj, featureNames);
           const dur = (performance.now() - t0) / 1000;
 
+          // Run K-Fold Cross Validation if selected (skip baseline)
+          let cvResult = null;
+          if (evalMode === 'cv' && algo !== 'baseline') {
+            try {
+              cvResult = kFoldCrossValidation(X, y, 5, (xt, yt) => buildModelForAlgo(algo, xt, yt, problemType), problemType);
+            } catch { cvResult = null; }
+          }
+
           trainModels.push({ algo, modelObj });
-          leaderboard.push({ modelId: generateId(), algorithm: algo, status: 'ok', testMetrics, trainMetrics, featureImportance: fi, durationSec: dur });
+          leaderboard.push({
+            modelId: generateId(), algorithm: algo, status: 'ok', testMetrics, trainMetrics,
+            featureImportance: fi, durationSec: dur,
+            cvScore: cvResult?.cvScore ?? null, foldScores: cvResult?.foldScores ?? null
+          });
         }
 
-        // Sort by primary test metric (descending)
+        // Sort by CV score (when available) or primary test metric
         const primaryKey = problemType === 'classification' ? 'accuracy' : 'r2';
-        leaderboard.sort((a, b) => (b.testMetrics[primaryKey] || 0) - (a.testMetrics[primaryKey] || 0));
+        if (evalMode === 'cv') {
+          leaderboard.sort((a, b) => {
+            const aScore = a.cvScore ?? -Infinity;
+            const bScore = b.cvScore ?? -Infinity;
+            return bScore - aScore;
+          });
+        } else {
+          leaderboard.sort((a, b) => (b.testMetrics[primaryKey] || 0) - (a.testMetrics[primaryKey] || 0));
+        }
         const best = leaderboard[0];
         const bestModelObj = trainModels.find(m => m.algo === best.algorithm)?.modelObj;
 
@@ -702,7 +742,7 @@ function App() {
         }]);
 
         setTrainingResult({
-          status: 'success', problemType, bestModel: best, leaderboard,
+          status: 'success', problemType, bestModel: best, leaderboard, evalMode,
           totalTime: (performance.now() - startTime) / 1000,
           splitInfo: { trainSize, testSize, totalSize: rows.length },
           dataInfo: { numSamples: rows.length, numFeatures: featureNames.length, targetColumn, columns: featureNames, removedLeakageColumns: leakageCols, textColumns: textCols },
@@ -841,6 +881,13 @@ function App() {
                     <div className="space-y-2"><label className="text-sm font-medium">Target Variable</label><select value={targetColumn} onChange={(e) => setTargetColumn(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="target-column-select"><option value="">-- Select Target --</option><option value="__none__">No target (Clustering)</option>{columns.map((col, idx) => <option key={idx} value={col}>{col}</option>)}</select></div>
                     <div className="space-y-2"><label className="text-sm font-medium">Algorithm</label><select value={algorithm} onChange={(e) => setAlgorithm(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="algorithm-select"><option value="auto">Auto (Train All & Compare)</option><optgroup label="Regression"><option value="linear">Linear Regression</option><option value="ridge">Ridge Regression</option><option value="gradient_boosting">Gradient Boosting</option></optgroup><optgroup label="Classification"><option value="logistic">Logistic Regression</option><option value="naive_bayes">Naive Bayes</option><option value="knn">KNN</option><option value="svm">SVM (Linear)</option></optgroup><optgroup label="Both"><option value="decision_tree">Decision Tree</option><option value="random_forest">Random Forest</option></optgroup></select></div>
                   </div>
+                  <div className="mt-4 p-4 rounded-lg border bg-muted/30" data-testid="eval-mode-selector">
+                    <label className="text-sm font-medium mb-3 block">Evaluation Mode</label>
+                    <div className="flex gap-6">
+                      <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="evalMode" value="split" checked={evalMode === 'split'} onChange={() => setEvalMode('split')} className="accent-primary" data-testid="eval-mode-split" /><span className="text-sm">Train/Test Split <span className="text-muted-foreground">(Fast)</span></span></label>
+                      <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="evalMode" value="cv" checked={evalMode === 'cv'} onChange={() => setEvalMode('cv')} className="accent-primary" data-testid="eval-mode-cv" /><span className="text-sm">5-Fold Cross Validation <span className="text-muted-foreground">(Recommended)</span></span></label>
+                    </div>
+                  </div>
                   <Button onClick={handleTrain} disabled={isTraining || !targetColumn || targetColumn === '__none__'} className="w-full mt-6 h-12" size="lg" data-testid="start-training-btn">{isTraining ? <><div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Training...</> : <><Play className="h-4 w-4 mr-2" />Start Training</>}</Button>
                 </CardContent></Card></motion.div>}
 
@@ -858,8 +905,8 @@ function App() {
                   {/* Train-Test Split Info */}
                   <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 flex items-center gap-3" data-testid="split-info">
                     <SplitSquareVertical className="h-5 w-5 text-blue-600 shrink-0" />
-                    <div><p className="text-sm font-semibold text-blue-800 dark:text-blue-200">Train/Test Split: {trainingResult.splitInfo?.trainSize} train / {trainingResult.splitInfo?.testSize} test (80/20)</p>
-                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">All metrics below are evaluated on the held-out test set for unbiased evaluation</p></div>
+                    <div><p className="text-sm font-semibold text-blue-800 dark:text-blue-200">Train/Test Split: {trainingResult.splitInfo?.trainSize} train / {trainingResult.splitInfo?.testSize} test (80/20){trainingResult.evalMode === 'cv' && ' + 5-Fold Cross Validation'}</p>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">{trainingResult.evalMode === 'cv' ? 'Models ranked by 5-fold cross-validation score for reliable evaluation. Test metrics are also shown for reference.' : 'All metrics below are evaluated on the held-out test set for unbiased evaluation'}</p></div>
                   </div>
 
                   {trainingResult.dataInfo?.removedLeakageColumns?.length > 0 && <Card className="border-2 border-orange-500 bg-orange-50 dark:bg-orange-950" data-testid="leakage-warning"><CardContent className="p-4"><div className="flex items-start gap-3"><AlertCircle className="h-6 w-6 text-orange-600 mt-0.5 shrink-0" /><div><p className="font-semibold text-orange-900 dark:text-orange-100">Data Leakage Prevention</p><div className="flex flex-wrap gap-2 mt-2">{trainingResult.dataInfo.removedLeakageColumns.map((col, idx) => <Badge key={idx} variant="outline" className="bg-orange-100 dark:bg-orange-900">{col}</Badge>)}</div></div></div></CardContent></Card>}
@@ -953,17 +1000,28 @@ function App() {
                     }))}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} /><Tooltip formatter={(v) => `${v}%`} /><Bar dataKey="score" radius={[4, 4, 0, 0]}>{trainingResult.leaderboard.filter(m => m.algorithm !== 'baseline').map((m, i) => <Cell key={i} fill={ALGO_COLORS[m.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
                   </CardContent></Card>}
 
+                  {/* Cross-Validation Performance Chart */}
+                  {trainingResult.evalMode === 'cv' && trainingResult.leaderboard?.some(m => m.cvScore !== null) && (
+                    <Card data-testid="cv-performance-chart"><CardHeader><CardTitle className="text-lg">Cross-Validation Performance</CardTitle></CardHeader><CardContent>
+                      <p className="text-xs text-muted-foreground mb-4">This chart shows the average performance of each model across multiple validation folds. Cross-validation helps ensure the model performs consistently across different subsets of the data. Higher scores indicate more reliable models.</p>
+                      <ResponsiveContainer width="100%" height={300}><BarChart data={trainingResult.leaderboard.filter(m => m.cvScore !== null && m.algorithm !== 'baseline').map(m => ({
+                        name: ALGO_NAMES[m.algorithm] || m.algorithm,
+                        cvScore: +(m.cvScore * 100).toFixed(2),
+                        testScore: +(trainingResult.problemType === 'regression' ? (m.testMetrics.r2 * 100) : (m.testMetrics.accuracy * 100)).toFixed(2),
+                        fill: ALGO_COLORS[m.algorithm] || '#6b7280'
+                      }))}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} /><Tooltip formatter={(v) => `${v}%`} /><Legend /><Bar dataKey="cvScore" name="CV Score" radius={[4, 4, 0, 0]}>{trainingResult.leaderboard.filter(m => m.cvScore !== null && m.algorithm !== 'baseline').map((m, i) => <Cell key={i} fill={ALGO_COLORS[m.algorithm] || '#6b7280'} />)}</Bar><Bar dataKey="testScore" name="Test Score" radius={[4, 4, 0, 0]} fill="#94a3b8" opacity={0.5} /></BarChart></ResponsiveContainer>
+                    </CardContent></Card>
+                  )}
+
                   {/* Algorithm Leaderboard */}
-                  <Card><CardHeader><CardTitle className="text-lg">Algorithm Leaderboard</CardTitle><CardDescription>All algorithms ranked by test performance — the best model is automatically selected</CardDescription></CardHeader>
+                  <Card><CardHeader><CardTitle className="text-lg">Algorithm Leaderboard</CardTitle><CardDescription>All algorithms ranked by {trainingResult.evalMode === 'cv' ? 'cross-validation score' : 'test performance'} — the best model is automatically selected</CardDescription></CardHeader>
                     <CardContent><div className="space-y-2" data-testid="leaderboard">{trainingResult.leaderboard?.map((model, idx) => (
                       <div key={idx} className="flex items-center justify-between p-3 rounded-lg border" data-testid={`leaderboard-entry-${idx}`} style={idx === 0 ? { borderColor: ALGO_COLORS[model.algorithm], borderWidth: 2 } : {}}>
                         <div className="flex items-center gap-3"><Badge variant={idx === 0 ? 'default' : 'secondary'} style={idx === 0 ? { backgroundColor: ALGO_COLORS[model.algorithm] } : {}}>{idx + 1}</Badge><div><p className="font-medium">{ALGO_NAMES[model.algorithm] || model.algorithm}</p><p className="text-xs text-muted-foreground">{model.durationSec ? `${model.durationSec.toFixed(3)}s` : '-'}{idx === 0 && ' — Best Model'}</p></div></div>
-                        <div className="text-right font-mono text-sm" data-testid={`leaderboard-score-${idx}`}>{(() => {
-                          const m = model.testMetrics;
-                          if (m.accuracy !== undefined) return `${(m.accuracy * 100).toFixed(2)}% acc`;
-                          if (m.r2 !== undefined) return `${(m.r2 * 100).toFixed(2)}% R²`;
-                          return '-';
-                        })()}</div>
+                        <div className="text-right font-mono text-sm" data-testid={`leaderboard-score-${idx}`}>
+                          <div>{(() => { const m = model.testMetrics; if (m.accuracy !== undefined) return `${(m.accuracy * 100).toFixed(2)}% acc`; if (m.r2 !== undefined) return `${(m.r2 * 100).toFixed(2)}% R²`; return '-'; })()}</div>
+                          {model.cvScore !== null && model.cvScore !== undefined && <div className="text-xs text-emerald-600 font-semibold" data-testid={`cv-score-${idx}`}>CV: {(model.cvScore * 100).toFixed(2)}%</div>}
+                        </div>
                       </div>
                     ))}</div></CardContent></Card>
                 </CardContent></Card></motion.div>}
