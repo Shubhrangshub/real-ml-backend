@@ -15,6 +15,8 @@
     "clsx": "^2.1.1",
     "danfojs": "^1.2.0",
     "framer-motion": "^12.29.0",
+    "jspdf": "^4.2.0",
+    "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.563.0",
     "ml-kmeans": "^7.0.0",
     "ml-regression": "^6.3.0",

@@ -1,11 +1,14 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Brain, Sparkles, TrendingUp, Activity, Database, Zap, Settings, Upload, Play,
+  Brain, Sparkles, TrendingUp, Activity, Database, Zap, Upload, Play,
   Eye, Trash2, ChevronRight, ArrowUpRight, FileText, Target, Cpu, BarChart3,
   Download, AlertCircle, Layers, ShieldAlert, Table2, Info, SplitSquareVertical,
-  Clock, Trophy, CheckCircle2, XCircle, Shield
+  Clock, Trophy, CheckCircle2, XCircle, Shield, Moon, Sun, FileUp, BarChart2,
+  Printer
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -774,6 +777,19 @@ function App() {
   const [selectedModelIdx, setSelectedModelIdx] = useState(-1);
   const [corrVarX, setCorrVarX] = useState('');
   const [corrVarY, setCorrVarY] = useState('');
+  const [darkMode, setDarkMode] = useState(() => {
+    try { return localStorage.getItem('automl_dark_mode') === 'true'; } catch { return false; }
+  });
+  const [batchCsvText, setBatchCsvText] = useState('');
+  const [batchResults, setBatchResults] = useState(null);
+  const [batchProcessing, setBatchProcessing] = useState(false);
+  const [histogramCol, setHistogramCol] = useState('');
+
+  // ==================== DARK MODE TOGGLE ====================
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+    try { localStorage.setItem('automl_dark_mode', darkMode); } catch {}
+  }, [darkMode]);
 
   // ==================== LOCALSTORAGE PERSISTENCE ====================
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
@@ -995,6 +1011,150 @@ function App() {
   const handleClustering = () => { setError(''); setClusterResult(null); if (!dataProfile) { setError('Please upload data first'); return; } if (dataProfile.numericColumns.length < 1) { setError('Need numeric columns'); return; } try { setClusterResult(runKMeansClustering(dataProfile.rows, dataProfile.numericColumns, numClusters)); } catch (err) { setError('Clustering failed: ' + err.message); } };
   const handleAnomalyDetection = () => { setError(''); setAnomalyResult(null); if (!dataProfile) { setError('Please upload data first'); return; } if (dataProfile.numericColumns.length < 1) { setError('Need numeric columns'); return; } try { setAnomalyResult(detectAnomaliesFunc(dataProfile.rows, dataProfile.numericColumns, anomalyMethod, anomalyThreshold)); } catch (err) { setError('Anomaly detection failed: ' + err.message); } };
 
+  // ==================== BATCH PREDICTIONS ====================
+  const handleBatchPredict = () => {
+    setError(''); setBatchResults(null);
+    const idx = selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : models.length - 1;
+    const am = models[idx];
+    if (!am) { setError('No trained model available.'); return; }
+    if (!batchCsvText.trim()) { setError('Please upload or paste CSV data for batch prediction.'); return; }
+    setBatchProcessing(true);
+    setTimeout(() => {
+      try {
+        const { rows, headers } = parseCSV(batchCsvText);
+        if (rows.length === 0) throw new Error('No rows found in CSV');
+        const predictions = rows.map(row => {
+          const inputRow = {};
+          am.modelData.numericCols.forEach(col => { inputRow[col] = Number(row[col]) || 0; });
+          am.modelData.categoricalCols.forEach(col => { inputRow[col] = row[col] || ''; });
+          const fvs = prepareInputForPrediction([inputRow], am.modelData);
+          const raw = predictOne(am.modelData, fvs[0]);
+          return am.modelData.targetEncoding ? am.modelData.targetEncoding[raw] : raw;
+        });
+        setBatchResults({ headers, rows, predictions, algorithm: am.algorithm, targetColumn: am.targetColumn, problemType: am.problemType });
+      } catch (err) { setError('Batch prediction failed: ' + err.message); }
+      finally { setBatchProcessing(false); }
+    }, 50);
+  };
+
+  const handleBatchCsvUpload = (event) => {
+    const file = event.target.files[0];
+    if (file) { const reader = new FileReader(); reader.onload = (e) => setBatchCsvText(e.target.result); reader.readAsText(file); }
+  };
+
+  const downloadBatchCsv = () => {
+    if (!batchResults) return;
+    const lines = [
+      [...batchResults.headers, `predicted_${batchResults.targetColumn}`].join(','),
+      ...batchResults.rows.map((row, i) => [...batchResults.headers.map(h => String(row[h] ?? '')), String(batchResults.predictions[i])].join(','))
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `batch_predictions_${Date.now()}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  };
+
+  // ==================== MODEL IMPORT ====================
+  const handleImportModel = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const model = JSON.parse(e.target.result);
+        if (!model.modelId || !model.algorithm || !model.modelData) throw new Error('Invalid model file format');
+        model.modelId = generateId(); // assign new ID to avoid conflicts
+        model.importedAt = new Date().toISOString();
+        setModels(prev => [...prev, model]);
+      } catch (err) { setError('Failed to import model: ' + err.message); }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
+  // ==================== PDF EXPORT ====================
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    const pw = doc.internal.pageSize.getWidth();
+    let y = 20;
+    const addLine = (text, size = 10, style = 'normal') => {
+      doc.setFontSize(size); doc.setFont('helvetica', style);
+      const lines = doc.splitTextToSize(text, pw - 30);
+      if (y + lines.length * (size * 0.5) > doc.internal.pageSize.getHeight() - 20) { doc.addPage(); y = 20; }
+      doc.text(lines, 15, y); y += lines.length * (size * 0.5) + 3;
+    };
+
+    // Title
+    addLine('AutoML Master - Training Report', 18, 'bold'); y += 5;
+    addLine(`Generated: ${new Date().toLocaleString()}`, 9); y += 5;
+
+    // Dataset Info
+    if (trainingResult?.dataInfo) {
+      addLine('Dataset Information', 14, 'bold'); y += 2;
+      doc.autoTable({
+        startY: y, margin: { left: 15 },
+        head: [['Property', 'Value']],
+        body: [
+          ['Samples', String(trainingResult.dataInfo.numSamples)],
+          ['Features', String(trainingResult.dataInfo.numFeatures)],
+          ['Target Column', trainingResult.dataInfo.targetColumn],
+          ['Problem Type', trainingResult.problemType],
+          ['Evaluation Mode', trainingResult.evalMode === 'cv' ? '5-Fold Cross Validation' : 'Train/Test Split (80/20)'],
+          ['Training Time', `${trainingResult.totalTime?.toFixed(2)}s`],
+        ],
+        theme: 'grid', styles: { fontSize: 9 },
+      });
+      y = doc.lastAutoTable.finalY + 10;
+    }
+
+    // Best Model
+    if (trainingResult?.bestModel) {
+      addLine('Best Model', 14, 'bold'); y += 2;
+      const bm = trainingResult.bestModel;
+      const metricRows = trainingResult.problemType === 'regression'
+        ? [['R² Score', `${(bm.testMetrics.r2 * 100).toFixed(2)}%`], ['MAE', bm.testMetrics.mae.toFixed(4)], ['RMSE', bm.testMetrics.rmse.toFixed(4)]]
+        : [['Accuracy', `${(bm.testMetrics.accuracy * 100).toFixed(2)}%`], ['Precision', `${(bm.testMetrics.precision * 100).toFixed(2)}%`], ['Recall', `${(bm.testMetrics.recall * 100).toFixed(2)}%`], ['F1 Score', `${(bm.testMetrics.f1 * 100).toFixed(2)}%`]];
+      doc.autoTable({
+        startY: y, margin: { left: 15 },
+        head: [['Algorithm', 'Metric', 'Value']],
+        body: metricRows.map(([m, v]) => [ALGO_NAMES[bm.algorithm] || bm.algorithm, m, v]),
+        theme: 'grid', styles: { fontSize: 9 },
+      });
+      y = doc.lastAutoTable.finalY + 10;
+    }
+
+    // Leaderboard
+    if (trainingResult?.leaderboard?.length > 1) {
+      addLine('Algorithm Leaderboard', 14, 'bold'); y += 2;
+      doc.autoTable({
+        startY: y, margin: { left: 15 },
+        head: [['Rank', 'Algorithm', 'Score', 'CV Score', 'Time']],
+        body: trainingResult.leaderboard.map((m, i) => [
+          `#${i + 1}`,
+          ALGO_NAMES[m.algorithm] || m.algorithm,
+          trainingResult.problemType === 'regression' ? `${(m.testMetrics.r2 * 100).toFixed(2)}%` : `${(m.testMetrics.accuracy * 100).toFixed(2)}%`,
+          m.cvScore != null ? `${(m.cvScore * 100).toFixed(2)}%` : '-',
+          m.durationSec ? `${m.durationSec.toFixed(3)}s` : '-',
+        ]),
+        theme: 'grid', styles: { fontSize: 9 },
+      });
+      y = doc.lastAutoTable.finalY + 10;
+    }
+
+    // Feature Importance
+    if (trainingResult?.bestModel?.featureImportance?.length > 0) {
+      addLine('Feature Importance', 14, 'bold'); y += 2;
+      doc.autoTable({
+        startY: y, margin: { left: 15 },
+        head: [['Feature', 'Importance']],
+        body: trainingResult.bestModel.featureImportance.map(f => [f.feature, `${(f.importance * 100).toFixed(1)}%`]),
+        theme: 'grid', styles: { fontSize: 9 },
+      });
+    }
+
+    doc.save(`automl_report_${Date.now()}.pdf`);
+  };
+
   // ==================== UNSUPERVISED LEARNING ====================
   const handleRunUnsupervised = () => {
     setError(''); setUnsupervisedResult(null); setClusterPredResult(null);
@@ -1059,6 +1219,29 @@ function App() {
     return cols.map(c1 => { const entry = { feature: c1 }; cols.forEach(c2 => { entry[c2] = corr(c1, c2); }); return entry; });
   }, [dataProfile]);
 
+  const histogramData = useMemo(() => {
+    if (!dataProfile || !histogramCol) return [];
+    const vals = dataProfile.rows.map(r => r[histogramCol]).filter(v => typeof v === 'number');
+    if (vals.length === 0) return [];
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const range = max - min;
+    if (range === 0) return [{ bin: `${min.toFixed(1)}`, count: vals.length }];
+    const nBins = Math.min(20, Math.max(5, Math.ceil(Math.sqrt(vals.length))));
+    const binWidth = range / nBins;
+    const bins = Array.from({ length: nBins }, (_, i) => ({
+      bin: `${(min + i * binWidth).toFixed(1)}`,
+      from: min + i * binWidth,
+      to: min + (i + 1) * binWidth,
+      count: 0,
+    }));
+    vals.forEach(v => {
+      let idx = Math.floor((v - min) / binWidth);
+      if (idx >= nBins) idx = nBins - 1;
+      bins[idx].count++;
+    });
+    return bins;
+  }, [dataProfile, histogramCol]);
+
   // ==================== MODEL MANAGEMENT ====================
   const handleDeleteModel = (modelId) => setModels(prev => prev.filter(m => m.modelId !== modelId));
   const handleDownloadModel = (modelId) => {
@@ -1111,7 +1294,7 @@ function App() {
         <div className="flex h-full flex-col gap-2">
           <div className="flex h-16 items-center border-b border-sidebar-border px-6"><div className="flex items-center gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Brain className="h-6 w-6" /></div><div><h1 className="text-lg font-bold text-sidebar-foreground">AutoML</h1><p className="text-xs text-sidebar-foreground/60">Universal Dashboard</p></div></div></div>
           <nav className="flex-1 space-y-1 px-3 py-4" data-testid="sidebar-nav">
-            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }].map((item) => (
+            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }].map((item) => (
               <Button key={item.id} variant={activeView === item.id ? 'secondary' : 'ghost'} className="w-full justify-start gap-3" onClick={() => setActiveView(item.id)} data-testid={`nav-${item.id}`}><item.icon className="h-4 w-4" />{item.label}</Button>
             ))}
           </nav>
@@ -1123,10 +1306,13 @@ function App() {
         <motion.header initial={{ y: -100 }} animate={{ y: 0 }} className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="flex h-16 items-center justify-between px-8"><div>
             <h2 className="text-2xl font-bold tracking-tight" data-testid="page-title">
-              {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}
+              {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}
             </h2>
-            <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations'}{activeView === 'analysis' && 'Upload data, auto-detect tasks, and train models'}{activeView === 'predict' && 'Predictions, results, visualizations & correlation analysis'}{activeView === 'anomalies' && 'Detect outliers in your data'}{activeView === 'models' && 'Manage your models'}</p>
-          </div><Button variant="outline" size="icon"><Settings className="h-4 w-4" /></Button></div>
+            <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations'}{activeView === 'analysis' && 'Upload data, auto-detect tasks, and train models'}{activeView === 'predict' && 'Predictions, results, visualizations & correlation analysis'}{activeView === 'anomalies' && 'Detect outliers in your data'}{activeView === 'models' && 'Manage your models'}{activeView === 'explore' && 'Histograms, correlation heatmap & scatter plots'}</p>
+          </div><div className="flex items-center gap-2">
+            {trainingResult && <Button variant="outline" size="sm" onClick={handleExportPDF} data-testid="export-pdf-btn"><Printer className="h-4 w-4 mr-2" />Export PDF</Button>}
+            <Button variant="outline" size="icon" onClick={() => setDarkMode(prev => !prev)} data-testid="dark-mode-toggle">{darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</Button>
+          </div></div>
         </motion.header>
 
         <AnimatePresence>{error && <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="mx-8 mt-4" data-testid="error-banner"><Card className="border-destructive bg-destructive/10"><CardContent className="p-4"><p className="text-sm text-destructive font-medium flex items-center gap-2"><AlertCircle className="h-4 w-4" /> {error}</p></CardContent></Card></motion.div>}</AnimatePresence>
@@ -1605,7 +1791,7 @@ function App() {
 
               {/* Sub-tab Navigation */}
               <div className="flex gap-1 p-1 rounded-lg bg-muted/50 w-fit" data-testid="predict-tabs">
-                {[{ id: 'predict', label: 'Predict', icon: Sparkles }, { id: 'results', label: 'Results', icon: Eye }, { id: 'visualize', label: 'Visualizations', icon: BarChart3 }, { id: 'correlation', label: 'Correlation', icon: TrendingUp }].map(tab => (
+                {[{ id: 'predict', label: 'Predict', icon: Sparkles }, { id: 'batch', label: 'Batch', icon: FileUp }, { id: 'results', label: 'Results', icon: Eye }, { id: 'visualize', label: 'Visualizations', icon: BarChart3 }, { id: 'correlation', label: 'Correlation', icon: TrendingUp }].map(tab => (
                   <Button key={tab.id} variant={predictTab === tab.id ? 'default' : 'ghost'} size="sm" onClick={() => setPredictTab(tab.id)} data-testid={`predict-tab-${tab.id}`} className="gap-1.5"><tab.icon className="h-3.5 w-3.5" />{tab.label}</Button>
                 ))}
               </div>
@@ -1659,6 +1845,69 @@ function App() {
                         {clusterPredResult.inputData && <div className="mt-3 pt-3 border-t"><p className="text-xs font-medium text-muted-foreground mb-2">Input Summary</p><div className="flex flex-wrap gap-2">{Object.entries(clusterPredResult.inputData).filter(([,v]) => v !== '').map(([k, v]) => <Badge key={k} variant="secondary" className="text-xs">{k}: {v}</Badge>)}</div></div>}
                       </div>}
                     </CardContent></Card>}
+                </>)}
+              </div>)}
+
+              {/* ===== BATCH TAB ===== */}
+              {predictTab === 'batch' && (<div className="space-y-6">
+                {models.length === 0 ? (
+                  <Card className="border-2 border-dashed"><CardContent className="py-16 text-center">
+                    <AlertCircle className="h-14 w-14 text-muted-foreground/30 mx-auto mb-5" />
+                    <h3 className="text-lg font-semibold mb-2">No Models Available</h3>
+                    <p className="text-muted-foreground text-sm mb-4">Train a model first to use batch predictions.</p>
+                    <Button onClick={() => setActiveView('analysis')} size="lg"><Zap className="h-4 w-4 mr-2" />Go to Analysis</Button>
+                  </CardContent></Card>
+                ) : (<>
+                  <Card data-testid="batch-model-selector"><CardHeader><CardTitle className="flex items-center gap-2"><Cpu className="h-5 w-5" />Select Model for Batch</CardTitle></CardHeader>
+                    <CardContent><select value={selectedModelIdx === -1 ? models.length - 1 : selectedModelIdx} onChange={e => { setSelectedModelIdx(Number(e.target.value)); setBatchResults(null); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="batch-model-select">
+                      {models.map((m, i) => <option key={m.modelId} value={i}>{ALGO_NAMES[m.algorithm] || m.algorithm} — {m.problemType} — Target: {m.targetColumn}</option>)}
+                    </select></CardContent></Card>
+
+                  <Card data-testid="batch-upload-card"><CardHeader><CardTitle className="flex items-center gap-2"><FileUp className="h-5 w-5" />Upload CSV for Batch Prediction</CardTitle><CardDescription>Upload a CSV file with the same features as your training data. Predictions will be generated for every row.</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="relative border-2 border-dashed rounded-lg p-8 text-center transition-all border-muted-foreground/25 hover:border-primary hover:bg-accent/50">
+                        <input type="file" accept=".csv" onChange={handleBatchCsvUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" data-testid="batch-csv-file-input" />
+                        <FileUp className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+                        <p className="text-sm font-medium">Drop CSV file or click to browse</p>
+                      </div>
+                      <Separator />
+                      <div><label className="text-sm font-medium mb-2 block">Or paste CSV data:</label>
+                        <textarea value={batchCsvText} onChange={e => setBatchCsvText(e.target.value)} placeholder="Paste CSV data for batch predictions..." rows={5} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="batch-csv-text-input" />
+                      </div>
+                      <Button onClick={handleBatchPredict} disabled={batchProcessing || !batchCsvText.trim()} className="w-full h-12" size="lg" data-testid="run-batch-predict-btn">
+                        {batchProcessing ? <><div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Processing...</> : <><Play className="h-4 w-4 mr-2" />Run Batch Predictions</>}
+                      </Button>
+                    </CardContent></Card>
+
+                  {batchResults && <Card data-testid="batch-results-card"><CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div><CardTitle className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-emerald-600" />Batch Results</CardTitle>
+                        <CardDescription>{batchResults.predictions.length} predictions using {ALGO_NAMES[batchResults.algorithm] || batchResults.algorithm}</CardDescription></div>
+                      <Button variant="outline" size="sm" onClick={downloadBatchCsv} data-testid="download-batch-csv-btn"><Download className="h-4 w-4 mr-2" />Download CSV</Button>
+                    </div>
+                  </CardHeader><CardContent>
+                    <div className="rounded-md border overflow-auto max-h-96">
+                      <table className="w-full text-sm" data-testid="batch-results-table">
+                        <thead><tr className="border-b bg-muted/50 sticky top-0">
+                          <th className="p-2 text-left font-medium text-xs">#</th>
+                          {batchResults.headers.slice(0, 6).map(h => <th key={h} className="p-2 text-left font-medium text-xs font-mono">{h}</th>)}
+                          {batchResults.headers.length > 6 && <th className="p-2 text-center text-xs">...</th>}
+                          <th className="p-2 text-right font-medium text-xs bg-primary/10">Prediction</th>
+                        </tr></thead>
+                        <tbody>{batchResults.rows.slice(0, 100).map((row, ri) => (
+                          <tr key={ri} className="border-b last:border-0 hover:bg-accent/50" data-testid={`batch-row-${ri}`}>
+                            <td className="p-2 text-xs text-muted-foreground">{ri + 1}</td>
+                            {batchResults.headers.slice(0, 6).map(h => <td key={h} className="p-2 text-xs font-mono">{String(row[h] ?? '').substring(0, 15)}</td>)}
+                            {batchResults.headers.length > 6 && <td className="p-2 text-center text-xs">...</td>}
+                            <td className="p-2 text-right font-mono font-bold text-primary" data-testid={`batch-pred-${ri}`}>
+                              {typeof batchResults.predictions[ri] === 'number' ? (batchResults.problemType === 'classification' ? batchResults.predictions[ri] : batchResults.predictions[ri].toFixed(4)) : batchResults.predictions[ri]}
+                            </td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                    {batchResults.rows.length > 100 && <p className="text-xs text-muted-foreground mt-2 text-center">Showing first 100 of {batchResults.rows.length} rows</p>}
+                  </CardContent></Card>}
                 </>)}
               </div>)}
 
@@ -1861,290 +2110,94 @@ function App() {
             </motion.div>
           )}
 
-          {/* ==================== ANOMALIES ==================== */}
-                </CardHeader><CardContent>
-                  <ResponsiveContainer width="100%" height={350}><ScatterChart>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis dataKey="x" name="PC1" type="number" tick={{fontSize: 11}} label={{value: `PC1 (${(unsupervisedResult.pca.explainedVariance[0] * 100).toFixed(1)}% var)`, position: 'bottom', fontSize: 11}} />
-                    <YAxis dataKey="y" name="PC2" type="number" tick={{fontSize: 11}} label={{value: `PC2 (${(unsupervisedResult.pca.explainedVariance[1] * 100).toFixed(1)}% var)`, angle: -90, position: 'left', fontSize: 11}} />
-                    <ZAxis range={[60, 60]} />
-                    <Tooltip content={({active, payload}) => active && payload?.length ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p>Point #{payload[0].payload.index}</p><p>Cluster: {payload[0].payload.cluster}</p><p>PC1: {payload[0].payload.x.toFixed(3)}</p><p>PC2: {payload[0].payload.y.toFixed(3)}</p></div> : null} />
-                    <Legend />
-                    {[...new Set(unsupervisedResult.pca.points.map(p => p.cluster))].sort((a,b)=>a-b).map(c =>
-                      <Scatter key={c} name={`Cluster ${c}`} data={unsupervisedResult.pca.points.filter(p => p.cluster === c)} fill={CLUSTER_COLORS[c % CLUSTER_COLORS.length]} />
-                    )}
-                  </ScatterChart></ResponsiveContainer>
+          {/* ==================== DATA EXPLORER ==================== */}
+          {activeView === 'explore' && (
+            <motion.div key="explore" variants={staggerContainer} initial="initial" animate="animate" exit="exit" className="space-y-6" data-testid="explore-view">
+              {!dataProfile ? (
+                <Card className="border-2 border-dashed"><CardContent className="py-16 text-center">
+                  <BarChart2 className="h-14 w-14 text-muted-foreground/30 mx-auto mb-5" />
+                  <h3 className="text-lg font-semibold mb-2">No Data Loaded</h3>
+                  <p className="text-muted-foreground text-sm mb-4">Upload a dataset in the Analysis tab to explore your data.</p>
+                  <Button onClick={() => setActiveView('analysis')} size="lg" data-testid="explore-go-analysis"><Zap className="h-4 w-4 mr-2" />Go to Analysis</Button>
                 </CardContent></Card>
-
-                {/* t-SNE Visualization */}
-                {unsupervisedResult.tsne && <Card data-testid="tsne-chart"><CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><Activity className="h-4 w-4" />t-SNE Visualization</CardTitle>
-                  <CardDescription>Non-linear projection preserving local structure. Clusters that appear close together have similar data points.</CardDescription>
-                </CardHeader><CardContent>
-                  <ResponsiveContainer width="100%" height={350}><ScatterChart>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis dataKey="x" name="Dim 1" type="number" tick={{fontSize: 11}} />
-                    <YAxis dataKey="y" name="Dim 2" type="number" tick={{fontSize: 11}} />
-                    <ZAxis range={[60, 60]} />
-                    <Tooltip content={({active, payload}) => active && payload?.length ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p>Cluster: {payload[0].payload.cluster}</p></div> : null} />
-                    <Legend />
-                    {[...new Set(unsupervisedResult.tsne.points.map(p => p.cluster))].sort((a,b)=>a-b).map(c =>
-                      <Scatter key={c} name={`Cluster ${c}`} data={unsupervisedResult.tsne.points.filter(p => p.cluster === c)} fill={CLUSTER_COLORS[c % CLUSTER_COLORS.length]} />
-                    )}
-                  </ScatterChart></ResponsiveContainer>
-                </CardContent></Card>}
-
-                {/* Cluster Distribution */}
-                {unsupervisedResult.bestAlgorithm && <Card data-testid="cluster-distribution-chart"><CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="h-4 w-4" />Cluster Distribution</CardTitle>
-                  <CardDescription>Number of data points assigned to each cluster. Balanced distributions often indicate well-separated groups.</CardDescription>
-                </CardHeader><CardContent>
-                  <ResponsiveContainer width="100%" height={250}><BarChart data={(() => {
-                    const counts = {};
-                    unsupervisedResult.bestAlgorithm.labels.forEach(l => { if (l >= 0) counts[l] = (counts[l] || 0) + 1; });
-                    return Object.entries(counts).map(([k, v]) => ({ name: `Cluster ${k}`, count: v, fill: CLUSTER_COLORS[Number(k) % CLUSTER_COLORS.length] }));
-                  })()}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis dataKey="name" tick={{fontSize: 11}} />
-                    <YAxis tick={{fontSize: 11}} />
-                    <Tooltip />
-                    <Bar dataKey="count" radius={[6, 6, 0, 0]}>{(() => {
-                      const counts = {};
-                      unsupervisedResult.bestAlgorithm.labels.forEach(l => { if (l >= 0) counts[l] = (counts[l] || 0) + 1; });
-                      return Object.keys(counts).map((k, i) => <Cell key={i} fill={CLUSTER_COLORS[Number(k) % CLUSTER_COLORS.length]} />);
-                    })()}</Bar>
-                  </BarChart></ResponsiveContainer>
-                </CardContent></Card>}
-
-                {/* Elbow Method + Silhouette Charts */}
-                <div className="grid gap-6 md:grid-cols-2">
-                  <Card data-testid="elbow-chart"><CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2"><TrendingUp className="h-4 w-4" />Elbow Method</CardTitle>
-                    <CardDescription>Inertia decreases as K increases. The "elbow" point suggests the optimal number of clusters.</CardDescription>
-                  </CardHeader><CardContent>
-                    <ResponsiveContainer width="100%" height={250}><LineChart data={unsupervisedResult.optimalK.results}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis dataKey="k" tick={{fontSize: 11}} label={{value: 'Number of Clusters (K)', position: 'bottom', fontSize: 11}} />
-                      <YAxis tick={{fontSize: 11}} />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="inertia" stroke="#2563eb" strokeWidth={2} dot={{fill: '#2563eb', r: 4}} activeDot={{r: 6}} />
-                      <ReferenceLine x={unsupervisedResult.optimalK.bestK} stroke="#22c55e" strokeDasharray="5 5" label={{value: `Best K=${unsupervisedResult.optimalK.bestK}`, position: 'top', fontSize: 10, fill: '#22c55e'}} />
-                    </LineChart></ResponsiveContainer>
-                  </CardContent></Card>
-
-                  <Card data-testid="silhouette-chart"><CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2"><Activity className="h-4 w-4" />Silhouette Score by K</CardTitle>
-                    <CardDescription>Higher silhouette = better-defined clusters. The peak indicates the optimal K.</CardDescription>
-                  </CardHeader><CardContent>
-                    <ResponsiveContainer width="100%" height={250}><LineChart data={unsupervisedResult.optimalK.results}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis dataKey="k" tick={{fontSize: 11}} label={{value: 'Number of Clusters (K)', position: 'bottom', fontSize: 11}} />
-                      <YAxis tick={{fontSize: 11}} domain={[0, 1]} />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="silhouette" stroke="#16a34a" strokeWidth={2} dot={{fill: '#16a34a', r: 4}} activeDot={{r: 6}} />
-                      <ReferenceLine x={unsupervisedResult.optimalK.bestK} stroke="#22c55e" strokeDasharray="5 5" />
-                    </LineChart></ResponsiveContainer>
-                  </CardContent></Card>
-                </div>
-
-                {/* Anomaly Detection */}
-                {unsupervisedResult.anomalyDetection?.isolationForest && <Card data-testid="anomaly-chart"><CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-4 w-4" />Anomaly Detection</CardTitle>
-                  <CardDescription>
-                    Isolation Forest detected <strong className="text-red-600">{unsupervisedResult.anomalyDetection.isolationForest.nAnomalies}</strong> anomalies ({((unsupervisedResult.anomalyDetection.isolationForest.nAnomalies / unsupervisedResult.preprocessing.n) * 100).toFixed(1)}% of data).
-                    {unsupervisedResult.anomalyDetection.lof && <> LOF detected <strong className="text-red-600">{unsupervisedResult.anomalyDetection.lof.nAnomalies}</strong> outliers.</>}
-                    {' '}Anomalies are data points that differ significantly from the majority and may indicate errors or unusual behavior.
-                  </CardDescription>
-                </CardHeader><CardContent>
-                  {unsupervisedResult.anomalyDetection.points && <ResponsiveContainer width="100%" height={300}><ScatterChart>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis dataKey="x" name="PC1" type="number" tick={{fontSize: 11}} />
-                    <YAxis dataKey="y" name="PC2" type="number" tick={{fontSize: 11}} />
-                    <ZAxis range={[60, 60]} />
-                    <Tooltip content={({active, payload}) => active && payload?.length ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p>{payload[0].payload.anomaly ? 'ANOMALY' : 'Normal'}</p><p>Score: {payload[0].payload.score?.toFixed(3)}</p></div> : null} />
-                    <Legend />
-                    <Scatter name="Normal" data={unsupervisedResult.anomalyDetection.points.filter(p => !p.anomaly)} fill="#2563eb" />
-                    <Scatter name="Anomaly" data={unsupervisedResult.anomalyDetection.points.filter(p => p.anomaly)} fill="#dc2626" />
-                  </ScatterChart></ResponsiveContainer>}
-                </CardContent></Card>}
-
-                {/* Cluster Profile Chart */}
-                {unsupervisedResult.interpretation && <Card data-testid="cluster-profile-chart"><CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="h-4 w-4" />Cluster Profiles</CardTitle>
-                  <CardDescription>Feature averages for each cluster compared to the overall dataset average. Helps understand what makes each cluster unique.</CardDescription>
-                </CardHeader><CardContent>
-                  <ResponsiveContainer width="100%" height={300}><BarChart data={unsupervisedResult.preprocessing.featureNames.map((fname, fi) => {
-                    const entry = { feature: fname };
-                    unsupervisedResult.interpretation.interpretations.forEach(ci => {
-                      entry[`Cluster ${ci.clusterId}`] = ci.featureAverages[fi]?.value || 0;
-                    });
-                    entry['Overall'] = unsupervisedResult.interpretation.overallAvg[fi]?.value || 0;
-                    return entry;
-                  })}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis dataKey="feature" angle={-45} textAnchor="end" height={80} tick={{fontSize: 10}} />
-                    <YAxis tick={{fontSize: 11}} />
-                    <Tooltip />
-                    <Legend />
-                    {unsupervisedResult.interpretation.interpretations.map(ci =>
-                      <Bar key={ci.clusterId} dataKey={`Cluster ${ci.clusterId}`} fill={CLUSTER_COLORS[ci.clusterId % CLUSTER_COLORS.length]} radius={[4, 4, 0, 0]} />
-                    )}
-                    <Bar dataKey="Overall" fill="#6b7280" radius={[4, 4, 0, 0]} />
-                  </BarChart></ResponsiveContainer>
-                </CardContent></Card>}
-
-                {/* Cluster Insights */}
-                {unsupervisedResult.interpretation && <div data-testid="cluster-insights">
-                  <p className="text-sm font-semibold mb-3 flex items-center gap-2"><Info className="h-4 w-4" />Cluster Insights</p>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {unsupervisedResult.interpretation.interpretations.map(ci => (
-                      <Card key={ci.clusterId} className="border-l-4" style={{borderLeftColor: CLUSTER_COLORS[ci.clusterId % CLUSTER_COLORS.length]}} data-testid={`cluster-insight-${ci.clusterId}`}>
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <Badge style={{backgroundColor: CLUSTER_COLORS[ci.clusterId % CLUSTER_COLORS.length]}}>Cluster {ci.clusterId}</Badge>
-                            <span className="text-sm font-mono">{ci.size} points</span>
-                          </div>
-                          <p className="text-sm text-muted-foreground mb-3">{ci.interpretation}</p>
-                          {ci.keyFeatures.length > 0 && <div className="space-y-1">
-                            <p className="text-xs font-semibold">Key Distinguishing Features:</p>
-                            {ci.keyFeatures.filter(f => Math.abs(f.deviation) > 5).map(f => (
-                              <div key={f.feature} className="flex items-center gap-2 text-xs">
-                                <span className={`inline-block w-2 h-2 rounded-full ${f.direction === 'higher' ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                                <span className="font-medium">{f.feature}:</span>
-                                <span className="text-muted-foreground">{f.clusterAvg.toFixed(1)} ({f.direction}, {Math.abs(f.deviation).toFixed(0)}% from avg)</span>
-                              </div>
-                            ))}
-                          </div>}
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </div>}
-
-                {/* Cluster Prediction Form */}
-                <Card data-testid="cluster-prediction"><CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><FileText className="h-4 w-4" />Predict Cluster for New Data</CardTitle>
-                  <CardDescription>Enter feature values to assign a new data point to the nearest cluster using {unsupervisedResult.bestAlgorithm?.name}.</CardDescription>
+              ) : (<>
+                {/* Histogram */}
+                <motion.div variants={fadeInUp}>
+                <Card data-testid="histogram-card"><CardHeader>
+                  <CardTitle className="flex items-center gap-2"><BarChart2 className="h-5 w-5" />Feature Histograms</CardTitle>
+                  <CardDescription>Select a numeric feature to see its distribution.</CardDescription>
                 </CardHeader><CardContent className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {unsupervisedResult.preprocessing.featureNames.map(col => (
-                      <div key={col} className="space-y-1.5">
-                        <label className="text-sm font-medium text-muted-foreground">{col}</label>
-                        <input type="number" step="any" value={clusterPredFormData[col] ?? ''} onChange={e => setClusterPredFormData(prev => ({ ...prev, [col]: e.target.value }))} placeholder={`Enter ${col}`} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`cluster-pred-input-${col}`} />
-                      </div>
-                    ))}
-                  </div>
-                  <Button onClick={handleClusterPredict} className="w-full h-12" size="lg" data-testid="predict-cluster-btn"><Target className="h-4 w-4 mr-2" />Predict Cluster</Button>
-
-                  {clusterPredResult && <div className="rounded-xl border-2 p-6 mt-4" style={{borderColor: CLUSTER_COLORS[clusterPredResult.cluster % CLUSTER_COLORS.length], backgroundColor: CLUSTER_COLORS[clusterPredResult.cluster % CLUSTER_COLORS.length] + '10'}} data-testid="cluster-pred-result">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground mb-1">Assigned Cluster</p>
-                        <p className="text-4xl font-bold" style={{color: CLUSTER_COLORS[clusterPredResult.cluster % CLUSTER_COLORS.length]}}>Cluster {clusterPredResult.cluster}</p>
-                      </div>
-                      <div className="h-16 w-16 rounded-full flex items-center justify-center" style={{backgroundColor: CLUSTER_COLORS[clusterPredResult.cluster % CLUSTER_COLORS.length] + '20'}}><Target className="h-8 w-8" style={{color: CLUSTER_COLORS[clusterPredResult.cluster % CLUSTER_COLORS.length]}} /></div>
-                    </div>
-                    <p className="text-sm text-muted-foreground mb-2">Distance to centroid: {clusterPredResult.distance.toFixed(4)}</p>
-                    {clusterPredResult.interpretation && <p className="text-sm">{clusterPredResult.interpretation.interpretation}</p>}
-                    {clusterPredResult.inputData && <div className="mt-3 pt-3 border-t"><p className="text-xs font-medium text-muted-foreground mb-2">Input Summary</p>
-                      <div className="flex flex-wrap gap-2">{Object.entries(clusterPredResult.inputData).filter(([,v]) => v !== '').map(([k, v]) => <Badge key={k} variant="secondary" className="text-xs">{k}: {v}</Badge>)}</div>
-                    </div>}
-                  </div>}
-                </CardContent></Card>
-
-                {/* Terminology */}
-                <div data-testid="terminology-section">
-                  <p className="text-sm font-semibold mb-3 flex items-center gap-2"><Info className="h-4 w-4" />ML Terminology Guide</p>
-                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                    {UNSUPERVISED_TERMS.map(term => (
-                      <div key={term.key} className="rounded-lg border p-3 bg-muted/30 hover:bg-muted/50 transition-colors" data-testid={`term-${term.key}`}>
-                        <p className="text-sm font-semibold mb-1">{term.name}</p>
-                        <p className="text-xs text-muted-foreground leading-relaxed">{term.desc}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-              </CardContent></Card>
-            </motion.div>
-          )}
-
-          {/* ==================== PREDICTIONS ==================== */}
-          {activeView === 'predict' && (
-            <motion.div key="predict" variants={staggerContainer} initial="initial" animate="animate" exit="exit" className="space-y-6" data-testid="predict-view">
-              {models.length === 0 ? <motion.div variants={fadeInUp}><Card className="border-2 border-orange-500" data-testid="no-model-warning"><CardContent className="py-16 text-center"><AlertCircle className="h-16 w-16 text-orange-500 mx-auto mb-6" /><h3 className="text-xl font-semibold mb-3" data-testid="no-model-warning-title">No trained model available</h3><p className="text-muted-foreground mb-6" data-testid="no-model-warning-message">Please train a model in the Analysis section before making predictions.</p><Button onClick={() => setActiveView('analysis')} size="lg" data-testid="go-to-train-btn"><Zap className="h-4 w-4 mr-2" />Go to Analysis</Button></CardContent></Card></motion.div>
-              : (() => { const am = models[models.length - 1]; return (<>
-                <motion.div variants={fadeInUp}><Card data-testid="active-model-card"><CardHeader><CardTitle className="flex items-center gap-2"><Cpu className="h-5 w-5" />Active Model</CardTitle><CardDescription>Using your best trained model for predictions</CardDescription></CardHeader>
-                  <CardContent><div className="flex items-center gap-4 p-4 rounded-lg border bg-primary/5 border-primary/20"><div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center"><Brain className="h-6 w-6 text-primary" /></div><div className="flex-1"><p className="font-semibold" data-testid="active-model-algorithm">{ALGO_NAMES[am.algorithm] || am.algorithm}</p><p className="text-sm text-muted-foreground">{am.problemType} &middot; Target: {am.targetColumn} &middot; {am.modelData.featureNames.length} features</p></div><Badge variant="default">Active</Badge></div></CardContent></Card></motion.div>
-
-                <motion.div variants={fadeInUp}><Card><CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" />Enter Feature Values</CardTitle><CardDescription>Fill in the values for each feature to generate a prediction for "{am.targetColumn}"</CardDescription></CardHeader>
-                  <CardContent className="space-y-6">
-                    {am.modelData.numericCols.length > 0 && (
-                      <div>
-                        <p className="text-sm font-medium mb-3 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-blue-500" />Numeric Features</p>
-                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                          {am.modelData.numericCols.map(col => (
-                            <div key={col} className="space-y-1.5">
-                              <label className="text-sm font-medium text-muted-foreground">{col}</label>
-                              <input type="number" step="any" value={predictionFormData[col] ?? ''} onChange={e => setPredictionFormData(prev => ({ ...prev, [col]: e.target.value }))} placeholder={`Enter ${col}`} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`predict-input-${col}`} />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {am.modelData.categoricalCols.length > 0 && (
-                      <div>
-                        <p className="text-sm font-medium mb-3 flex items-center gap-2"><Layers className="h-4 w-4 text-emerald-500" />Categorical Features</p>
-                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                          {am.modelData.categoricalCols.map(col => (
-                            <div key={col} className="space-y-1.5">
-                              <label className="text-sm font-medium text-muted-foreground">{col}</label>
-                              <select value={predictionFormData[col] ?? ''} onChange={e => setPredictionFormData(prev => ({ ...prev, [col]: e.target.value }))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid={`predict-input-${col}`}>
-                                <option value="">-- Select --</option>
-                                {am.modelData.encodingMap[col]?.map(val => <option key={val} value={val}>{val}</option>)}
-                              </select>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    <Button onClick={handlePredict} className="w-full h-12" size="lg" data-testid="generate-predictions-btn"><Sparkles className="h-4 w-4 mr-2" />Generate Prediction</Button>
-                  </CardContent></Card></motion.div>
-
-                {predictionResult && <motion.div variants={fadeInUp} initial="initial" animate="animate"><Card className="border-2 border-primary" data-testid="prediction-results"><CardHeader><CardTitle className="flex items-center gap-2 text-primary"><Eye className="h-5 w-5" />Prediction Result</CardTitle><CardDescription>Generated using {ALGO_NAMES[predictionResult.algorithm] || predictionResult.algorithm}</CardDescription></CardHeader>
-                  <CardContent><div className="space-y-4">{predictionResult.predictions.map((pred, idx) => {
-                    const isClassification = predictionResult.problemType === 'classification';
+                  <select value={histogramCol} onChange={e => setHistogramCol(e.target.value)} className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="histogram-col-select">
+                    <option value="">-- Select Column --</option>
+                    {dataProfile.numericColumns.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  {histogramData.length > 0 && (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={histogramData}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <XAxis dataKey="bin" angle={-30} textAnchor="end" height={60} tick={{fontSize: 10}} />
+                        <YAxis tick={{fontSize: 11}} />
+                        <Tooltip formatter={(v) => [`${v} rows`, 'Count']} />
+                        <Bar dataKey="count" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                  {histogramCol && histogramData.length > 0 && (() => {
+                    const vals = dataProfile.rows.map(r => r[histogramCol]).filter(v => typeof v === 'number');
+                    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+                    const sorted = [...vals].sort((a, b) => a - b);
+                    const median = sorted.length % 2 === 0 ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2 : sorted[Math.floor(sorted.length / 2)];
+                    const std = Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length);
                     return (
-                      <div key={idx} className="rounded-xl border-2 border-primary/20 bg-primary/5 p-6" data-testid={`prediction-result-${idx}`}>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground mb-1">{isClassification ? 'Predicted Class' : 'Predicted Value'}</p>
-                            <p className="text-4xl font-bold text-primary" data-testid="prediction-value">{typeof pred === 'number' ? (isClassification ? pred : pred.toFixed(4)) : pred}</p>
-                          </div>
-                          <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center"><Target className="h-8 w-8 text-primary" /></div>
-                        </div>
-                        {predictionResult.probabilities?.[idx] && (
-                          <div className="mt-4 pt-4 border-t">
-                            <p className="text-xs font-medium text-muted-foreground mb-2">Class Probabilities</p>
-                            <div className="space-y-2">{predictionResult.probabilities[idx].map((p, ci) => (
-                              <div key={ci} className="flex items-center gap-3">
-                                <span className="text-xs font-mono w-16">Class {ci}</span>
-                                <div className="flex-1 h-3 bg-muted rounded-full overflow-hidden"><div className="h-full bg-primary rounded-full transition-all" style={{ width: `${(p * 100).toFixed(1)}%` }} /></div>
-                                <span className="text-xs font-mono w-14 text-right">{(p * 100).toFixed(1)}%</span>
-                              </div>
-                            ))}</div>
-                          </div>
-                        )}
-                        {predictionResult.inputData && (
-                          <div className="mt-4 pt-4 border-t">
-                            <p className="text-xs font-medium text-muted-foreground mb-2">Input Summary</p>
-                            <div className="flex flex-wrap gap-2">{Object.entries(predictionResult.inputData).filter(([,v]) => v !== '' && v !== 0).map(([k, v]) => <Badge key={k} variant="secondary" className="text-xs">{k}: {v}</Badge>)}</div>
-                          </div>
-                        )}
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                        <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Count</p><p className="text-lg font-bold">{vals.length}</p></div>
+                        <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Mean</p><p className="text-lg font-bold">{mean.toFixed(2)}</p></div>
+                        <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Median</p><p className="text-lg font-bold">{median.toFixed(2)}</p></div>
+                        <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Std Dev</p><p className="text-lg font-bold">{std.toFixed(2)}</p></div>
+                        <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Range</p><p className="text-lg font-bold">{Math.min(...vals).toFixed(1)} – {Math.max(...vals).toFixed(1)}</p></div>
                       </div>
                     );
-                  })}</div></CardContent></Card></motion.div>}
-              </>); })()}
+                  })()}
+                </CardContent></Card>
+                </motion.div>
+
+                {/* Correlation Heatmap */}
+                {corrMatrix.length > 0 && <motion.div variants={fadeInUp}><Card data-testid="explore-correlation-heatmap"><CardHeader><CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" />Correlation Heatmap</CardTitle><CardDescription>Pairwise correlations between all numeric variables. Blue = positive, red = negative.</CardDescription></CardHeader>
+                  <CardContent><div className="overflow-auto">
+                    <div className="inline-grid gap-px" style={{gridTemplateColumns: `120px repeat(${dataProfile.numericColumns.length}, minmax(60px, 1fr))`}}>
+                      <div />
+                      {dataProfile.numericColumns.map(col => <div key={col} className="text-xs font-mono p-2 text-center truncate" title={col}>{col}</div>)}
+                      {corrMatrix.map((row, ri) => (<React.Fragment key={ri}>
+                        <div className="text-xs font-mono p-2 text-right truncate" title={row.feature}>{row.feature}</div>
+                        {dataProfile.numericColumns.map((col, ci) => { const val = row[col] || 0; const bg = val > 0 ? `rgba(37, 99, 235, ${Math.abs(val) * 0.8})` : `rgba(220, 38, 38, ${Math.abs(val) * 0.8})`; return <div key={ci} className="p-2 text-center text-xs font-mono rounded-sm border border-muted/30" style={{backgroundColor: bg, color: Math.abs(val) > 0.4 ? 'white' : 'inherit'}} title={`${row.feature} vs ${col}: ${val.toFixed(3)}`}>{val.toFixed(2)}</div>; })}
+                      </React.Fragment>))}
+                    </div>
+                  </div></CardContent></Card></motion.div>}
+
+                {/* Scatter Plot */}
+                <motion.div variants={fadeInUp}><Card data-testid="explore-scatter"><CardHeader><CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" />Scatter Plot</CardTitle><CardDescription>Select two numeric variables to visualize their relationship.</CardDescription></CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-1.5"><label className="text-sm font-medium">X Variable</label><select value={corrVarX} onChange={e => setCorrVarX(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="explore-var-x"><option value="">-- Select --</option>{dataProfile.numericColumns.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                      <div className="space-y-1.5"><label className="text-sm font-medium">Y Variable</label><select value={corrVarY} onChange={e => setCorrVarY(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="explore-var-y"><option value="">-- Select --</option>{dataProfile.numericColumns.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                    </div>
+                    {corrVarX && corrVarY && (() => {
+                      const pairs = dataProfile.rows.filter(r => typeof r[corrVarX] === 'number' && typeof r[corrVarY] === 'number').map(r => ({ x: r[corrVarX], y: r[corrVarY] }));
+                      const n = pairs.length; if (n < 3) return <p className="text-sm text-muted-foreground">Insufficient data for these variables.</p>;
+                      const mx = pairs.reduce((s, p) => s + p.x, 0) / n, my = pairs.reduce((s, p) => s + p.y, 0) / n;
+                      let sx = 0, sy = 0, sxy = 0; pairs.forEach(p => { sx += (p.x - mx) ** 2; sy += (p.y - my) ** 2; sxy += (p.x - mx) * (p.y - my); });
+                      const r = (sx > 0 && sy > 0) ? sxy / Math.sqrt(sx * sy) : 0;
+                      const abs = Math.abs(r); const dir = r >= 0 ? 'Positive' : 'Negative';
+                      const str = abs >= 0.8 ? 'Strong' : abs >= 0.5 ? 'Moderate' : abs >= 0.3 ? 'Weak' : 'Very Weak';
+                      return (<>
+                        <div className={`p-4 rounded-lg border-2 ${abs >= 0.5 ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-950/20' : abs >= 0.3 ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/20' : 'border-muted bg-muted/30'}`} data-testid="explore-corr-result">
+                          <div className="flex items-center justify-between"><div><p className="text-sm font-medium">Correlation Coefficient</p><p className="text-3xl font-bold">{r.toFixed(4)}</p></div><Badge variant={abs >= 0.5 ? 'default' : 'secondary'}>{str} {dir}</Badge></div>
+                        </div>
+                        <ResponsiveContainer width="100%" height={350}><ScatterChart><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="x" name={corrVarX} type="number" tick={{fontSize: 11}} label={{value: corrVarX, position: 'bottom', fontSize: 11}} /><YAxis dataKey="y" name={corrVarY} type="number" tick={{fontSize: 11}} label={{value: corrVarY, angle: -90, position: 'left', fontSize: 11}} /><ZAxis range={[60, 60]} /><Tooltip /><Scatter name="Data" data={pairs} fill="hsl(var(--primary))" /></ScatterChart></ResponsiveContainer>
+                      </>);
+                    })()}
+                  </CardContent></Card></motion.div>
+              </>)}
             </motion.div>
           )}
 
@@ -2190,7 +2243,10 @@ function App() {
           {/* ==================== MODELS ==================== */}
           {activeView === 'models' && (
             <motion.div key="models" variants={fadeInUp} initial="initial" animate="animate" exit="exit" data-testid="models-view">
-              <Card><CardHeader><div className="flex items-center justify-between"><div><CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" />Model Library</CardTitle></div><Badge variant="secondary" className="text-lg px-4 py-2" data-testid="models-count-badge">{models.length} Models</Badge></div></CardHeader>
+              <Card><CardHeader><div className="flex items-center justify-between"><div><CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" />Model Library</CardTitle></div><div className="flex items-center gap-2">
+                <div className="relative"><input type="file" accept=".json" onChange={handleImportModel} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" data-testid="import-model-input" /><Button variant="outline" size="sm" data-testid="import-model-btn"><Upload className="h-4 w-4 mr-2" />Import Model</Button></div>
+                <Badge variant="secondary" className="text-lg px-4 py-2" data-testid="models-count-badge">{models.length} Models</Badge>
+              </div></div></CardHeader>
                 <CardContent>{models.length === 0 ? <div className="text-center py-12" data-testid="empty-models"><Database className="h-16 w-16 text-muted-foreground/50 mx-auto mb-4" /><h3 className="text-lg font-medium mb-2">No Models Yet</h3><Button onClick={() => setActiveView('analysis')} size="lg"><Zap className="h-4 w-4 mr-2" />Train Your First Model</Button></div>
                 : <div className="rounded-md border"><table className="w-full" data-testid="models-table"><thead><tr className="border-b bg-muted/50"><th className="p-4 text-left text-sm font-medium">Model ID</th><th className="p-4 text-left text-sm font-medium">Algorithm</th><th className="p-4 text-left text-sm font-medium">Type</th><th className="p-4 text-left text-sm font-medium">Created</th><th className="p-4 text-left text-sm font-medium">Actions</th></tr></thead>
                   <tbody>{models.map((model, idx) => <motion.tr key={model.modelId} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.05 }} className="border-b last:border-0 hover:bg-accent/50 transition-colors" data-testid={`model-row-${idx}`}><td className="p-4"><div className="flex items-center gap-2"><div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center"><Brain className="h-4 w-4 text-primary" /></div><code className="text-xs font-mono">{model.modelId.substring(0, 12)}...</code></div></td><td className="p-4"><Badge variant="outline">{ALGO_NAMES[model.algorithm] || model.algorithm}</Badge></td><td className="p-4 text-sm">{model.problemType}</td><td className="p-4 text-sm text-muted-foreground">{new Date(model.createdAt).toLocaleDateString()}</td><td className="p-4"><div className="flex gap-2"><Button variant="ghost" size="sm" onClick={() => setActiveView('predict')} data-testid={`use-model-${idx}`}><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="sm" onClick={() => handleDownloadModel(model.modelId)} className="text-primary" data-testid={`download-model-${idx}`}><Download className="h-4 w-4" /></Button><Button variant="ghost" size="sm" onClick={() => handleDeleteModel(model.modelId)} data-testid={`delete-model-${idx}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td></motion.tr>)}</tbody></table></div>
