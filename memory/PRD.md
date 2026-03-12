@@ -5,62 +5,62 @@ Build a 100% client-side Universal AI Dashboard in React. All ML analysis runs d
 
 ## Architecture
 - **Frontend**: React + Tailwind CSS + Shadcn UI + Recharts + Framer Motion
-- **ML Engine**: Client-side JS (11 algorithms + K-Fold CV + Dataset Scanner)
+- **ML Engine**: Client-side JS - 11 supervised + 4 clustering + 2 dim reduction + 2 anomaly detection algorithms
 - **Storage**: React state + localStorage persistence
-- **Backend**: DEPRECATED (not used)
+- **Key Files**: `/app/frontend/src/App.js` (UI + supervised), `/app/frontend/src/unsupervisedML.js` (unsupervised engine)
 
 ## Core Features Implemented
 
-### Phase 1-3 -- Foundation (Completed)
-- Bug fixes, Universal Dashboard, Supervised Learning Engine (Linear/Ridge/Logistic/Decision Tree)
-- Auto task detection, 80/20 train-test split, evaluation metrics (R2, MAE, RMSE, Accuracy, Precision, Recall, Confusion Matrix)
+### Phase 1-3 - Foundation (Completed)
+- Universal Dashboard, Supervised Learning Engine, auto task detection, 80/20 split, evaluation metrics
 
-### Phase 4 -- Advanced Algorithms & Visual Explainability (Completed)
-- 7 new algorithms: Random Forest (Reg/Clf), Gradient Boosting, KNN, SVM, Naive Bayes
-- F1 Score, Model Comparison Chart, Confusion Matrix Heatmap, graph explanations
+### Phase 4 - Advanced Algorithms & Visual Explainability (Completed)
+- 7 new supervised algorithms, F1 Score, Model Comparison Chart, Confusion Matrix Heatmap
 
-### Phase 5 -- K-Fold Cross Validation (Completed)
-- 5-fold CV for all 11 supervised algorithms
-- Evaluation mode toggle (Train/Test Split vs CV)
-- CV Performance Chart, leaderboard ranked by CV score
+### Phase 5 - K-Fold Cross Validation (Completed)
+- 5-fold CV for all supervised algorithms, CV Performance Chart, leaderboard
 
-### Phase 6 -- Dashboard Overhaul + Dataset Scanner (Completed - Feb 2026)
-- 5 Stat Cards, 3 Quick Insight Cards, Dataset Health Widget
-- Dataset Scanner with 12 quality checks, health score, one-click cleaning
-- Model Leaderboard, Charts (Performance, Algorithm Usage, Timeline), Recent Models Table
+### Phase 6 - Dashboard Overhaul + Dataset Scanner (Completed)
+- Live stats, Dataset Scanner with 12 quality checks, one-click cleaning, training gate
 
-### Phase 7 -- UI/UX & Explainability Overhaul (Completed - Feb 2026)
-- [x] Color-coded MetricCards (green/sky/amber/red) based on score thresholds with quality labels (Excellent/Good/Fair/Needs Work)
-- [x] Hover tooltips on all metrics (R2, MAE, RMSE, Accuracy, Precision, Recall, F1) with plain-English explanations
-- [x] Plain-English summary in training results header (problem type, sample count, best algorithm, score)
-- [x] Improved chart headers with CardDescription explaining what each visualization shows
-- [x] Overfitting detection in Train vs Test comparison (Gap column, red highlight if >15pp)
-- [x] Dynamic prediction form replacing JSON textarea (labeled number inputs for numeric, dropdowns for categorical)
-- [x] Enhanced prediction result card with large value display and Input Summary badges
-- [x] Color-coded leaderboard scores using getScoreColor
-- [x] Improved chart styling: reference lines, better colors, opacity adjustments
-- [x] Updated Confusion Matrix header with clearer explanation
+### Phase 7 - UI/UX & Explainability Overhaul (Completed)
+- Color-coded MetricCards with tooltips, plain-English summaries, dynamic prediction form, improved chart styling
+
+### Phase 8 - Full Unsupervised Learning System (Completed - Mar 2026)
+- [x] **Clustering Algorithms**: K-Means (enhanced), Hierarchical (Agglomerative), DBSCAN, Gaussian Mixture Models
+- [x] **Dimensionality Reduction**: PCA (2D projection with variance explained), t-SNE (browser-optimized)
+- [x] **Anomaly Detection**: Isolation Forest, Local Outlier Factor (LOF)
+- [x] **Evaluation Metrics**: Silhouette Score, Davies-Bouldin Index, Calinski-Harabasz Score, Inertia
+- [x] **Automatic Optimal K Detection**: Elbow Method + Silhouette analysis (K=2 to 10)
+- [x] **Data Preprocessing Pipeline**: Missing value imputation, z-score standardization
+- [x] **Algorithm Leaderboard**: All 4 clustering algorithms ranked by Silhouette Score with full metrics
+- [x] **7 Chart Types**: PCA Scatter, t-SNE, Cluster Distribution, Elbow Method, Silhouette by K, Anomaly Detection, Cluster Profiles
+- [x] **Cluster Interpretation System**: Per-cluster feature averages, key distinguishing features, auto-generated English descriptions
+- [x] **Cluster Prediction Form**: Dynamic form to assign new data points to clusters with nearest centroid + interpretation
+- [x] **Terminology Guide**: 15 ML concept cards (K-Means, DBSCAN, PCA, Silhouette Score, etc.)
+- [x] **Preprocessing Summary Panel**: Dataset size, features, missing values, scaling method
+- [x] **Auto-detect Mode**: Target = "__none__" triggers unsupervised pipeline; target selected = supervised pipeline
 
 ## All Algorithms
-### Regression: Linear, Ridge, Decision Tree, Random Forest, Gradient Boosting
-### Classification: Logistic, Decision Tree, Random Forest, KNN, SVM, Naive Bayes
+### Supervised (11)
+- Regression: Linear, Ridge, Decision Tree, Random Forest, Gradient Boosting
+- Classification: Logistic, Decision Tree, Random Forest, KNN, SVM, Naive Bayes
+
+### Unsupervised (8)
+- Clustering: K-Means, Hierarchical, DBSCAN, Gaussian Mixture Models
+- Dimensionality Reduction: PCA, t-SNE
+- Anomaly Detection: Isolation Forest, Local Outlier Factor
 
 ## Test Results
-- Phase 3: 25/25 passed (iteration_4.json)
-- Phase 4: 18/20 passed (iteration_5.json)
-- Phase 5: 20/20 passed (iteration_6.json)
-- Phase 6: 20/20 passed (iteration_7.json)
-- Phase 7: 10/10 passed (iteration_9.json)
-
-## Key File
-`/app/frontend/src/App.js` -- ~1632 lines
+- Phase 7 UI/UX: 10/10 passed (iteration_9.json)
+- Phase 8 Unsupervised: 15/15 passed (iteration_10.json)
 
 ## Upcoming Tasks
-- [ ] P1: Refactor App.js into modular components (Dashboard, Analysis, Scanner, Predictions, etc.)
+- [ ] P1: Refactor App.js into modular components
 
 ## Future/Backlog
-- [ ] Unsupervised: Hierarchical Clustering, DBSCAN, PCA
 - [ ] Batch predictions from CSV upload
 - [ ] Export reports as PDF
 - [ ] Dark mode toggle
 - [ ] Data visualization tab (histograms, correlation matrix)
+- [ ] Model export/import
