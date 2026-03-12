@@ -15,6 +15,7 @@ import {
   ResponsiveContainer, ScatterChart, Scatter, ZAxis, Cell, ReferenceLine, PieChart, Pie
 } from 'recharts';
 import { kmeans } from 'ml-kmeans';
+import { runUnsupervisedPipeline, predictCluster } from './unsupervisedML';
 import './App.css';
 
 // ==================== CONSTANTS ====================
@@ -32,6 +33,9 @@ const METRIC_EXPLANATIONS = {
   precision: { name: 'Precision', description: 'When the model predicts a class, how often is it correct? High precision = fewer false alarms.', higherBetter: true },
   recall: { name: 'Recall', description: 'Of all actual positives, how many did the model find? High recall = fewer missed cases.', higherBetter: true },
   f1: { name: 'F1 Score', description: 'Harmonic mean of precision and recall. Best when both false positives and false negatives matter.', higherBetter: true },
+  silhouette: { name: 'Silhouette Score', description: 'Measures how similar a point is to its own cluster vs. other clusters. Ranges from -1 to 1. Higher = better-defined clusters.', higherBetter: true },
+  daviesBouldin: { name: 'Davies-Bouldin Index', description: 'Measures average similarity between clusters. Lower values = better separation. 0 = perfect clustering.', higherBetter: false },
+  calinskiHarabasz: { name: 'Calinski-Harabasz Score', description: 'Ratio of between-cluster to within-cluster variance. Higher = denser, better-separated clusters.', higherBetter: true },
 };
 
 function getScoreColor(score, higherBetter = true) {
@@ -761,6 +765,10 @@ function App() {
   const [anomalyMethod, setAnomalyMethod] = useState('zscore');
   const [anomalyThreshold, setAnomalyThreshold] = useState(3);
   const [anomalyResult, setAnomalyResult] = useState(null);
+  const [unsupervisedResult, setUnsupervisedResult] = useState(null);
+  const [isRunningUnsupervised, setIsRunningUnsupervised] = useState(false);
+  const [clusterPredFormData, setClusterPredFormData] = useState({});
+  const [clusterPredResult, setClusterPredResult] = useState(null);
 
   // ==================== LOCALSTORAGE PERSISTENCE ====================
   const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
@@ -979,6 +987,51 @@ function App() {
   // ==================== CLUSTERING & ANOMALY ====================
   const handleClustering = () => { setError(''); setClusterResult(null); if (!dataProfile) { setError('Please upload data first'); return; } if (dataProfile.numericColumns.length < 1) { setError('Need numeric columns'); return; } try { setClusterResult(runKMeansClustering(dataProfile.rows, dataProfile.numericColumns, numClusters)); } catch (err) { setError('Clustering failed: ' + err.message); } };
   const handleAnomalyDetection = () => { setError(''); setAnomalyResult(null); if (!dataProfile) { setError('Please upload data first'); return; } if (dataProfile.numericColumns.length < 1) { setError('Need numeric columns'); return; } try { setAnomalyResult(detectAnomaliesFunc(dataProfile.rows, dataProfile.numericColumns, anomalyMethod, anomalyThreshold)); } catch (err) { setError('Anomaly detection failed: ' + err.message); } };
+
+  // ==================== UNSUPERVISED LEARNING ====================
+  const handleRunUnsupervised = () => {
+    setError(''); setUnsupervisedResult(null); setClusterPredResult(null);
+    if (!dataProfile) { setError('Please upload data first'); return; }
+    if (dataProfile.numericColumns.length < 1) { setError('Need at least 1 numeric column'); return; }
+    setIsRunningUnsupervised(true);
+    setTimeout(() => {
+      try {
+        const result = runUnsupervisedPipeline(dataProfile.rows, dataProfile.numericColumns);
+        setUnsupervisedResult(result);
+      } catch (err) { setError('Unsupervised analysis failed: ' + err.message); }
+      finally { setIsRunningUnsupervised(false); }
+    }, 50);
+  };
+
+  const handleClusterPredict = () => {
+    if (!unsupervisedResult?.bestAlgorithm) return;
+    const { means, stds, bestAlgorithm, interpretation } = unsupervisedResult;
+    const featureNames = unsupervisedResult.preprocessing.featureNames;
+    const standardized = featureNames.map((col, j) => {
+      const v = Number(clusterPredFormData[col]) || 0;
+      return (v - means[j]) / (stds[j] || 1);
+    });
+    const result = predictCluster(standardized, bestAlgorithm.centroids, interpretation?.interpretations);
+    setClusterPredResult({ ...result, inputData: { ...clusterPredFormData } });
+  };
+
+  const UNSUPERVISED_TERMS = [
+    { key: 'kmeans', name: 'K-Means', desc: 'Groups data into K clusters by minimizing the distance between points and their assigned cluster center. Fast and works well for spherical clusters.' },
+    { key: 'hierarchical', name: 'Hierarchical Clustering', desc: 'Builds a tree of clusters by progressively merging the closest pairs. No need to specify K in advance.' },
+    { key: 'dbscan', name: 'DBSCAN', desc: 'Finds clusters based on density. Points in dense regions form clusters; sparse points are marked as noise. Discovers clusters of arbitrary shape.' },
+    { key: 'gmm', name: 'Gaussian Mixture Model', desc: 'Models data as a mixture of Gaussian distributions. Soft clustering: each point has a probability of belonging to each cluster.' },
+    { key: 'cluster', name: 'Cluster', desc: 'A group of similar data points. Points within a cluster are more similar to each other than to points in other clusters.' },
+    { key: 'centroid', name: 'Centroid', desc: 'The center point of a cluster, calculated as the average of all points in that cluster. Represents the "typical" member.' },
+    { key: 'densityClustering', name: 'Density-Based Clustering', desc: 'Clustering approach that groups together points in high-density regions separated by low-density areas. DBSCAN is the most common example.' },
+    { key: 'silhouette', name: 'Silhouette Score', desc: 'Measures how similar a point is to its own cluster vs. other clusters. Ranges from -1 to 1. Higher = better-defined clusters.' },
+    { key: 'daviesBouldin', name: 'Davies-Bouldin Index', desc: 'Measures average similarity between clusters. Lower values = better separation. 0 = perfect clustering.' },
+    { key: 'calinskiHarabasz', name: 'Calinski-Harabasz Score', desc: 'Ratio of between-cluster to within-cluster variance. Higher values = denser, better-separated clusters.' },
+    { key: 'pca', name: 'PCA (Principal Component Analysis)', desc: 'Reduces data dimensions by finding directions of maximum variance. Useful for visualizing high-dimensional data in 2D.' },
+    { key: 'tsne', name: 't-SNE', desc: 'Non-linear dimensionality reduction that preserves local structure. Excellent for visualizing clusters in 2D but not for distance interpretation.' },
+    { key: 'anomalyDetection', name: 'Anomaly Detection', desc: 'Identifies data points that differ significantly from the majority. These outliers may indicate errors, fraud, or unusual behavior.' },
+    { key: 'isolationForest', name: 'Isolation Forest', desc: 'Detects anomalies by randomly partitioning data. Anomalies are easier to isolate and have shorter path lengths in random trees.' },
+    { key: 'lof', name: 'Local Outlier Factor', desc: 'Measures how isolated a point is relative to its neighbors. Points with much lower density than their neighbors are flagged as outliers.' },
+  ];
 
   // ==================== MODEL MANAGEMENT ====================
   const handleDeleteModel = (modelId) => setModels(prev => prev.filter(m => m.modelId !== modelId));
@@ -1339,8 +1392,10 @@ function App() {
 
               {columns.length > 0 && <motion.div variants={fadeInUp}><Card><CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5" />Model Configuration</CardTitle></CardHeader>
                 <CardContent>
+                  <div className="space-y-2 mb-4"><label className="text-sm font-medium">Target Variable</label><select value={targetColumn} onChange={(e) => { setTargetColumn(e.target.value); setTrainingResult(null); setUnsupervisedResult(null); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="target-column-select"><option value="">-- Select Target --</option><option value="__none__">No target (Unsupervised Learning)</option>{columns.map((col, idx) => <option key={idx} value={col}>{col}</option>)}</select></div>
+
+                  {targetColumn && targetColumn !== '__none__' && <>
                   <div className="grid gap-6 md:grid-cols-2">
-                    <div className="space-y-2"><label className="text-sm font-medium">Target Variable</label><select value={targetColumn} onChange={(e) => setTargetColumn(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="target-column-select"><option value="">-- Select Target --</option><option value="__none__">No target (Clustering)</option>{columns.map((col, idx) => <option key={idx} value={col}>{col}</option>)}</select></div>
                     <div className="space-y-2"><label className="text-sm font-medium">Algorithm</label><select value={algorithm} onChange={(e) => setAlgorithm(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="algorithm-select"><option value="auto">Auto (Train All & Compare)</option><optgroup label="Regression"><option value="linear">Linear Regression</option><option value="ridge">Ridge Regression</option><option value="gradient_boosting">Gradient Boosting</option></optgroup><optgroup label="Classification"><option value="logistic">Logistic Regression</option><option value="naive_bayes">Naive Bayes</option><option value="knn">KNN</option><option value="svm">SVM (Linear)</option></optgroup><optgroup label="Both"><option value="decision_tree">Decision Tree</option><option value="random_forest">Random Forest</option></optgroup></select></div>
                   </div>
                   <div className="mt-4 p-4 rounded-lg border bg-muted/30" data-testid="eval-mode-selector">
@@ -1350,8 +1405,17 @@ function App() {
                       <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="evalMode" value="cv" checked={evalMode === 'cv'} onChange={() => setEvalMode('cv')} className="accent-primary" data-testid="eval-mode-cv" /><span className="text-sm">5-Fold Cross Validation <span className="text-muted-foreground">(Recommended)</span></span></label>
                     </div>
                   </div>
-                  {datasetScan && datasetScan.score < 70 && targetColumn && targetColumn !== '__none__' && <div className="mt-4 p-3 rounded-lg border border-orange-400 bg-orange-50 dark:bg-orange-950/20 text-sm text-orange-700 dark:text-orange-400 flex items-center gap-2" data-testid="training-gate-warning"><AlertCircle className="h-4 w-4 shrink-0" />Dataset health score ({datasetScan.score}/100) is below the recommended threshold (70). Use the auto-clean tools in the Scanner above to improve data quality before training.</div>}
-                  <Button onClick={handleTrain} disabled={isTraining || !targetColumn || targetColumn === '__none__' || (datasetScan && datasetScan.score < 70)} className="w-full mt-6 h-12" size="lg" data-testid="start-training-btn">{isTraining ? <><div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Training...</> : <><Play className="h-4 w-4 mr-2" />Start Training</>}</Button>
+                  {datasetScan && datasetScan.score < 70 && <div className="mt-4 p-3 rounded-lg border border-orange-400 bg-orange-50 dark:bg-orange-950/20 text-sm text-orange-700 dark:text-orange-400 flex items-center gap-2" data-testid="training-gate-warning"><AlertCircle className="h-4 w-4 shrink-0" />Dataset health score ({datasetScan.score}/100) is below the recommended threshold (70). Use the auto-clean tools in the Scanner above to improve data quality before training.</div>}
+                  <Button onClick={handleTrain} disabled={isTraining || (datasetScan && datasetScan.score < 70)} className="w-full mt-6 h-12" size="lg" data-testid="start-training-btn">{isTraining ? <><div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Training...</> : <><Play className="h-4 w-4 mr-2" />Start Training</>}</Button>
+                  </>}
+
+                  {targetColumn === '__none__' && <>
+                  <div className="mt-2 p-4 rounded-lg border-2 border-dashed border-primary/30 bg-primary/5">
+                    <div className="flex items-center gap-3 mb-3"><Layers className="h-5 w-5 text-primary" /><div><p className="font-semibold text-sm">Unsupervised Learning Mode</p><p className="text-xs text-muted-foreground">Automatically runs K-Means, Hierarchical, DBSCAN, GMM, PCA, t-SNE, and anomaly detection</p></div></div>
+                    <p className="text-xs text-muted-foreground mb-3">The system will detect the optimal number of clusters, evaluate all algorithms, and provide full visual analysis with explanations.</p>
+                    <Button onClick={handleRunUnsupervised} disabled={isRunningUnsupervised} className="w-full h-12" size="lg" data-testid="run-unsupervised-btn">{isRunningUnsupervised ? <><div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Analyzing...</> : <><Sparkles className="h-4 w-4 mr-2" />Run Unsupervised Analysis</>}</Button>
+                  </div>
+                  </>}
                 </CardContent></Card></motion.div>}
 
               {/* TRAINING RESULTS */}
@@ -1491,6 +1555,269 @@ function App() {
                       </div>
                     ))}</div></CardContent></Card>
                 </CardContent></Card></motion.div>}
+            </motion.div>
+          )}
+
+          {/* ==================== UNSUPERVISED RESULTS ==================== */}
+          {activeView === 'analysis' && unsupervisedResult && (
+            <motion.div variants={fadeInUp} initial="initial" animate="animate" className="space-y-6" data-testid="unsupervised-results">
+
+              {/* Summary Card */}
+              <Card className="border-2 border-primary"><CardHeader>
+                <CardTitle className="flex items-center gap-2 text-primary"><Sparkles className="h-5 w-5" />Unsupervised Analysis Complete</CardTitle>
+                <CardDescription className="text-sm mt-2">Analyzed {unsupervisedResult.preprocessing.n} samples with {unsupervisedResult.preprocessing.p} features in {unsupervisedResult.totalTime.toFixed(2)}s. The optimal number of clusters is <strong>{unsupervisedResult.optimalK.bestK}</strong>. Best algorithm: <strong>{unsupervisedResult.bestAlgorithm?.name}</strong> (Silhouette: {unsupervisedResult.bestAlgorithm?.metrics.silhouette.toFixed(3)}).</CardDescription>
+              </CardHeader><CardContent className="space-y-8">
+
+                {/* Preprocessing Summary */}
+                <div data-testid="preprocessing-summary">
+                  <p className="text-sm font-semibold mb-3 flex items-center gap-2"><Database className="h-4 w-4" />Preprocessing Summary</p>
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <div className="rounded-xl p-3 border bg-muted/50"><p className="text-xs text-muted-foreground">Dataset Size</p><p className="text-lg font-bold">{unsupervisedResult.preprocessing.n} rows</p></div>
+                    <div className="rounded-xl p-3 border bg-muted/50"><p className="text-xs text-muted-foreground">Numeric Features</p><p className="text-lg font-bold">{unsupervisedResult.preprocessing.p}</p></div>
+                    <div className="rounded-xl p-3 border bg-muted/50"><p className="text-xs text-muted-foreground">Missing Values Filled</p><p className="text-lg font-bold">{unsupervisedResult.preprocessing.missingFilled}</p></div>
+                    <div className="rounded-xl p-3 border bg-muted/50"><p className="text-xs text-muted-foreground">Scaling Applied</p><p className="text-lg font-bold text-sm">{unsupervisedResult.preprocessing.scalingApplied}</p></div>
+                  </div>
+                </div>
+
+                {/* Algorithm Leaderboard */}
+                <div data-testid="algorithm-leaderboard">
+                  <p className="text-sm font-semibold mb-3 flex items-center gap-2"><Trophy className="h-4 w-4" />Algorithm Leaderboard</p>
+                  <CardDescription className="mb-3">Algorithms ranked by Silhouette Score. Higher silhouette = better-defined clusters. Lower Davies-Bouldin = better separation.</CardDescription>
+                  <div className="rounded-md border overflow-auto"><table className="w-full text-sm">
+                    <thead><tr className="border-b bg-muted/50"><th className="p-3 text-left font-medium">Rank</th><th className="p-3 text-left font-medium">Algorithm</th><th className="p-3 text-right font-medium">Clusters</th><th className="p-3 text-right font-medium">Silhouette</th><th className="p-3 text-right font-medium">Davies-Bouldin</th><th className="p-3 text-right font-medium">Calinski-Harabasz</th><th className="p-3 text-right font-medium">Runtime</th></tr></thead>
+                    <tbody>{unsupervisedResult.algorithms.map((algo, idx) => (
+                      <tr key={algo.key} className={`border-b last:border-0 ${idx === 0 ? 'bg-primary/5' : ''}`} data-testid={`leaderboard-row-${algo.key}`}>
+                        <td className="p-3">{idx === 0 ? <Badge variant="default" className="gap-1"><Trophy className="h-3 w-3" />Best</Badge> : <span className="text-muted-foreground">#{idx + 1}</span>}</td>
+                        <td className="p-3 font-semibold">{algo.name}{algo.noiseCount > 0 && <span className="text-xs text-muted-foreground ml-1">({algo.noiseCount} noise)</span>}</td>
+                        <td className="p-3 text-right font-mono">{algo.k}</td>
+                        <td className={`p-3 text-right font-mono font-bold ${algo.metrics.silhouette >= 0.5 ? 'text-emerald-600' : algo.metrics.silhouette >= 0.25 ? 'text-amber-600' : 'text-red-600'}`}>{algo.metrics.silhouette.toFixed(3)}</td>
+                        <td className="p-3 text-right font-mono">{algo.metrics.daviesBouldin === Infinity ? '-' : algo.metrics.daviesBouldin.toFixed(3)}</td>
+                        <td className="p-3 text-right font-mono">{algo.metrics.calinskiHarabasz.toFixed(1)}</td>
+                        <td className="p-3 text-right font-mono text-xs">{algo.runtime.toFixed(3)}s</td>
+                      </tr>
+                    ))}</tbody>
+                  </table></div>
+                </div>
+
+                {/* Best Model Summary */}
+                {unsupervisedResult.bestAlgorithm && <div data-testid="best-model-summary">
+                  <p className="text-sm font-semibold mb-3 flex items-center gap-2"><Cpu className="h-4 w-4" />Best Model Summary</p>
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <MetricCard label="Silhouette Score" value={unsupervisedResult.bestAlgorithm.metrics.silhouette.toFixed(3)} score={unsupervisedResult.bestAlgorithm.metrics.silhouette} metricKey="silhouette" />
+                    <MetricCard label="Davies-Bouldin" value={unsupervisedResult.bestAlgorithm.metrics.daviesBouldin === Infinity ? '-' : unsupervisedResult.bestAlgorithm.metrics.daviesBouldin.toFixed(3)} metricKey="daviesBouldin" />
+                    <MetricCard label="Calinski-Harabasz" value={unsupervisedResult.bestAlgorithm.metrics.calinskiHarabasz.toFixed(1)} metricKey="calinskiHarabasz" />
+                    <MetricCard label="Clusters Found" value={unsupervisedResult.bestAlgorithm.k} />
+                  </div>
+                </div>}
+
+                {/* PCA Cluster Scatter Plot */}
+                <Card data-testid="pca-scatter-chart"><CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2"><Target className="h-4 w-4" />Cluster Scatter Plot (PCA 2D)</CardTitle>
+                  <CardDescription>Data reduced to 2 dimensions using PCA. Each color represents a different cluster found by {unsupervisedResult.bestAlgorithm?.name}.</CardDescription>
+                </CardHeader><CardContent>
+                  <ResponsiveContainer width="100%" height={350}><ScatterChart>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis dataKey="x" name="PC1" type="number" tick={{fontSize: 11}} label={{value: `PC1 (${(unsupervisedResult.pca.explainedVariance[0] * 100).toFixed(1)}% var)`, position: 'bottom', fontSize: 11}} />
+                    <YAxis dataKey="y" name="PC2" type="number" tick={{fontSize: 11}} label={{value: `PC2 (${(unsupervisedResult.pca.explainedVariance[1] * 100).toFixed(1)}% var)`, angle: -90, position: 'left', fontSize: 11}} />
+                    <ZAxis range={[60, 60]} />
+                    <Tooltip content={({active, payload}) => active && payload?.length ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p>Point #{payload[0].payload.index}</p><p>Cluster: {payload[0].payload.cluster}</p><p>PC1: {payload[0].payload.x.toFixed(3)}</p><p>PC2: {payload[0].payload.y.toFixed(3)}</p></div> : null} />
+                    <Legend />
+                    {[...new Set(unsupervisedResult.pca.points.map(p => p.cluster))].sort((a,b)=>a-b).map(c =>
+                      <Scatter key={c} name={`Cluster ${c}`} data={unsupervisedResult.pca.points.filter(p => p.cluster === c)} fill={CLUSTER_COLORS[c % CLUSTER_COLORS.length]} />
+                    )}
+                  </ScatterChart></ResponsiveContainer>
+                </CardContent></Card>
+
+                {/* t-SNE Visualization */}
+                {unsupervisedResult.tsne && <Card data-testid="tsne-chart"><CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2"><Activity className="h-4 w-4" />t-SNE Visualization</CardTitle>
+                  <CardDescription>Non-linear projection preserving local structure. Clusters that appear close together have similar data points.</CardDescription>
+                </CardHeader><CardContent>
+                  <ResponsiveContainer width="100%" height={350}><ScatterChart>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis dataKey="x" name="Dim 1" type="number" tick={{fontSize: 11}} />
+                    <YAxis dataKey="y" name="Dim 2" type="number" tick={{fontSize: 11}} />
+                    <ZAxis range={[60, 60]} />
+                    <Tooltip content={({active, payload}) => active && payload?.length ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p>Cluster: {payload[0].payload.cluster}</p></div> : null} />
+                    <Legend />
+                    {[...new Set(unsupervisedResult.tsne.points.map(p => p.cluster))].sort((a,b)=>a-b).map(c =>
+                      <Scatter key={c} name={`Cluster ${c}`} data={unsupervisedResult.tsne.points.filter(p => p.cluster === c)} fill={CLUSTER_COLORS[c % CLUSTER_COLORS.length]} />
+                    )}
+                  </ScatterChart></ResponsiveContainer>
+                </CardContent></Card>}
+
+                {/* Cluster Distribution */}
+                {unsupervisedResult.bestAlgorithm && <Card data-testid="cluster-distribution-chart"><CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="h-4 w-4" />Cluster Distribution</CardTitle>
+                  <CardDescription>Number of data points assigned to each cluster. Balanced distributions often indicate well-separated groups.</CardDescription>
+                </CardHeader><CardContent>
+                  <ResponsiveContainer width="100%" height={250}><BarChart data={(() => {
+                    const counts = {};
+                    unsupervisedResult.bestAlgorithm.labels.forEach(l => { if (l >= 0) counts[l] = (counts[l] || 0) + 1; });
+                    return Object.entries(counts).map(([k, v]) => ({ name: `Cluster ${k}`, count: v, fill: CLUSTER_COLORS[Number(k) % CLUSTER_COLORS.length] }));
+                  })()}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis dataKey="name" tick={{fontSize: 11}} />
+                    <YAxis tick={{fontSize: 11}} />
+                    <Tooltip />
+                    <Bar dataKey="count" radius={[6, 6, 0, 0]}>{(() => {
+                      const counts = {};
+                      unsupervisedResult.bestAlgorithm.labels.forEach(l => { if (l >= 0) counts[l] = (counts[l] || 0) + 1; });
+                      return Object.keys(counts).map((k, i) => <Cell key={i} fill={CLUSTER_COLORS[Number(k) % CLUSTER_COLORS.length]} />);
+                    })()}</Bar>
+                  </BarChart></ResponsiveContainer>
+                </CardContent></Card>}
+
+                {/* Elbow Method + Silhouette Charts */}
+                <div className="grid gap-6 md:grid-cols-2">
+                  <Card data-testid="elbow-chart"><CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2"><TrendingUp className="h-4 w-4" />Elbow Method</CardTitle>
+                    <CardDescription>Inertia decreases as K increases. The "elbow" point suggests the optimal number of clusters.</CardDescription>
+                  </CardHeader><CardContent>
+                    <ResponsiveContainer width="100%" height={250}><LineChart data={unsupervisedResult.optimalK.results}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                      <XAxis dataKey="k" tick={{fontSize: 11}} label={{value: 'Number of Clusters (K)', position: 'bottom', fontSize: 11}} />
+                      <YAxis tick={{fontSize: 11}} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="inertia" stroke="#2563eb" strokeWidth={2} dot={{fill: '#2563eb', r: 4}} activeDot={{r: 6}} />
+                      <ReferenceLine x={unsupervisedResult.optimalK.bestK} stroke="#22c55e" strokeDasharray="5 5" label={{value: `Best K=${unsupervisedResult.optimalK.bestK}`, position: 'top', fontSize: 10, fill: '#22c55e'}} />
+                    </LineChart></ResponsiveContainer>
+                  </CardContent></Card>
+
+                  <Card data-testid="silhouette-chart"><CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2"><Activity className="h-4 w-4" />Silhouette Score by K</CardTitle>
+                    <CardDescription>Higher silhouette = better-defined clusters. The peak indicates the optimal K.</CardDescription>
+                  </CardHeader><CardContent>
+                    <ResponsiveContainer width="100%" height={250}><LineChart data={unsupervisedResult.optimalK.results}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                      <XAxis dataKey="k" tick={{fontSize: 11}} label={{value: 'Number of Clusters (K)', position: 'bottom', fontSize: 11}} />
+                      <YAxis tick={{fontSize: 11}} domain={[0, 1]} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="silhouette" stroke="#16a34a" strokeWidth={2} dot={{fill: '#16a34a', r: 4}} activeDot={{r: 6}} />
+                      <ReferenceLine x={unsupervisedResult.optimalK.bestK} stroke="#22c55e" strokeDasharray="5 5" />
+                    </LineChart></ResponsiveContainer>
+                  </CardContent></Card>
+                </div>
+
+                {/* Anomaly Detection */}
+                {unsupervisedResult.anomalyDetection?.isolationForest && <Card data-testid="anomaly-chart"><CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-4 w-4" />Anomaly Detection</CardTitle>
+                  <CardDescription>
+                    Isolation Forest detected <strong className="text-red-600">{unsupervisedResult.anomalyDetection.isolationForest.nAnomalies}</strong> anomalies ({((unsupervisedResult.anomalyDetection.isolationForest.nAnomalies / unsupervisedResult.preprocessing.n) * 100).toFixed(1)}% of data).
+                    {unsupervisedResult.anomalyDetection.lof && <> LOF detected <strong className="text-red-600">{unsupervisedResult.anomalyDetection.lof.nAnomalies}</strong> outliers.</>}
+                    {' '}Anomalies are data points that differ significantly from the majority and may indicate errors or unusual behavior.
+                  </CardDescription>
+                </CardHeader><CardContent>
+                  {unsupervisedResult.anomalyDetection.points && <ResponsiveContainer width="100%" height={300}><ScatterChart>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis dataKey="x" name="PC1" type="number" tick={{fontSize: 11}} />
+                    <YAxis dataKey="y" name="PC2" type="number" tick={{fontSize: 11}} />
+                    <ZAxis range={[60, 60]} />
+                    <Tooltip content={({active, payload}) => active && payload?.length ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p>{payload[0].payload.anomaly ? 'ANOMALY' : 'Normal'}</p><p>Score: {payload[0].payload.score?.toFixed(3)}</p></div> : null} />
+                    <Legend />
+                    <Scatter name="Normal" data={unsupervisedResult.anomalyDetection.points.filter(p => !p.anomaly)} fill="#2563eb" />
+                    <Scatter name="Anomaly" data={unsupervisedResult.anomalyDetection.points.filter(p => p.anomaly)} fill="#dc2626" />
+                  </ScatterChart></ResponsiveContainer>}
+                </CardContent></Card>}
+
+                {/* Cluster Profile Chart */}
+                {unsupervisedResult.interpretation && <Card data-testid="cluster-profile-chart"><CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="h-4 w-4" />Cluster Profiles</CardTitle>
+                  <CardDescription>Feature averages for each cluster compared to the overall dataset average. Helps understand what makes each cluster unique.</CardDescription>
+                </CardHeader><CardContent>
+                  <ResponsiveContainer width="100%" height={300}><BarChart data={unsupervisedResult.preprocessing.featureNames.map((fname, fi) => {
+                    const entry = { feature: fname };
+                    unsupervisedResult.interpretation.interpretations.forEach(ci => {
+                      entry[`Cluster ${ci.clusterId}`] = ci.featureAverages[fi]?.value || 0;
+                    });
+                    entry['Overall'] = unsupervisedResult.interpretation.overallAvg[fi]?.value || 0;
+                    return entry;
+                  })}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis dataKey="feature" angle={-45} textAnchor="end" height={80} tick={{fontSize: 10}} />
+                    <YAxis tick={{fontSize: 11}} />
+                    <Tooltip />
+                    <Legend />
+                    {unsupervisedResult.interpretation.interpretations.map(ci =>
+                      <Bar key={ci.clusterId} dataKey={`Cluster ${ci.clusterId}`} fill={CLUSTER_COLORS[ci.clusterId % CLUSTER_COLORS.length]} radius={[4, 4, 0, 0]} />
+                    )}
+                    <Bar dataKey="Overall" fill="#6b7280" radius={[4, 4, 0, 0]} />
+                  </BarChart></ResponsiveContainer>
+                </CardContent></Card>}
+
+                {/* Cluster Insights */}
+                {unsupervisedResult.interpretation && <div data-testid="cluster-insights">
+                  <p className="text-sm font-semibold mb-3 flex items-center gap-2"><Info className="h-4 w-4" />Cluster Insights</p>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {unsupervisedResult.interpretation.interpretations.map(ci => (
+                      <Card key={ci.clusterId} className="border-l-4" style={{borderLeftColor: CLUSTER_COLORS[ci.clusterId % CLUSTER_COLORS.length]}} data-testid={`cluster-insight-${ci.clusterId}`}>
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <Badge style={{backgroundColor: CLUSTER_COLORS[ci.clusterId % CLUSTER_COLORS.length]}}>Cluster {ci.clusterId}</Badge>
+                            <span className="text-sm font-mono">{ci.size} points</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-3">{ci.interpretation}</p>
+                          {ci.keyFeatures.length > 0 && <div className="space-y-1">
+                            <p className="text-xs font-semibold">Key Distinguishing Features:</p>
+                            {ci.keyFeatures.filter(f => Math.abs(f.deviation) > 5).map(f => (
+                              <div key={f.feature} className="flex items-center gap-2 text-xs">
+                                <span className={`inline-block w-2 h-2 rounded-full ${f.direction === 'higher' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                                <span className="font-medium">{f.feature}:</span>
+                                <span className="text-muted-foreground">{f.clusterAvg.toFixed(1)} ({f.direction}, {Math.abs(f.deviation).toFixed(0)}% from avg)</span>
+                              </div>
+                            ))}
+                          </div>}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>}
+
+                {/* Cluster Prediction Form */}
+                <Card data-testid="cluster-prediction"><CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2"><FileText className="h-4 w-4" />Predict Cluster for New Data</CardTitle>
+                  <CardDescription>Enter feature values to assign a new data point to the nearest cluster using {unsupervisedResult.bestAlgorithm?.name}.</CardDescription>
+                </CardHeader><CardContent className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {unsupervisedResult.preprocessing.featureNames.map(col => (
+                      <div key={col} className="space-y-1.5">
+                        <label className="text-sm font-medium text-muted-foreground">{col}</label>
+                        <input type="number" step="any" value={clusterPredFormData[col] ?? ''} onChange={e => setClusterPredFormData(prev => ({ ...prev, [col]: e.target.value }))} placeholder={`Enter ${col}`} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`cluster-pred-input-${col}`} />
+                      </div>
+                    ))}
+                  </div>
+                  <Button onClick={handleClusterPredict} className="w-full h-12" size="lg" data-testid="predict-cluster-btn"><Target className="h-4 w-4 mr-2" />Predict Cluster</Button>
+
+                  {clusterPredResult && <div className="rounded-xl border-2 p-6 mt-4" style={{borderColor: CLUSTER_COLORS[clusterPredResult.cluster % CLUSTER_COLORS.length], backgroundColor: CLUSTER_COLORS[clusterPredResult.cluster % CLUSTER_COLORS.length] + '10'}} data-testid="cluster-pred-result">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground mb-1">Assigned Cluster</p>
+                        <p className="text-4xl font-bold" style={{color: CLUSTER_COLORS[clusterPredResult.cluster % CLUSTER_COLORS.length]}}>Cluster {clusterPredResult.cluster}</p>
+                      </div>
+                      <div className="h-16 w-16 rounded-full flex items-center justify-center" style={{backgroundColor: CLUSTER_COLORS[clusterPredResult.cluster % CLUSTER_COLORS.length] + '20'}}><Target className="h-8 w-8" style={{color: CLUSTER_COLORS[clusterPredResult.cluster % CLUSTER_COLORS.length]}} /></div>
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-2">Distance to centroid: {clusterPredResult.distance.toFixed(4)}</p>
+                    {clusterPredResult.interpretation && <p className="text-sm">{clusterPredResult.interpretation.interpretation}</p>}
+                    {clusterPredResult.inputData && <div className="mt-3 pt-3 border-t"><p className="text-xs font-medium text-muted-foreground mb-2">Input Summary</p>
+                      <div className="flex flex-wrap gap-2">{Object.entries(clusterPredResult.inputData).filter(([,v]) => v !== '').map(([k, v]) => <Badge key={k} variant="secondary" className="text-xs">{k}: {v}</Badge>)}</div>
+                    </div>}
+                  </div>}
+                </CardContent></Card>
+
+                {/* Terminology */}
+                <div data-testid="terminology-section">
+                  <p className="text-sm font-semibold mb-3 flex items-center gap-2"><Info className="h-4 w-4" />ML Terminology Guide</p>
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {UNSUPERVISED_TERMS.map(term => (
+                      <div key={term.key} className="rounded-lg border p-3 bg-muted/30 hover:bg-muted/50 transition-colors" data-testid={`term-${term.key}`}>
+                        <p className="text-sm font-semibold mb-1">{term.name}</p>
+                        <p className="text-xs text-muted-foreground leading-relaxed">{term.desc}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </CardContent></Card>
             </motion.div>
           )}
 
