@@ -9,6 +9,11 @@ import {
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import {
+  computeGlobalSHAP, computeBeeswarmData, computeLocalSHAP,
+  computeDependenceData, computeLIME, computeClassProbabilities,
+  buildWaterfallData, buildForceData, importanceColor, valueToColor
+} from './explainableAI';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -29,16 +34,36 @@ const ALGO_NAMES = { linear_regression: 'Linear Regression', ridge_regression: '
 const ALGO_COLORS = { linear_regression: '#2563eb', ridge_regression: '#7c3aed', logistic_regression: '#2563eb', decision_tree: '#16a34a', random_forest_regressor: '#059669', random_forest_classifier: '#059669', gradient_boosting: '#d97706', knn: '#dc2626', svm: '#9333ea', naive_bayes: '#0891b2', baseline: '#6b7280' };
 
 const METRIC_EXPLANATIONS = {
-  r2: { name: 'R\u00B2 Score', description: 'Measures how well the model explains variance in the data. 1.0 = perfect predictions, 0 = no better than predicting the average.', higherBetter: true },
-  mae: { name: 'Mean Absolute Error', description: 'The average size of prediction errors. Lower values mean predictions are closer to actual values.', higherBetter: false },
-  rmse: { name: 'Root Mean Squared Error', description: 'Like MAE but penalizes larger errors more. Lower is better.', higherBetter: false },
-  accuracy: { name: 'Accuracy', description: 'Percentage of predictions that were exactly correct. 100% = every prediction was right.', higherBetter: true },
-  precision: { name: 'Precision', description: 'When the model predicts a class, how often is it correct? High precision = fewer false alarms.', higherBetter: true },
-  recall: { name: 'Recall', description: 'Of all actual positives, how many did the model find? High recall = fewer missed cases.', higherBetter: true },
-  f1: { name: 'F1 Score', description: 'Harmonic mean of precision and recall. Best when both false positives and false negatives matter.', higherBetter: true },
-  silhouette: { name: 'Silhouette Score', description: 'Measures how similar a point is to its own cluster vs. other clusters. Ranges from -1 to 1. Higher = better-defined clusters.', higherBetter: true },
-  daviesBouldin: { name: 'Davies-Bouldin Index', description: 'Measures average similarity between clusters. Lower values = better separation. 0 = perfect clustering.', higherBetter: false },
-  calinskiHarabasz: { name: 'Calinski-Harabasz Score', description: 'Ratio of between-cluster to within-cluster variance. Higher = denser, better-separated clusters.', higherBetter: true },
+  r2: { name: 'R² Score', description: 'Shows how well the model explains the data. Values closer to 1 mean better predictions.', higherBetter: true },
+  mae: { name: 'Mean Absolute Error', description: 'Average prediction error. Lower values mean the model\'s predictions are closer to actual values.', higherBetter: false },
+  rmse: { name: 'Root Mean Squared Error', description: 'Like MAE but penalizes larger errors more heavily. Lower is better.', higherBetter: false },
+  accuracy: { name: 'Accuracy', description: 'Percentage of correct predictions. 100% means every prediction was right.', higherBetter: true },
+  precision: { name: 'Precision', description: 'When the model predicts a class, how often is it correct? Higher means fewer false alarms.', higherBetter: true },
+  recall: { name: 'Recall', description: 'Of all actual positives, how many did the model catch? Higher means fewer missed cases.', higherBetter: true },
+  f1: { name: 'F1 Score', description: 'Balances precision and recall. Higher values mean fewer classification mistakes overall.', higherBetter: true },
+  silhouette: { name: 'Silhouette Score', description: 'Measures how well data points fit within their clusters. Higher values mean clearer cluster separation.', higherBetter: true },
+  daviesBouldin: { name: 'Davies-Bouldin Index', description: 'Measures how similar clusters are to each other. Lower values mean better-separated, more distinct clusters.', higherBetter: false },
+  calinskiHarabasz: { name: 'Calinski-Harabasz Score', description: 'Ratio of between-cluster to within-cluster spread. Higher means denser, better-separated clusters.', higherBetter: true },
+  inertia: { name: 'Inertia', description: 'Sum of distances from each point to its cluster center. Lower values mean tighter clusters, but too low may mean too many clusters.', higherBetter: false },
+  cvScore: { name: 'Cross-Validation Score', description: 'Average model performance across multiple data splits. More reliable than a single test score.', higherBetter: true },
+  shapValue: { name: 'SHAP Value', description: 'Shows how much a feature pushes the prediction up (positive) or down (negative) for a specific record.', higherBetter: null },
+  baseValue: { name: 'Base Value', description: 'The average model prediction across the dataset. SHAP values show how each feature moves the prediction away from this baseline.', higherBetter: null },
+};
+
+// Lightweight hover tooltip for metric names — wraps any inline text
+const MetricTip = ({ metricKey, children, className = '' }) => {
+  const info = METRIC_EXPLANATIONS[metricKey];
+  if (!info) return <span className={className}>{children}</span>;
+  return (
+    <span className={`group/tip relative inline-flex items-center gap-1 cursor-help ${className}`} data-testid={`metric-tip-${metricKey}`}>
+      {children}
+      <Info className="h-3 w-3 text-muted-foreground/50 group-hover/tip:text-foreground transition-colors shrink-0" />
+      <span className="invisible group-hover/tip:visible opacity-0 group-hover/tip:opacity-100 absolute z-[60] bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 rounded-lg bg-popover border shadow-lg text-xs text-popover-foreground transition-all duration-150 pointer-events-none">
+        <span className="font-semibold block mb-0.5">{info.name}</span>
+        <span className="text-muted-foreground leading-relaxed block">{info.description}</span>
+      </span>
+    </span>
+  );
 };
 
 function getScoreColor(score, higherBetter = true) {
@@ -784,6 +809,18 @@ function App() {
   const [batchResults, setBatchResults] = useState(null);
   const [batchProcessing, setBatchProcessing] = useState(false);
   const [histogramCol, setHistogramCol] = useState('');
+  const [xaiTab, setXaiTab] = useState('shap');
+  const [xaiLoading, setXaiLoading] = useState(false);
+  const [xaiRow, setXaiRow] = useState(0);
+  const [xaiDepFeature, setXaiDepFeature] = useState(0);
+  const [shapGlobal, setShapGlobal] = useState(null);
+  const [shapBeeswarm, setShapBeeswarm] = useState(null);
+  const [shapLocal, setShapLocal] = useState(null);
+  const [shapDependence, setShapDependence] = useState(null);
+  const [limeResult, setLimeResult] = useState(null);
+  const [limeProbs, setLimeProbs] = useState(null);
+  const [clusterShap, setClusterShap] = useState(null);
+  const [clusterBeeswarm, setClusterBeeswarm] = useState(null);
 
   // ==================== DARK MODE TOGGLE ====================
   useEffect(() => {
@@ -1155,6 +1192,120 @@ function App() {
     doc.save(`automl_report_${Date.now()}.pdf`);
   };
 
+  // ==================== XAI — SHAP & LIME ====================
+  const getXaiModel = () => models[selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : models.length - 1];
+  const getXaiData = (model) => {
+    if (!model || !dataProfile) return null;
+    let data = prepareInputForPrediction(dataProfile.rows, model.modelData);
+    if (data.length > 5000) { const idx = new Set(); while (idx.size < 1000) idx.add(Math.floor(Math.random() * data.length)); data = [...idx].map(i => data[i]); }
+    return data;
+  };
+
+  const handleRunSHAP = () => {
+    setXaiLoading(true); setError('');
+    setTimeout(() => {
+      try {
+        const model = getXaiModel();
+        const data = getXaiData(model);
+        if (!model || !data) { setError('Need a trained model and data.'); setXaiLoading(false); return; }
+        const predictFn = (fv) => predictOne(model.modelData, fv);
+        const fn = model.modelData.featureNames;
+        const global = computeGlobalSHAP(predictFn, data, fn, Math.min(60, data.length), Math.min(60, data.length));
+        const beeswarm = computeBeeswarmData(predictFn, data, fn, Math.min(80, data.length), Math.min(50, data.length));
+        const rowIdx = Math.min(xaiRow, data.length - 1);
+        const local = computeLocalSHAP(predictFn, data[rowIdx], data, Math.min(80, data.length));
+        const dep = computeDependenceData(predictFn, data, fn, Math.min(xaiDepFeature, fn.length - 1), Math.min(120, data.length), Math.min(50, data.length));
+        setShapGlobal(global);
+        setShapBeeswarm(beeswarm);
+        setShapLocal({ ...local, featureNames: fn, instance: data[rowIdx] });
+        setShapDependence(dep);
+      } catch (err) { setError('SHAP analysis failed: ' + err.message); }
+      setXaiLoading(false);
+    }, 50);
+  };
+
+  const handleRunLIME = () => {
+    setXaiLoading(true); setError('');
+    setTimeout(() => {
+      try {
+        const model = getXaiModel();
+        const data = getXaiData(model);
+        if (!model || !data) { setError('Need a trained model and data.'); setXaiLoading(false); return; }
+        const predictFn = (fv) => predictOne(model.modelData, fv);
+        const fn = model.modelData.featureNames;
+        const rowIdx = Math.min(xaiRow, data.length - 1);
+        const lime = computeLIME(predictFn, data[rowIdx], data, fn);
+        setLimeResult(lime);
+        if (model.problemType === 'classification') {
+          setLimeProbs(computeClassProbabilities(predictFn, data[rowIdx], data));
+        } else { setLimeProbs(null); }
+      } catch (err) { setError('LIME explanation failed: ' + err.message); }
+      setXaiLoading(false);
+    }, 50);
+  };
+
+  const handleExplainPrediction = () => {
+    setXaiLoading(true); setError('');
+    setTimeout(() => {
+      try {
+        const model = getXaiModel();
+        const data = getXaiData(model);
+        if (!model || !data) { setError('Need a trained model and data.'); setXaiLoading(false); return; }
+        const predictFn = (fv) => predictOne(model.modelData, fv);
+        const fn = model.modelData.featureNames;
+        const rowIdx = Math.min(xaiRow, data.length - 1);
+        const inst = data[rowIdx];
+        // SHAP
+        const global = computeGlobalSHAP(predictFn, data, fn, Math.min(60, data.length), Math.min(60, data.length));
+        const beeswarm = computeBeeswarmData(predictFn, data, fn, Math.min(80, data.length), Math.min(50, data.length));
+        const local = computeLocalSHAP(predictFn, inst, data, Math.min(80, data.length));
+        const dep = computeDependenceData(predictFn, data, fn, Math.min(xaiDepFeature, fn.length - 1), Math.min(120, data.length), Math.min(50, data.length));
+        setShapGlobal(global); setShapBeeswarm(beeswarm);
+        setShapLocal({ ...local, featureNames: fn, instance: inst });
+        setShapDependence(dep);
+        // LIME
+        const lime = computeLIME(predictFn, inst, data, fn);
+        setLimeResult(lime);
+        if (model.problemType === 'classification') { setLimeProbs(computeClassProbabilities(predictFn, inst, data)); } else { setLimeProbs(null); }
+      } catch (err) { setError('Explanation failed: ' + err.message); }
+      setXaiLoading(false);
+    }, 50);
+  };
+
+  const handleClusterExplain = () => {
+    setXaiLoading(true); setError('');
+    setTimeout(() => {
+      try {
+        if (!unsupervisedResult || !dataProfile) { setError('No unsupervised results.'); setXaiLoading(false); return; }
+        // Build data matrix from dataProfile since unsupervisedResult doesn't store the raw data
+        const fn = unsupervisedResult.preprocessing.featureNames;
+        const { means, stds } = unsupervisedResult;
+        const data = dataProfile.rows.map(row => fn.map((col, j) => {
+          const v = typeof row[col] === 'number' ? row[col] : 0;
+          return (v - means[j]) / (stds[j] || 1);
+        }));
+        const labels = unsupervisedResult.bestAlgorithm.labels;
+        const k = unsupervisedResult.bestAlgorithm.k;
+        // Compute centroids for prediction
+        const centroids = [];
+        for (let c = 0; c < k; c++) {
+          const pts = data.filter((_, i) => labels[i] === c);
+          if (pts.length) centroids.push(pts[0].map((_, fi) => pts.reduce((s, p) => s + p[fi], 0) / pts.length));
+        }
+        const clusterPredict = (fv) => {
+          let best = 0, minD = Infinity;
+          centroids.forEach((c, i) => { let d = 0; for (let j = 0; j < fv.length; j++) d += (fv[j] - c[j]) ** 2; if (d < minD) { minD = d; best = i; } });
+          return best;
+        };
+        const global = computeGlobalSHAP(clusterPredict, data, fn, Math.min(60, data.length), Math.min(60, data.length));
+        const beeswarm = computeBeeswarmData(clusterPredict, data, fn, Math.min(80, data.length), Math.min(50, data.length));
+        setClusterShap(global);
+        setClusterBeeswarm(beeswarm);
+      } catch (err) { setError('Cluster explanation failed: ' + err.message); }
+      setXaiLoading(false);
+    }, 50);
+  };
+
   // ==================== UNSUPERVISED LEARNING ====================
   const handleRunUnsupervised = () => {
     setError(''); setUnsupervisedResult(null); setClusterPredResult(null);
@@ -1294,7 +1445,7 @@ function App() {
         <div className="flex h-full flex-col gap-2">
           <div className="flex h-16 items-center border-b border-sidebar-border px-6"><div className="flex items-center gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Brain className="h-6 w-6" /></div><div><h1 className="text-lg font-bold text-sidebar-foreground">AutoML</h1><p className="text-xs text-sidebar-foreground/60">Universal Dashboard</p></div></div></div>
           <nav className="flex-1 space-y-1 px-3 py-4" data-testid="sidebar-nav">
-            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }].map((item) => (
+            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }].map((item) => (
               <Button key={item.id} variant={activeView === item.id ? 'secondary' : 'ghost'} className="w-full justify-start gap-3" onClick={() => setActiveView(item.id)} data-testid={`nav-${item.id}`}><item.icon className="h-4 w-4" />{item.label}</Button>
             ))}
           </nav>
@@ -1306,9 +1457,9 @@ function App() {
         <motion.header initial={{ y: -100 }} animate={{ y: 0 }} className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="flex h-16 items-center justify-between px-8"><div>
             <h2 className="text-2xl font-bold tracking-tight" data-testid="page-title">
-              {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}
+              {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}
             </h2>
-            <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations'}{activeView === 'analysis' && 'Upload data, auto-detect tasks, and train models'}{activeView === 'predict' && 'Predictions, results, visualizations & correlation analysis'}{activeView === 'anomalies' && 'Detect outliers in your data'}{activeView === 'models' && 'Manage your models'}{activeView === 'explore' && 'Histograms, correlation heatmap & scatter plots'}</p>
+            <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations'}{activeView === 'analysis' && 'Upload data, auto-detect tasks, and train models'}{activeView === 'predict' && 'Predictions, results, visualizations & correlation analysis'}{activeView === 'anomalies' && 'Detect outliers in your data'}{activeView === 'models' && 'Manage your models'}{activeView === 'explore' && 'Histograms, correlation heatmap & scatter plots'}{activeView === 'explainability' && 'Understand why the model made its predictions'}</p>
           </div><div className="flex items-center gap-2">
             {trainingResult && <Button variant="outline" size="sm" onClick={handleExportPDF} data-testid="export-pdf-btn"><Printer className="h-4 w-4 mr-2" />Export PDF</Button>}
             <Button variant="outline" size="icon" onClick={() => setDarkMode(prev => !prev)} data-testid="dark-mode-toggle">{darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</Button>
@@ -1368,7 +1519,7 @@ function App() {
                   </CardContent></Card>
                   <Card><CardContent className="p-4 flex items-center gap-3">
                     <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0"><Sparkles className="h-5 w-5 text-amber-600" /></div>
-                    <div><p className="text-xs text-muted-foreground">Highest Accuracy</p><p className="font-semibold text-sm" data-testid="insight-highest">{(stats.highestScore * 100).toFixed(1)}%</p></div>
+                    <div><p className="text-xs text-muted-foreground"><MetricTip metricKey="accuracy">Highest Accuracy</MetricTip></p><p className="font-semibold text-sm" data-testid="insight-highest">{(stats.highestScore * 100).toFixed(1)}%</p></div>
                   </CardContent></Card>
                 </motion.div>
 
@@ -1697,7 +1848,7 @@ function App() {
                           {trainingResult.bestModel.testMetrics.perClassMetrics && (
                             <div data-testid="per-class-metrics">
                               <p className="text-sm font-medium mb-3">Per-Class Metrics</p>
-                              <div className="rounded-md border"><table className="w-full text-sm"><thead><tr className="border-b bg-muted/50"><th className="p-2 text-left font-medium">Class</th><th className="p-2 text-right font-medium">Precision</th><th className="p-2 text-right font-medium">Recall</th><th className="p-2 text-right font-medium">F1 Score</th></tr></thead>
+                              <div className="rounded-md border"><table className="w-full text-sm"><thead><tr className="border-b bg-muted/50"><th className="p-2 text-left font-medium">Class</th><th className="p-2 text-right font-medium"><MetricTip metricKey="precision">Precision</MetricTip></th><th className="p-2 text-right font-medium"><MetricTip metricKey="recall">Recall</MetricTip></th><th className="p-2 text-right font-medium"><MetricTip metricKey="f1">F1 Score</MetricTip></th></tr></thead>
                               <tbody>{trainingResult.bestModel.testMetrics.perClassMetrics.map((pc, i) => <tr key={i} className="border-b last:border-0"><td className="p-2 font-mono text-xs">{models[models.length - 1]?.modelData?.targetEncoding ? models[models.length - 1].modelData.targetEncoding[pc.class] : pc.class}</td><td className="p-2 text-right">{(pc.precision * 100).toFixed(1)}%</td><td className="p-2 text-right">{(pc.recall * 100).toFixed(1)}%</td><td className="p-2 text-right font-medium">{(pc.f1 * 100).toFixed(1)}%</td></tr>)}</tbody></table></div>
                             </div>
                           )}
@@ -1716,7 +1867,7 @@ function App() {
                         const gap = isPercent ? ((trainVal - testVal) * 100) : (trainVal - testVal);
                         const isOverfit = isPercent ? gap > 15 : false;
                         return (
-                        <tr key={k} className={`border-b last:border-0 ${isOverfit ? 'bg-red-50 dark:bg-red-950/10' : ''}`}><td className="p-3 text-xs uppercase font-medium">{k.replace(/_/g, ' ')}</td>
+                        <tr key={k} className={`border-b last:border-0 ${isOverfit ? 'bg-red-50 dark:bg-red-950/10' : ''}`}><td className="p-3 text-xs uppercase font-medium"><MetricTip metricKey={k}>{k.replace(/_/g, ' ')}</MetricTip></td>
                         <td className="p-3 text-right font-mono">{isPercent ? `${(trainVal * 100).toFixed(2)}%` : trainVal?.toFixed(2)}</td>
                         <td className="p-3 text-right font-mono font-bold">{isPercent ? `${(testVal * 100).toFixed(2)}%` : testVal?.toFixed(2)}</td>
                         <td className={`p-3 text-right font-mono text-xs ${isOverfit ? 'text-red-600 font-semibold' : 'text-muted-foreground'}`}>{isPercent ? `${gap > 0 ? '+' : ''}${gap.toFixed(1)}pp` : `${gap > 0 ? '+' : ''}${gap.toFixed(2)}`}{isOverfit && ' (overfit)'}</td></tr>);
@@ -1761,8 +1912,8 @@ function App() {
                       <div key={idx} className="flex items-center justify-between p-3 rounded-lg border" data-testid={`leaderboard-entry-${idx}`} style={idx === 0 ? { borderColor: ALGO_COLORS[model.algorithm], borderWidth: 2 } : {}}>
                         <div className="flex items-center gap-3"><Badge variant={idx === 0 ? 'default' : 'secondary'} style={idx === 0 ? { backgroundColor: ALGO_COLORS[model.algorithm] } : {}}>{idx + 1}</Badge><div><p className="font-medium">{ALGO_NAMES[model.algorithm] || model.algorithm}</p><p className="text-xs text-muted-foreground">{model.durationSec ? `${model.durationSec.toFixed(3)}s` : '-'}{idx === 0 && ' — Best Model'}</p></div></div>
                         <div className="text-right font-mono text-sm" data-testid={`leaderboard-score-${idx}`}>
-                          {(() => { const m = model.testMetrics; const s = m.accuracy !== undefined ? m.accuracy : (m.r2 !== undefined ? m.r2 : 0); const c = getScoreColor(s); return <div className={`font-semibold ${c.text}`}>{m.accuracy !== undefined ? `${(m.accuracy * 100).toFixed(2)}% acc` : m.r2 !== undefined ? `${(m.r2 * 100).toFixed(2)}% R\u00B2` : '-'}</div>; })()}
-                          {model.cvScore !== null && model.cvScore !== undefined && <div className="text-xs text-emerald-600 font-semibold" data-testid={`cv-score-${idx}`}>CV: {(model.cvScore * 100).toFixed(2)}%</div>}
+                          {(() => { const m = model.testMetrics; const s = m.accuracy !== undefined ? m.accuracy : (m.r2 !== undefined ? m.r2 : 0); const c = getScoreColor(s); return <div className={`font-semibold ${c.text}`}>{m.accuracy !== undefined ? <MetricTip metricKey="accuracy">{`${(m.accuracy * 100).toFixed(2)}% acc`}</MetricTip> : m.r2 !== undefined ? <MetricTip metricKey="r2">{`${(m.r2 * 100).toFixed(2)}% R\u00B2`}</MetricTip> : '-'}</div>; })()}
+                          {model.cvScore !== null && model.cvScore !== undefined && <div className="text-xs text-emerald-600 font-semibold" data-testid={`cv-score-${idx}`}><MetricTip metricKey="cvScore">CV: {(model.cvScore * 100).toFixed(2)}%</MetricTip></div>}
                         </div>
                       </div>
                     ))}</div></CardContent></Card>
@@ -1777,7 +1928,7 @@ function App() {
                 <div className="flex items-center gap-4">
                   <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center"><Sparkles className="h-6 w-6 text-primary" /></div>
                   <div><p className="font-semibold">Unsupervised Analysis Complete</p>
-                    <p className="text-sm text-muted-foreground">Best: {unsupervisedResult.bestAlgorithm?.name} (Silhouette: {unsupervisedResult.bestAlgorithm?.metrics.silhouette.toFixed(3)}) &middot; {unsupervisedResult.optimalK.bestK} clusters &middot; {unsupervisedResult.totalTime.toFixed(2)}s</p>
+                    <p className="text-sm text-muted-foreground">Best: {unsupervisedResult.bestAlgorithm?.name} (<MetricTip metricKey="silhouette">Silhouette: {unsupervisedResult.bestAlgorithm?.metrics.silhouette.toFixed(3)}</MetricTip>) &middot; {unsupervisedResult.optimalK.bestK} clusters &middot; {unsupervisedResult.totalTime.toFixed(2)}s</p>
                   </div>
                 </div>
                 <Button onClick={() => { setActiveView('predict'); setPredictTab('results'); }} data-testid="view-unsupervised-results-btn"><Eye className="h-4 w-4 mr-2" />View Full Results</Button>
@@ -1950,7 +2101,7 @@ function App() {
                     {/* Algorithm Leaderboard */}
                     <div data-testid="algorithm-leaderboard"><p className="text-sm font-semibold mb-3 flex items-center gap-2"><Trophy className="h-4 w-4" />Algorithm Leaderboard</p>
                       <div className="rounded-md border overflow-auto"><table className="w-full text-sm">
-                        <thead><tr className="border-b bg-muted/50"><th className="p-3 text-left font-medium">Rank</th><th className="p-3 text-left font-medium">Algorithm</th><th className="p-3 text-right font-medium">Clusters</th><th className="p-3 text-right font-medium">Silhouette</th><th className="p-3 text-right font-medium">Davies-Bouldin</th><th className="p-3 text-right font-medium">Calinski-Harabasz</th><th className="p-3 text-right font-medium">Runtime</th></tr></thead>
+                        <thead><tr className="border-b bg-muted/50"><th className="p-3 text-left font-medium">Rank</th><th className="p-3 text-left font-medium">Algorithm</th><th className="p-3 text-right font-medium">Clusters</th><th className="p-3 text-right font-medium"><MetricTip metricKey="silhouette">Silhouette</MetricTip></th><th className="p-3 text-right font-medium"><MetricTip metricKey="daviesBouldin">Davies-Bouldin</MetricTip></th><th className="p-3 text-right font-medium"><MetricTip metricKey="calinskiHarabasz">Calinski-Harabasz</MetricTip></th><th className="p-3 text-right font-medium">Runtime</th></tr></thead>
                         <tbody>{unsupervisedResult.algorithms.map((algo, idx) => (
                           <tr key={algo.key} className={`border-b last:border-0 ${idx === 0 ? 'bg-primary/5' : ''}`} data-testid={`leaderboard-row-${algo.key}`}>
                             <td className="p-3">{idx === 0 ? <Badge variant="default" className="gap-1"><Trophy className="h-3 w-3" />Best</Badge> : <span className="text-muted-foreground">#{idx + 1}</span>}</td>
@@ -2107,6 +2258,329 @@ function App() {
                 </>)}
               </div>)}
 
+            </motion.div>
+          )}
+
+          {/* ==================== EXPLAINABILITY ==================== */}
+          {activeView === 'explainability' && (
+            <motion.div key="explainability" variants={staggerContainer} initial="initial" animate="animate" exit="exit" className="space-y-6" data-testid="explainability-view">
+              {(models.length === 0 && !unsupervisedResult) ? (
+                <Card className="border-2 border-dashed"><CardContent className="py-16 text-center">
+                  <Eye className="h-14 w-14 text-muted-foreground/30 mx-auto mb-5" />
+                  <h3 className="text-lg font-semibold mb-2">No Model to Explain</h3>
+                  <p className="text-muted-foreground text-sm mb-4">Train a model first in the Analysis tab.</p>
+                  <Button onClick={() => setActiveView('analysis')} size="lg" data-testid="xai-go-analysis"><Zap className="h-4 w-4 mr-2" />Go to Analysis</Button>
+                </CardContent></Card>
+              ) : (<>
+                {/* Tab selector */}
+                <motion.div variants={fadeInUp}>
+                  <div className="flex gap-1 p-1 rounded-lg bg-muted/50 w-fit" data-testid="xai-tabs">
+                    {[{ id: 'shap', label: 'SHAP Analysis' }, { id: 'lime', label: 'LIME Explanation' }, ...(unsupervisedResult ? [{ id: 'clusters', label: 'Cluster Explanation' }] : [])].map(tab => (
+                      <Button key={tab.id} variant={xaiTab === tab.id ? 'default' : 'ghost'} size="sm" onClick={() => setXaiTab(tab.id)} data-testid={`xai-tab-${tab.id}`}>{tab.label}</Button>
+                    ))}
+                  </div>
+                </motion.div>
+
+                {/* Controls */}
+                <motion.div variants={fadeInUp}><Card data-testid="xai-controls"><CardHeader>
+                  <CardTitle className="flex items-center gap-2"><Eye className="h-5 w-5" />Configuration</CardTitle>
+                </CardHeader><CardContent className="space-y-4">
+                  {models.length > 0 && xaiTab !== 'clusters' && <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-1.5"><label className="text-sm font-medium">Model</label>
+                      <select value={selectedModelIdx === -1 ? models.length - 1 : selectedModelIdx} onChange={e => setSelectedModelIdx(Number(e.target.value))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="xai-model-select">
+                        {models.map((m, i) => <option key={m.modelId} value={i}>{ALGO_NAMES[m.algorithm] || m.algorithm} — {m.problemType}</option>)}
+                      </select></div>
+                    <div className="space-y-1.5"><label className="text-sm font-medium">Record (row) to explain</label>
+                      <input type="number" min={0} max={dataProfile ? dataProfile.rowCount - 1 : 0} value={xaiRow} onChange={e => setXaiRow(Math.max(0, Number(e.target.value)))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="xai-row-select" /></div>
+                  </div>}
+                  <div className="flex flex-wrap gap-3">
+                    {xaiTab === 'shap' && models.length > 0 && <Button onClick={handleRunSHAP} disabled={xaiLoading} size="lg" className="h-11" data-testid="run-shap-btn">
+                      {xaiLoading ? <><div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Computing...</> : <><Sparkles className="h-4 w-4 mr-2" />Run SHAP Analysis</>}
+                    </Button>}
+                    {xaiTab === 'lime' && models.length > 0 && <Button onClick={handleRunLIME} disabled={xaiLoading} size="lg" className="h-11" data-testid="run-lime-btn">
+                      {xaiLoading ? <><div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Computing...</> : <><Target className="h-4 w-4 mr-2" />Explain with LIME</>}
+                    </Button>}
+                    {xaiTab === 'clusters' && unsupervisedResult && <Button onClick={handleClusterExplain} disabled={xaiLoading} size="lg" className="h-11" data-testid="run-cluster-explain-btn">
+                      {xaiLoading ? <><div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Computing...</> : <><Layers className="h-4 w-4 mr-2" />Explain Clusters</>}
+                    </Button>}
+                    {xaiTab !== 'clusters' && models.length > 0 && <Button variant="outline" onClick={handleExplainPrediction} disabled={xaiLoading} size="lg" className="h-11" data-testid="explain-prediction-btn">
+                      <Eye className="h-4 w-4 mr-2" />Explain This Prediction (SHAP + LIME)
+                    </Button>}
+                  </div>
+                </CardContent></Card></motion.div>
+
+                {/* ───── SHAP TAB ───── */}
+                {xaiTab === 'shap' && (<>
+                  {/* Global Feature Importance */}
+                  {shapGlobal && <motion.div variants={fadeInUp}><Card data-testid="shap-global-importance"><CardHeader>
+                    <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" /><MetricTip metricKey="shapValue">Global Feature Importance (SHAP)</MetricTip></CardTitle>
+                    <CardDescription>This shows which features have the greatest overall impact on the model's predictions across the dataset.</CardDescription>
+                  </CardHeader><CardContent>
+                    <ResponsiveContainer width="100%" height={Math.max(200, shapGlobal.importance.length * 36)}>
+                      <BarChart layout="vertical" data={shapGlobal.importance} margin={{ left: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                        <XAxis type="number" tick={{ fontSize: 11 }} label={{ value: 'Mean |SHAP Value|', position: 'bottom', fontSize: 11 }} />
+                        <YAxis type="category" dataKey="feature" tick={{ fontSize: 11 }} width={120} />
+                        <Tooltip formatter={v => [v.toFixed(4), 'Importance']} />
+                        <Bar dataKey="importance" radius={[0, 6, 6, 0]}>
+                          {shapGlobal.importance.map((_, i) => <Cell key={i} fill={importanceColor(i, shapGlobal.importance.length)} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent></Card></motion.div>}
+
+                  {/* Beeswarm Plot */}
+                  {shapBeeswarm && <motion.div variants={fadeInUp}><Card data-testid="shap-beeswarm"><CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" />SHAP Beeswarm Plot</CardTitle>
+                    <CardDescription>Each dot is a data point. The color shows the feature value (blue = low, pink = high). Horizontal spread shows impact on predictions.</CardDescription>
+                  </CardHeader><CardContent>
+                    {(() => {
+                      const fn = getXaiModel()?.modelData?.featureNames || [];
+                      const chartData = shapBeeswarm.points.map(p => ({ x: p.shapValue, y: p.featureIdx + p.jitter, fill: p.color }));
+                      return (<>
+                        <ResponsiveContainer width="100%" height={Math.max(250, fn.length * 40)}>
+                          <ScatterChart margin={{ left: 20, bottom: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                            <XAxis type="number" dataKey="x" name="SHAP Value" tick={{ fontSize: 11 }} label={{ value: 'SHAP Value (impact on prediction)', position: 'bottom', fontSize: 11 }} />
+                            <YAxis type="number" dataKey="y" domain={[-0.5, fn.length - 0.5]} ticks={fn.map((_, i) => i)} tickFormatter={v => fn[Math.round(v)] || ''} tick={{ fontSize: 11 }} width={120} />
+                            <ZAxis range={[20, 20]} />
+                            <Tooltip content={({ active, payload }) => active && payload?.[0] ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p className="font-semibold">{fn[Math.round(payload[0].payload.y)]}</p><p>SHAP: {payload[0].payload.x.toFixed(4)}</p></div> : null} />
+                            <ReferenceLine x={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                            <Scatter data={chartData} isAnimationActive={false}>
+                              {chartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                            </Scatter>
+                          </ScatterChart>
+                        </ResponsiveContainer>
+                        <div className="flex items-center justify-center gap-2 mt-3">
+                          <span className="text-xs text-muted-foreground">Low</span>
+                          <div className="h-3 w-36 rounded-full" style={{ background: 'linear-gradient(to right, #3b82f6, #8b5cf6, #ec4899)' }} />
+                          <span className="text-xs text-muted-foreground">High</span>
+                          <span className="text-xs text-muted-foreground ml-2">(Feature Value)</span>
+                        </div>
+                      </>);
+                    })()}
+                  </CardContent></Card></motion.div>}
+
+                  {/* Waterfall Plot */}
+                  {shapLocal && <motion.div variants={fadeInUp}><Card data-testid="shap-waterfall"><CardHeader>
+                    <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" />Waterfall Plot — Record #{xaiRow}</CardTitle>
+                    <CardDescription>This chart breaks down how each feature contributed to the prediction for this specific record.</CardDescription>
+                  </CardHeader><CardContent>
+                    {(() => {
+                      const wf = buildWaterfallData(shapLocal.shapValues, shapLocal.featureNames, shapLocal.basePred);
+                      return (<>
+                        <div className="flex items-center gap-6 mb-4 text-sm">
+                          <span className="text-muted-foreground"><MetricTip metricKey="baseValue">Base value:</MetricTip> <strong>{shapLocal.basePred.toFixed(4)}</strong></span>
+                          <span>Prediction: <strong className="text-primary">{shapLocal.instancePred.toFixed(4)}</strong></span>
+                        </div>
+                        <ResponsiveContainer width="100%" height={Math.max(200, wf.length * 34)}>
+                          <BarChart layout="vertical" data={wf} margin={{ left: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                            <XAxis type="number" tick={{ fontSize: 11 }} />
+                            <YAxis type="category" dataKey="feature" tick={{ fontSize: 11 }} width={120} />
+                            <Tooltip content={({ active, payload }) => active && payload?.[1] ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p className="font-semibold">{payload[1].payload.feature}</p><p>Contribution: <strong style={{ color: payload[1].payload.contribution >= 0 ? '#ec4899' : '#06b6d4' }}>{payload[1].payload.contribution >= 0 ? '+' : ''}{payload[1].payload.contribution.toFixed(4)}</strong></p></div> : null} />
+                            <Bar dataKey="offset" stackId="a" fill="transparent" isAnimationActive={false} />
+                            <Bar dataKey="width" stackId="a" radius={[0, 4, 4, 0]} isAnimationActive={false}>
+                              {wf.map((d, i) => <Cell key={i} fill={d.contribution >= 0 ? '#ec4899' : '#06b6d4'} />)}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                        <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm" style={{ backgroundColor: '#ec4899' }} /> Increases prediction</span>
+                          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm" style={{ backgroundColor: '#06b6d4' }} /> Decreases prediction</span>
+                        </div>
+                      </>);
+                    })()}
+                  </CardContent></Card></motion.div>}
+
+                  {/* Dependence Plot */}
+                  {shapDependence && <motion.div variants={fadeInUp}><Card data-testid="shap-dependence"><CardHeader>
+                    <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5" />Dependence Plot</CardTitle>
+                    <CardDescription>This plot reveals how changes in a feature value influence the model's output.</CardDescription>
+                  </CardHeader><CardContent className="space-y-4">
+                    <select value={xaiDepFeature} onChange={e => { setXaiDepFeature(Number(e.target.value)); }} className="rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="xai-dep-feature-select">
+                      {(getXaiModel()?.modelData?.featureNames || []).map((f, i) => <option key={i} value={i}>{f}</option>)}
+                    </select>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <ScatterChart margin={{ bottom: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                        <XAxis type="number" dataKey="featureValue" name="Feature Value" tick={{ fontSize: 11 }} label={{ value: (getXaiModel()?.modelData?.featureNames || [])[xaiDepFeature] || 'Feature', position: 'bottom', fontSize: 11 }} />
+                        <YAxis type="number" dataKey="shapValue" name="SHAP Value" tick={{ fontSize: 11 }} label={{ value: 'SHAP Value', angle: -90, position: 'left', fontSize: 11 }} />
+                        <ZAxis range={[40, 40]} />
+                        <Tooltip formatter={(v) => v.toFixed(4)} />
+                        <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                        <Scatter data={shapDependence} fill="#8b5cf6" isAnimationActive={false} />
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                  </CardContent></Card></motion.div>}
+
+                  {/* Force Plot */}
+                  {shapLocal && <motion.div variants={fadeInUp}><Card data-testid="shap-force"><CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Sparkles className="h-5 w-5" />Force Plot — Record #{xaiRow}</CardTitle>
+                    <CardDescription>Interactive breakdown showing how features push the prediction from the base value to the final output.</CardDescription>
+                  </CardHeader><CardContent>
+                    {(() => {
+                      const force = buildForceData(shapLocal.shapValues, shapLocal.featureNames, shapLocal.basePred, shapLocal.instancePred);
+                      const maxMag = Math.max(force.totalPos, force.totalNeg) || 1;
+                      return (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between text-sm font-medium px-1">
+                            <span><MetricTip metricKey="baseValue">Base: {force.basePred.toFixed(3)}</MetricTip></span>
+                            <span className="text-primary font-bold">Output: {force.instancePred.toFixed(3)}</span>
+                          </div>
+                          {force.positive.length > 0 && <div>
+                            <p className="text-xs font-medium mb-1.5 text-pink-600">Positive contributions (push prediction higher)</p>
+                            <div className="flex gap-1 h-8 rounded-lg overflow-hidden">{force.positive.map((f, i) => (
+                              <div key={i} className="group/fp relative h-full rounded-sm transition-all hover:opacity-80" style={{ backgroundColor: i % 2 === 0 ? '#ec4899' : '#f472b6', flex: `${(f.value / maxMag) * 100}` }} data-testid={`force-pos-${i}`}>
+                                <span className="invisible group-hover/fp:visible absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1 whitespace-nowrap bg-popover border shadow rounded px-2 py-1 text-xs">{f.feature}: +{f.value.toFixed(4)}</span>
+                              </div>
+                            ))}</div>
+                          </div>}
+                          {force.negative.length > 0 && <div>
+                            <p className="text-xs font-medium mb-1.5 text-cyan-600">Negative contributions (push prediction lower)</p>
+                            <div className="flex gap-1 h-8 rounded-lg overflow-hidden">{force.negative.map((f, i) => (
+                              <div key={i} className="group/fn relative h-full rounded-sm transition-all hover:opacity-80" style={{ backgroundColor: i % 2 === 0 ? '#06b6d4' : '#22d3ee', flex: `${(Math.abs(f.value) / maxMag) * 100}` }} data-testid={`force-neg-${i}`}>
+                                <span className="invisible group-hover/fn:visible absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1 whitespace-nowrap bg-popover border shadow rounded px-2 py-1 text-xs">{f.feature}: {f.value.toFixed(4)}</span>
+                              </div>
+                            ))}</div>
+                          </div>}
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 mt-3">{shapLocal.featureNames.map((f, i) => (
+                            <div key={i} className="rounded-lg border p-2 text-xs" data-testid={`force-feat-${i}`}>
+                              <span className="text-muted-foreground">{f}</span>
+                              <span className={`block font-bold ${shapLocal.shapValues[i] >= 0 ? 'text-pink-600' : 'text-cyan-600'}`}>{shapLocal.shapValues[i] >= 0 ? '+' : ''}{shapLocal.shapValues[i].toFixed(4)}</span>
+                            </div>
+                          ))}</div>
+                        </div>
+                      );
+                    })()}
+                  </CardContent></Card></motion.div>}
+                </>)}
+
+                {/* ───── LIME TAB ───── */}
+                {xaiTab === 'lime' && (<>
+                  {/* LIME Feature Contribution */}
+                  {limeResult && <motion.div variants={fadeInUp}><Card data-testid="lime-contribution"><CardHeader>
+                    <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" />LIME Feature Contributions — Record #{xaiRow}</CardTitle>
+                    <CardDescription>This chart explains the most influential features responsible for this specific prediction. Green supports the prediction, red/pink contradicts it.</CardDescription>
+                  </CardHeader><CardContent>
+                    {(() => {
+                      const data = limeResult.contributions.slice(0, 15);
+                      return (<>
+                        <div className="flex items-center gap-6 mb-4 text-sm">
+                          <span>Prediction: <strong className="text-primary">{limeResult.prediction.toFixed(4)}</strong></span>
+                          <span className="text-muted-foreground">Intercept: {limeResult.intercept.toFixed(4)}</span>
+                        </div>
+                        <ResponsiveContainer width="100%" height={Math.max(200, data.length * 34)}>
+                          <BarChart layout="vertical" data={data} margin={{ left: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                            <XAxis type="number" tick={{ fontSize: 11 }} label={{ value: 'Contribution Weight', position: 'bottom', fontSize: 11 }} />
+                            <YAxis type="category" dataKey="feature" tick={{ fontSize: 11 }} width={120} />
+                            <Tooltip content={({ active, payload }) => active && payload?.[0] ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p className="font-semibold">{payload[0].payload.feature}</p><p>Weight: {payload[0].payload.weight.toFixed(4)}</p><p>Contribution: <strong>{payload[0].payload.contribution.toFixed(4)}</strong></p></div> : null} />
+                            <ReferenceLine x={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                            <Bar dataKey="contribution" radius={[0, 4, 4, 0]} isAnimationActive={false}>
+                              {data.map((d, i) => <Cell key={i} fill={d.contribution >= 0 ? '#10b981' : '#ec4899'} />)}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                        <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm" style={{ backgroundColor: '#10b981' }} /> Supports prediction</span>
+                          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm" style={{ backgroundColor: '#ec4899' }} /> Contradicts prediction</span>
+                        </div>
+                      </>);
+                    })()}
+                  </CardContent></Card></motion.div>}
+
+                  {/* LIME Probability Chart (classification only) */}
+                  {limeProbs && limeProbs.length > 0 && <motion.div variants={fadeInUp}><Card data-testid="lime-probability"><CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Target className="h-5 w-5" />Prediction Probability Distribution</CardTitle>
+                    <CardDescription>This shows the probability distribution for each class in the prediction area around this record.</CardDescription>
+                  </CardHeader><CardContent>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={limeProbs}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                        <XAxis dataKey="class" tick={{ fontSize: 11 }} label={{ value: 'Class', position: 'bottom', fontSize: 11 }} />
+                        <YAxis domain={[0, 1]} tickFormatter={v => `${(v * 100).toFixed(0)}%`} tick={{ fontSize: 11 }} />
+                        <Tooltip formatter={v => `${(v * 100).toFixed(1)}%`} />
+                        <Bar dataKey="probability" radius={[6, 6, 0, 0]}>
+                          {limeProbs.map((_, i) => <Cell key={i} fill={['#ec4899', '#3b82f6', '#a78bfa', '#06b6d4', '#f97316', '#10b981'][i % 6]} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent></Card></motion.div>}
+
+                  {/* Side-by-side view if both computed */}
+                  {limeResult && shapLocal && <motion.div variants={fadeInUp}><Card data-testid="xai-side-by-side"><CardHeader>
+                    <CardTitle className="flex items-center gap-2"><SplitSquareVertical className="h-5 w-5" />SHAP vs LIME — Record #{xaiRow}</CardTitle>
+                    <CardDescription>Side-by-side comparison of feature contributions from both explanation methods.</CardDescription>
+                  </CardHeader><CardContent>
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div><p className="text-sm font-semibold mb-3 text-pink-600">SHAP Contributions</p>
+                        <div className="space-y-1.5">{shapLocal.featureNames.map((f, i) => {
+                          const val = shapLocal.shapValues[i]; const maxAbs = Math.max(...shapLocal.shapValues.map(Math.abs)) || 1;
+                          return <div key={i} className="flex items-center gap-2"><span className="text-xs w-24 truncate text-right text-muted-foreground" title={f}>{f}</span><div className="flex-1 h-4 bg-muted rounded-full overflow-hidden relative"><div className="absolute inset-y-0" style={{ left: '50%', width: `${(Math.abs(val) / maxAbs) * 50}%`, marginLeft: val < 0 ? `${-(Math.abs(val) / maxAbs) * 50}%` : 0, backgroundColor: val >= 0 ? '#ec4899' : '#06b6d4', borderRadius: '4px' }} /></div><span className="text-xs font-mono w-16 text-right">{val >= 0 ? '+' : ''}{val.toFixed(3)}</span></div>;
+                        })}</div>
+                      </div>
+                      <div><p className="text-sm font-semibold mb-3 text-emerald-600">LIME Contributions</p>
+                        <div className="space-y-1.5">{limeResult.contributions.slice(0, shapLocal.featureNames.length).map((c, i) => {
+                          const maxAbs = Math.max(...limeResult.contributions.map(x => Math.abs(x.contribution))) || 1;
+                          return <div key={i} className="flex items-center gap-2"><span className="text-xs w-24 truncate text-right text-muted-foreground" title={c.feature}>{c.feature}</span><div className="flex-1 h-4 bg-muted rounded-full overflow-hidden relative"><div className="absolute inset-y-0" style={{ left: '50%', width: `${(Math.abs(c.contribution) / maxAbs) * 50}%`, marginLeft: c.contribution < 0 ? `${-(Math.abs(c.contribution) / maxAbs) * 50}%` : 0, backgroundColor: c.contribution >= 0 ? '#10b981' : '#ec4899', borderRadius: '4px' }} /></div><span className="text-xs font-mono w-16 text-right">{c.contribution >= 0 ? '+' : ''}{c.contribution.toFixed(3)}</span></div>;
+                        })}</div>
+                      </div>
+                    </div>
+                  </CardContent></Card></motion.div>}
+                </>)}
+
+                {/* ───── CLUSTER TAB ───── */}
+                {xaiTab === 'clusters' && (<>
+                  {clusterShap && <motion.div variants={fadeInUp}><Card data-testid="cluster-feature-influence"><CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Layers className="h-5 w-5" />Cluster Feature Influence</CardTitle>
+                    <CardDescription>These charts explain which features influenced the formation of clusters in the dataset.</CardDescription>
+                  </CardHeader><CardContent>
+                    <ResponsiveContainer width="100%" height={Math.max(200, clusterShap.importance.length * 36)}>
+                      <BarChart layout="vertical" data={clusterShap.importance} margin={{ left: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                        <XAxis type="number" tick={{ fontSize: 11 }} label={{ value: 'Mean |SHAP Value| for Cluster Assignment', position: 'bottom', fontSize: 11 }} />
+                        <YAxis type="category" dataKey="feature" tick={{ fontSize: 11 }} width={120} />
+                        <Tooltip formatter={v => [v.toFixed(4), 'Importance']} />
+                        <Bar dataKey="importance" radius={[0, 6, 6, 0]}>
+                          {clusterShap.importance.map((_, i) => <Cell key={i} fill={importanceColor(i, clusterShap.importance.length)} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent></Card></motion.div>}
+
+                  {clusterBeeswarm && <motion.div variants={fadeInUp}><Card data-testid="cluster-shap-distribution"><CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" />Cluster SHAP Distribution</CardTitle>
+                    <CardDescription>Scatter plot showing how features contribute to cluster grouping across data points.</CardDescription>
+                  </CardHeader><CardContent>
+                    {(() => {
+                      const fn = unsupervisedResult?.preprocessing?.featureNames || [];
+                      const chartData = clusterBeeswarm.points.map(p => ({ x: p.shapValue, y: p.featureIdx + p.jitter, fill: p.color }));
+                      return (<>
+                        <ResponsiveContainer width="100%" height={Math.max(250, fn.length * 40)}>
+                          <ScatterChart margin={{ left: 20, bottom: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                            <XAxis type="number" dataKey="x" name="SHAP Value" tick={{ fontSize: 11 }} label={{ value: 'SHAP Value (cluster influence)', position: 'bottom', fontSize: 11 }} />
+                            <YAxis type="number" dataKey="y" domain={[-0.5, fn.length - 0.5]} ticks={fn.map((_, i) => i)} tickFormatter={v => fn[Math.round(v)] || ''} tick={{ fontSize: 11 }} width={120} />
+                            <ZAxis range={[20, 20]} />
+                            <Tooltip content={({ active, payload }) => active && payload?.[0] ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p className="font-semibold">{fn[Math.round(payload[0].payload.y)]}</p><p>SHAP: {payload[0].payload.x.toFixed(4)}</p></div> : null} />
+                            <ReferenceLine x={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                            <Scatter data={chartData} isAnimationActive={false}>
+                              {chartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                            </Scatter>
+                          </ScatterChart>
+                        </ResponsiveContainer>
+                        <div className="flex items-center justify-center gap-2 mt-3">
+                          <span className="text-xs text-muted-foreground">Low</span>
+                          <div className="h-3 w-36 rounded-full" style={{ background: 'linear-gradient(to right, #3b82f6, #8b5cf6, #ec4899)' }} />
+                          <span className="text-xs text-muted-foreground">High</span>
+                          <span className="text-xs text-muted-foreground ml-2">(Feature Value)</span>
+                        </div>
+                      </>);
+                    })()}
+                  </CardContent></Card></motion.div>}
+                </>)}
+              </>)}
             </motion.div>
           )}
 
