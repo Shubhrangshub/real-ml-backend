@@ -7,15 +7,14 @@ Build a 100% client-side Universal AI Dashboard (AutoML Master) in React. All ML
 - **Frontend**: React + Tailwind CSS + Shadcn UI + Recharts + Framer Motion
 - **ML Engine**: Custom client-side JS (supervised in App.js, unsupervised in unsupervisedML.js)
 - **XAI Engine**: explainableAI.js (SHAP approximation + LIME)
-- **Backend**: FastAPI (minimal, serves health check)
-- **Database**: MongoDB (minimal use)
+- **Backend**: FastAPI + MongoDB (snapshots API for history & sharing)
 - **All ML**: Runs in-browser — no server calls for training/prediction/explanation
 
 ## Core Files
-- `/app/frontend/src/App.js` — Main UI + supervised ML + all features (~3300 lines)
+- `/app/frontend/src/App.js` — Main UI + supervised ML + all features (~3550 lines)
 - `/app/frontend/src/unsupervisedML.js` — Unsupervised ML engine
 - `/app/frontend/src/explainableAI.js` — SHAP & LIME computation engine
-- `/app/frontend/src/index.css` — CSS with light/dark mode variables
+- `/app/backend/server.py` — FastAPI backend with snapshot CRUD endpoints
 
 ## Completed Features
 
@@ -36,30 +35,38 @@ Build a 100% client-side Universal AI Dashboard (AutoML Master) in React. All ML
 - [x] Session Persistence (full state → localStorage, Clear Session button)
 
 ### Phase 13 (Feb 2026)
-- [x] Enhanced XAI Dashboard (7 new charts, vibrant colors, section dividers, descriptions)
+- [x] Enhanced XAI Dashboard (7 new charts, vibrant colors, descriptions)
 
 ### Phase 14 (Feb 2026)
-- [x] **Smart Guided Help System**:
-  - **HelpTip Component**: Reusable (?) hover tooltip for all major inputs (Target Variable, Algorithm, Evaluation Mode, Record Row, Data Explorer columns)
-  - **Getting Started Guide**: Collapsible 7-step panel (Upload → Review → Target → Train → Results → Predict → XAI) with automatic progress tracking (green checkmarks for completed steps)
-  - **Target Variable Auto-Suggestion**: `suggestedTarget` useMemo analyzes column types & variability, shows banner with "Suggested target: [name]" and "Use this target" button
-  - **Algorithm Descriptions**: ALGO_DESCRIPTIONS constant with 1-2 line explanations for all 10 algorithms, shown dynamically below the algorithm selector
-  - **Smart XAI Row Suggestions**: `smartRowSuggestions` useMemo provides 4 chips: Random sample, Highest prediction, Lowest prediction, Representative (median) — click to auto-fill row input
-  - **XAI Method Descriptions**: Pre-computation help text for SHAP, LIME, and Cluster explanation tabs
-  - **Error Prevention**: Better empty-state messages guiding users to upload data/train first
-  - **Enhanced Descriptions**: Updated page header subtitles, upload area guidance, prediction form guidance
-  - **Guide Access**: "Help Guide" button in header + "New here? Open Guide" link on empty dashboard
+- [x] Smart Guided Help System (HelpTip, Guide Panel, Target Suggestion, Smart Row Suggestions)
+
+### Phase 15 (Feb 2026)
+- [x] **History & Sharing System**:
+  - **Analysis History Tab**: Sidebar nav item, list view with dataset name, date, target, problem type, model scores. Actions: Restore, Share, Delete
+  - **Backend API**: `POST/GET/DELETE /api/snapshots` — MongoDB-backed CRUD for analysis snapshots. Each snapshot stores full app state (dataset, models, metrics, SHAP/LIME results)
+  - **Save Analysis**: Button in header saves current state to MongoDB with auto-generated name
+  - **Share**: Generates unique URL (`?snapshot={id}`), copies to clipboard, shows toast with share link
+  - **View-Only Mode**: Opening shared URL shows read-only dashboard with amber banner. Editing buttons (Save, Share, Clear Session) hidden. "Exit View-Only" button to unlock
+  - **Export Buttons**: PDF (existing), CSV (download), JSON (download), Google Sheets (TSV copied to clipboard or downloaded)
+  - **Restore**: Click any history item to fully restore dataset, training results, models, XAI results without retraining
+
+## API Endpoints
+- `GET /api/health` — Health check
+- `POST /api/snapshots` — Save analysis snapshot
+- `GET /api/snapshots` — List snapshots (summary only, no full state)
+- `GET /api/snapshots/{id}` — Get full snapshot by ID
+- `DELETE /api/snapshots/{id}` — Delete snapshot
 
 ## Testing Status
-- Iteration 16: 24/24 tests passed (100% — Help System)
-- Iteration 15: 14/14 tests passed (100% — XAI enhancement)
-- Iteration 14: 22/22 tests passed (100% — session persistence)
-- Iteration 13: 27/27 tests passed (100% — performance optimization)
+- Iteration 17: 21/21 UI + 8/8 backend tests passed (100% — History & Sharing)
+- Iteration 16: 24/24 (100% — Help System)
+- Iteration 15: 14/14 (100% — XAI)
+- Iteration 14: 22/22 (100% — Session Persistence)
+- Iteration 13: 27/27 (100% — Performance)
 
 ## Backlog
 - [ ] P1: Counterfactual Explanations ("what would need to change" for different prediction)
-- [ ] P1: Shareable Report Link (unique URL for sharing analysis reports)
-- [ ] P2: Refactor App.js into modular components (~3300+ lines)
+- [ ] P2: Refactor App.js into modular components (~3550+ lines)
 - [ ] P2: Real-time model comparison dashboard
 - [ ] P2: Advanced hyperparameter tuning UI
 - [ ] P3: Dataset preprocessing pipeline UI
