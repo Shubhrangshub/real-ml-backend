@@ -1338,33 +1338,36 @@ function App() {
     return sections.join('\n');
   }, [trainingResult, shapGlobal, limeResult, predictionHistory]);
 
+  const triggerBackendDownload = useCallback(async (csvContent, filename) => {
+    try {
+      const res = await fetch(`${API_URL}/api/export/prepare`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv_content: csvContent, filename })
+      });
+      const data = await res.json();
+      if (data.token) {
+        const downloadUrl = `${API_URL}/api/export/download/${data.token}`;
+        // Use hidden iframe to trigger download — works in sandboxed iframes
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+        iframe.src = downloadUrl;
+        setTimeout(() => { try { document.body.removeChild(iframe); } catch {} }, 30000);
+      } else { setError('Export failed — could not prepare download.'); }
+    } catch (e) { setError('Export failed: ' + e.message); }
+  }, []);
+
   const handleExportCSV = useCallback(() => {
     if (!trainingResult && !shapGlobal && !limeResult && !predictionHistory?.length) return;
-    try {
-      const csv = buildFullCSV();
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `analysis_data_${Date.now()}.csv`;
-      a.style.display = 'none';
-      document.body.appendChild(a); a.click();
-      document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { setError('CSV download failed: ' + e.message); }
-  }, [trainingResult, shapGlobal, limeResult, predictionHistory, buildFullCSV]);
+    const csv = buildFullCSV();
+    triggerBackendDownload(csv, `analysis_data_${Date.now()}.csv`);
+  }, [trainingResult, shapGlobal, limeResult, predictionHistory, buildFullCSV, triggerBackendDownload]);
 
   const handleExportSheets = useCallback(() => {
     if (!trainingResult && !shapGlobal && !limeResult && !predictionHistory?.length) return;
-    try {
-      const csv = buildFullCSV();
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `analysis_for_google_sheets_${Date.now()}.csv`;
-      a.style.display = 'none';
-      document.body.appendChild(a); a.click();
-      document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { setError('Google Sheets export failed: ' + e.message); }
-  }, [trainingResult, shapGlobal, limeResult, predictionHistory, buildFullCSV]);
+    const csv = buildFullCSV();
+    triggerBackendDownload(csv, `analysis_for_google_sheets_${Date.now()}.csv`);
+  }, [trainingResult, shapGlobal, limeResult, predictionHistory, buildFullCSV, triggerBackendDownload]);
 
   // Load shared snapshot from URL on mount
   useEffect(() => {

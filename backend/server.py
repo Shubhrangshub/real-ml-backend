@@ -33,7 +33,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 from pymongo import MongoClient
 
@@ -927,6 +927,34 @@ async def delete_snapshot(snapshot_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== CSV EXPORT ENDPOINT ====================
+
+class ExportCSVRequest(BaseModel):
+    csv_content: str
+    filename: str = "export.csv"
+
+# Temporary store for download tokens
+_pending_downloads: Dict[str, Dict[str, str]] = {}
+
+@app.post("/api/export/prepare")
+async def prepare_export(req: ExportCSVRequest):
+    """Store CSV content and return a one-time download token."""
+    token = str(uuid.uuid4())[:16]
+    _pending_downloads[token] = {"content": req.csv_content, "filename": req.filename}
+    return {"status": "success", "token": token}
+
+@app.get("/api/export/download/{token}")
+async def download_export(token: str):
+    """Serve a prepared CSV file as a real HTTP download. Works in iframes."""
+    data = _pending_downloads.pop(token, None)
+    if not data:
+        raise HTTPException(status_code=404, detail="Download expired or not found")
+    return Response(
+        content=data["content"],
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{data["filename"]}"'}
+    )
 
 if __name__ == "__main__":
     import uvicorn
