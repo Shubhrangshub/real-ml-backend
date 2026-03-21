@@ -5,7 +5,7 @@ import {
   Eye, Trash2, ChevronRight, ArrowUpRight, FileText, Target, Cpu, BarChart3,
   Download, AlertCircle, Layers, ShieldAlert, Table2, Info, SplitSquareVertical,
   Clock, Trophy, CheckCircle2, XCircle, Shield, Moon, Sun, FileUp, BarChart2,
-  Printer
+  Printer, HelpCircle, BookOpen, Lightbulb
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -32,6 +32,29 @@ const fadeInUp = { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 }
 const staggerContainer = { animate: { transition: { staggerChildren: 0.1 } } };
 const ALGO_NAMES = { linear_regression: 'Linear Regression', ridge_regression: 'Ridge Regression', logistic_regression: 'Logistic Regression', decision_tree: 'Decision Tree', random_forest: 'Random Forest', random_forest_regressor: 'Random Forest', random_forest_classifier: 'Random Forest', gradient_boosting: 'Gradient Boosting', knn: 'KNN', svm: 'SVM', naive_bayes: 'Naive Bayes', baseline: 'Baseline' };
 const ALGO_COLORS = { linear_regression: '#2563eb', ridge_regression: '#7c3aed', logistic_regression: '#2563eb', decision_tree: '#16a34a', random_forest_regressor: '#059669', random_forest_classifier: '#059669', gradient_boosting: '#d97706', knn: '#dc2626', svm: '#9333ea', naive_bayes: '#0891b2', baseline: '#6b7280' };
+
+const ALGO_DESCRIPTIONS = {
+  auto: 'Trains all compatible algorithms and picks the one with the best score. Ideal when you are unsure which to use.',
+  linear: 'Fits a straight line through your data. Best for simple numeric relationships between features and target.',
+  ridge: 'Like Linear Regression but prevents overfitting by penalizing large coefficients. Use when you have many features.',
+  logistic: 'Predicts categories (yes/no, A/B/C). Works well for binary classification with a clear decision boundary.',
+  decision_tree: 'Splits data using yes/no questions. Easy to understand and visualize, but can overfit on small data.',
+  random_forest: 'Combines many decision trees for more reliable predictions. Great all-rounder for both classification and regression.',
+  gradient_boosting: 'Builds trees one at a time, each correcting the previous mistakes. Often the most accurate, but slower.',
+  knn: 'Predicts based on the K most similar records. Simple and intuitive, works best with normalized features.',
+  svm: 'Finds the best boundary between classes. Powerful for classification, especially with clear margins in data.',
+  naive_bayes: 'Uses probability to classify. Very fast and works surprisingly well, especially with text or categorical data.',
+};
+
+const GUIDE_STEPS = [
+  { step: 1, title: 'Upload Dataset', desc: 'Upload a CSV file or pick a sample dataset. Ensure your data has meaningful columns and enough rows (at least 10+).' },
+  { step: 2, title: 'Review & Clean', desc: 'Check the Dataset Scanner for issues like missing values or outliers. Use the auto-clean tools to fix them.' },
+  { step: 3, title: 'Select Target', desc: 'Pick the column you want to predict. For classification choose a categorical column; for regression pick a numeric one.' },
+  { step: 4, title: 'Train Model', desc: 'Choose an algorithm (or let Auto pick the best). Click "Start Training" and wait for results.' },
+  { step: 5, title: 'Explore Results', desc: 'Review accuracy metrics, the algorithm leaderboard, and confusion matrix or scatter plots.' },
+  { step: 6, title: 'Make Predictions', desc: 'Go to the Predictions tab to enter new data and get predictions from your trained model.' },
+  { step: 7, title: 'Explain with XAI', desc: 'Visit Explainability to understand why the model makes its predictions using SHAP and LIME.' },
+];
 
 const METRIC_EXPLANATIONS = {
   r2: { name: 'R² Score', description: 'Shows how well the model explains the data. Values closer to 1 mean better predictions.', higherBetter: true },
@@ -65,6 +88,19 @@ const MetricTip = ({ metricKey, children, className = '' }) => {
     </span>
   );
 };
+
+// Generic help tooltip — shows a (?) icon with a hover explanation
+const HelpTip = ({ text, children, className = '' }) => (
+  <span className={`group/help relative inline-flex items-center gap-1.5 ${className}`}>
+    {children}
+    <span className="cursor-help" data-testid="help-tip-icon">
+      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/40 group-hover/help:text-blue-500 transition-colors shrink-0" />
+    </span>
+    <span className="invisible group-hover/help:visible opacity-0 group-hover/help:opacity-100 absolute z-[60] bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 rounded-lg bg-popover border shadow-lg text-xs text-popover-foreground transition-all duration-150 pointer-events-none leading-relaxed">
+      {text}
+    </span>
+  </span>
+);
 
 function getScoreColor(score, higherBetter = true) {
   const s = higherBetter ? score : Math.max(0, 1 - score);
@@ -856,6 +892,7 @@ function App() {
   const [featureVsPred, setFeatureVsPred] = useState(null);
   const [clusterComparison, setClusterComparison] = useState(null);
   const xaiCacheRef = useRef({});
+  const [showGuide, setShowGuide] = useState(false);
 
   // ==================== DARK MODE TOGGLE ====================
   useEffect(() => {
@@ -1018,6 +1055,52 @@ function App() {
   }, [models]);
 
   const taskSuggestion = useMemo(() => dataProfile ? suggestTask(dataProfile, targetColumn) : null, [dataProfile, targetColumn]);
+
+  // Smart target suggestion: suggest the best target column based on data characteristics
+  const suggestedTarget = useMemo(() => {
+    if (!dataProfile || targetColumn) return null;
+    const cols = dataProfile.columns;
+    // Prefer categorical columns with 2-10 unique values (classification) or numeric columns with high variability (regression)
+    let bestCol = null, bestScore = -1;
+    for (const c of cols) {
+      let score = 0;
+      if (c.type === 'categorical' && c.uniqueCount >= 2 && c.uniqueCount <= 10) {
+        score = 10 + (10 - c.uniqueCount); // fewer classes = cleaner classification
+      } else if (c.type === 'numeric' && c.uniqueCount > 10) {
+        score = 5 + Math.min(5, c.std / (Math.abs(c.mean) || 1)); // higher variability = better regression target
+      }
+      if (score > bestScore) { bestScore = score; bestCol = c; }
+    }
+    if (!bestCol) return null;
+    const task = bestCol.type === 'categorical' ? 'classification' : 'regression';
+    return { name: bestCol.name, task, reason: bestCol.type === 'categorical' ? `Categorical with ${bestCol.uniqueCount} classes` : `Numeric with high variability (std: ${bestCol.std?.toFixed(2)})` };
+  }, [dataProfile, targetColumn]);
+
+  // Smart XAI row suggestions: suggest interesting rows for explanation
+  const smartRowSuggestions = useMemo(() => {
+    if (!models.length || !dataProfile) return [];
+    const model = models[selectedModelIdx === -1 ? models.length - 1 : selectedModelIdx];
+    if (!model) return [];
+    try {
+      const data = prepareInputForPrediction(dataProfile.rows, model.modelData);
+      if (!data.length) return [];
+      const preds = data.slice(0, Math.min(200, data.length)).map((x, i) => ({ idx: i, pred: predictOne(model.modelData, x) }));
+      const suggestions = [];
+      // Random sample
+      suggestions.push({ idx: Math.floor(Math.random() * data.length), label: 'Random sample', desc: 'A randomly selected data point' });
+      // Highest prediction
+      const highest = preds.reduce((a, b) => b.pred > a.pred ? b : a, preds[0]);
+      suggestions.push({ idx: highest.idx, label: 'Highest prediction', desc: `Prediction: ${Number(highest.pred).toFixed(3)}` });
+      // Lowest prediction
+      const lowest = preds.reduce((a, b) => b.pred < a.pred ? b : a, preds[0]);
+      suggestions.push({ idx: lowest.idx, label: 'Lowest prediction', desc: `Prediction: ${Number(lowest.pred).toFixed(3)}` });
+      // Middle prediction (representative)
+      const sorted = [...preds].sort((a, b) => a.pred - b.pred);
+      const mid = sorted[Math.floor(sorted.length / 2)];
+      suggestions.push({ idx: mid.idx, label: 'Representative (median)', desc: `Prediction: ${Number(mid.pred).toFixed(3)}` });
+      return suggestions;
+    } catch { return []; }
+  }, [models, selectedModelIdx, dataProfile]);
 
   // ==================== DATA HANDLERS ====================
   const handleCsvTextChange = useCallback((text, isCleanAction) => {
@@ -1670,8 +1753,9 @@ function App() {
             <h2 className="text-2xl font-bold tracking-tight" data-testid="page-title">
               {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}
             </h2>
-            <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations'}{activeView === 'analysis' && 'Upload data, auto-detect tasks, and train models'}{activeView === 'predict' && 'Predictions, results, visualizations & correlation analysis'}{activeView === 'anomalies' && 'Detect outliers in your data'}{activeView === 'models' && 'Manage your models'}{activeView === 'explore' && 'Histograms, correlation heatmap & scatter plots'}{activeView === 'explainability' && 'Understand why the model made its predictions'}</p>
+            <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations and model performance'}{activeView === 'analysis' && 'Upload data, select a target variable, and train ML models'}{activeView === 'predict' && 'Make predictions, view results, and explore visualizations'}{activeView === 'anomalies' && 'Detect outliers and unusual patterns in your data'}{activeView === 'models' && 'Manage, export, and import your trained models'}{activeView === 'explore' && 'Explore data distributions, correlations, and patterns'}{activeView === 'explainability' && 'Understand why the model made its predictions using SHAP and LIME'}</p>
           </div><div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowGuide(prev => !prev)} data-testid="guide-toggle-btn" className={showGuide ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-700' : ''}><BookOpen className="h-4 w-4 mr-2" />{showGuide ? 'Hide Guide' : 'Help Guide'}</Button>
             {csvText && <Button variant="outline" size="sm" onClick={handleClearSession} data-testid="clear-session-btn"><Trash2 className="h-4 w-4 mr-2" />Clear Session</Button>}
             {trainingResult && <Button variant="outline" size="sm" onClick={handleExportPDF} data-testid="export-pdf-btn"><Printer className="h-4 w-4 mr-2" />Export PDF</Button>}
             <Button variant="outline" size="icon" onClick={() => setDarkMode(prev => !prev)} data-testid="dark-mode-toggle">{darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</Button>
@@ -1679,6 +1763,32 @@ function App() {
         </motion.header>
 
         <AnimatePresence>{error && <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="mx-8 mt-4" data-testid="error-banner"><Card className="border-destructive bg-destructive/10"><CardContent className="p-4"><p className="text-sm text-destructive font-medium flex items-center gap-2"><AlertCircle className="h-4 w-4" /> {error}</p></CardContent></Card></motion.div>}</AnimatePresence>
+
+        {/* ==================== GUIDE PANEL ==================== */}
+        <AnimatePresence>{showGuide && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mx-8 mt-4 overflow-hidden" data-testid="guide-panel">
+            <Card className="border-blue-200 dark:border-blue-800 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2"><BookOpen className="h-5 w-5 text-blue-600" /><span className="font-semibold text-blue-900 dark:text-blue-300">Getting Started Guide</span></div>
+                  <Button variant="ghost" size="sm" onClick={() => setShowGuide(false)} className="text-muted-foreground h-7 text-xs">Dismiss</Button>
+                </div>
+                <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-7">
+                  {GUIDE_STEPS.map(s => {
+                    const done = s.step === 1 ? !!csvText : s.step === 2 ? (cleaningLog.length > 0 || (datasetScan?.score >= 70)) : s.step === 3 ? !!targetColumn : s.step === 4 ? (!!trainingResult || !!unsupervisedResult) : s.step === 5 ? (!!trainingResult || !!unsupervisedResult) : s.step === 6 ? predictionHistory.length > 0 : (!!shapGlobal || !!limeResult);
+                    return <div key={s.step} className={`rounded-lg border p-3 transition-colors ${done ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-700' : 'bg-white dark:bg-card border-border'}`} data-testid={`guide-step-${s.step}`}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        {done ? <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" /> : <span className="h-5 w-5 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-[10px] font-bold flex items-center justify-center shrink-0">{s.step}</span>}
+                        <span className="text-xs font-semibold">{s.title}</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">{s.desc}</p>
+                    </div>;
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}</AnimatePresence>
 
         <main className="p-8"><AnimatePresence mode="wait">
 
@@ -1690,8 +1800,9 @@ function App() {
                   <Card className="border-2 border-dashed"><CardContent className="py-16 text-center">
                     <Database className="h-14 w-14 text-muted-foreground/30 mx-auto mb-5" />
                     <h3 className="text-lg font-semibold mb-2" data-testid="dashboard-empty-title">{dataProfile ? 'No Models Trained Yet' : 'No Dataset Uploaded Yet'}</h3>
-                    <p className="text-muted-foreground mb-6 max-w-md mx-auto text-sm" data-testid="dashboard-empty-msg">{dataProfile ? 'Dataset loaded. Go to Analysis to train your first model.' : 'Upload a dataset to start analysis. Go to the Analysis tab to get started.'}</p>
+                    <p className="text-muted-foreground mb-6 max-w-md mx-auto text-sm" data-testid="dashboard-empty-msg">{dataProfile ? 'Dataset loaded. Go to Analysis to select a target variable and train your first model.' : 'Upload a CSV file or pick a sample dataset. The system will guide you through each step.'}</p>
                     <Button size="lg" onClick={() => setActiveView('analysis')} data-testid="train-first-model-btn"><Zap className="h-4 w-4 mr-2" />{dataProfile ? 'Train Your First Model' : 'Upload Dataset'}</Button>
+                    {!showGuide && <div className="mt-4"><Button variant="link" size="sm" onClick={() => setShowGuide(true)} className="text-blue-600" data-testid="show-guide-from-dashboard"><BookOpen className="h-3.5 w-3.5 mr-1.5 inline" />New here? Open the Getting Started Guide</Button></div>}
                   </CardContent></Card>
                   {datasetScan && (
                     <Card data-testid="dataset-health-empty"><CardHeader><CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" />Dataset Health</CardTitle></CardHeader><CardContent>
@@ -1828,7 +1939,7 @@ function App() {
 
               <motion.div variants={fadeInUp}><Card><CardHeader><CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5" />Upload Data</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                  <div onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop} className={`relative border-2 border-dashed rounded-lg p-12 text-center transition-all ${dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'} hover:border-primary hover:bg-accent/50`} data-testid="csv-dropzone"><input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" data-testid="csv-file-input" /><Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" /><p className="text-lg font-medium mb-2">Drop your CSV file here</p><p className="text-sm text-muted-foreground">or click to browse</p></div>
+                  <div onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop} className={`relative border-2 border-dashed rounded-lg p-12 text-center transition-all ${dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'} hover:border-primary hover:bg-accent/50`} data-testid="csv-dropzone"><input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" data-testid="csv-file-input" /><Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" /><p className="text-lg font-medium mb-2">Drop your CSV file here</p><p className="text-sm text-muted-foreground mb-3">or click to browse</p><p className="text-xs text-muted-foreground/60">Upload a clean dataset in CSV format. Ensure it has meaningful column headers and at least 10 rows for reliable results.</p></div>
                   <Separator className="my-6" />
                   <div><label className="text-sm font-medium mb-2 block">Or paste CSV data:</label><textarea value={csvText} onChange={(e) => handleCsvTextChange(e.target.value)} placeholder="Paste CSV data..." rows={6} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" data-testid="csv-text-input" /></div>
                 </CardContent></Card></motion.div>
@@ -1965,16 +2076,26 @@ function App() {
                 </CardContent>
               </Card></motion.div>}
 
-              {columns.length > 0 && <motion.div variants={fadeInUp}><Card><CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5" />Model Configuration</CardTitle></CardHeader>
+              {columns.length > 0 && <motion.div variants={fadeInUp}><Card><CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5" />Model Configuration</CardTitle>
+                <CardDescription>Configure your model by selecting a target variable and algorithm. The system will guide you based on your data.</CardDescription></CardHeader>
                 <CardContent>
-                  <div className="space-y-2 mb-4"><label className="text-sm font-medium">Target Variable</label><select value={targetColumn} onChange={(e) => { setTargetColumn(e.target.value); setTrainingResult(null); setUnsupervisedResult(null); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="target-column-select"><option value="">-- Select Target --</option><option value="__none__">No target (Unsupervised Learning)</option>{columns.map((col, idx) => <option key={idx} value={col}>{col}</option>)}</select></div>
+                  <div className="space-y-2 mb-4"><label className="text-sm font-medium"><HelpTip text="The target variable is the column you want the model to predict. Pick a categorical column for classification (e.g., yes/no) or a numeric column for regression (e.g., price).">Target Variable</HelpTip></label><select value={targetColumn} onChange={(e) => { setTargetColumn(e.target.value); setTrainingResult(null); setUnsupervisedResult(null); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="target-column-select"><option value="">-- Select Target --</option><option value="__none__">No target (Unsupervised Learning)</option>{columns.map((col, idx) => <option key={idx} value={col}>{col}</option>)}</select>
+                    {suggestedTarget && <div className="mt-2 p-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 flex items-start gap-2" data-testid="suggested-target">
+                      <Lightbulb className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                      <div className="text-xs"><p className="font-medium text-blue-700 dark:text-blue-300">Suggested target: <strong>{suggestedTarget.name}</strong></p><p className="text-muted-foreground mt-0.5">{suggestedTarget.reason} — best for {suggestedTarget.task}</p>
+                        <Button size="sm" variant="link" className="h-auto p-0 mt-1 text-blue-600 text-xs" onClick={() => { setTargetColumn(suggestedTarget.name); setTrainingResult(null); setUnsupervisedResult(null); }} data-testid="use-suggested-target-btn">Use this target</Button>
+                      </div>
+                    </div>}
+                  </div>
 
                   {targetColumn && targetColumn !== '__none__' && <>
                   <div className="grid gap-6 md:grid-cols-2">
-                    <div className="space-y-2"><label className="text-sm font-medium">Algorithm</label><select value={algorithm} onChange={(e) => setAlgorithm(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="algorithm-select"><option value="auto">Auto (Train All & Compare)</option><optgroup label="Regression"><option value="linear">Linear Regression</option><option value="ridge">Ridge Regression</option><option value="gradient_boosting">Gradient Boosting</option></optgroup><optgroup label="Classification"><option value="logistic">Logistic Regression</option><option value="naive_bayes">Naive Bayes</option><option value="knn">KNN</option><option value="svm">SVM (Linear)</option></optgroup><optgroup label="Both"><option value="decision_tree">Decision Tree</option><option value="random_forest">Random Forest</option></optgroup></select></div>
+                    <div className="space-y-2"><label className="text-sm font-medium"><HelpTip text="Choose an algorithm or use 'Auto' to train all compatible algorithms and compare their performance. Auto mode is recommended for beginners.">Algorithm</HelpTip></label><select value={algorithm} onChange={(e) => setAlgorithm(e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="algorithm-select"><option value="auto">Auto (Train All & Compare)</option><optgroup label="Regression"><option value="linear">Linear Regression</option><option value="ridge">Ridge Regression</option><option value="gradient_boosting">Gradient Boosting</option></optgroup><optgroup label="Classification"><option value="logistic">Logistic Regression</option><option value="naive_bayes">Naive Bayes</option><option value="knn">KNN</option><option value="svm">SVM (Linear)</option></optgroup><optgroup label="Both"><option value="decision_tree">Decision Tree</option><option value="random_forest">Random Forest</option></optgroup></select>
+                      {ALGO_DESCRIPTIONS[algorithm] && <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed flex items-start gap-1.5" data-testid="algo-description"><Lightbulb className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />{ALGO_DESCRIPTIONS[algorithm]}</p>}
+                    </div>
                   </div>
                   <div className="mt-4 p-4 rounded-lg border bg-muted/30" data-testid="eval-mode-selector">
-                    <label className="text-sm font-medium mb-3 block">Evaluation Mode</label>
+                    <label className="text-sm font-medium mb-3 block"><HelpTip text="Train/Test Split is faster — it trains on 80% and tests on 20%. Cross Validation is more reliable — it trains 5 times on different splits and averages the scores.">Evaluation Mode</HelpTip></label>
                     <div className="flex gap-6">
                       <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="evalMode" value="split" checked={evalMode === 'split'} onChange={() => setEvalMode('split')} className="accent-primary" data-testid="eval-mode-split" /><span className="text-sm">Train/Test Split <span className="text-muted-foreground">(Fast)</span></span></label>
                       <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="evalMode" value="cv" checked={evalMode === 'cv'} onChange={() => setEvalMode('cv')} className="accent-primary" data-testid="eval-mode-cv" /><span className="text-sm">5-Fold Cross Validation <span className="text-muted-foreground">(Recommended)</span></span></label>
@@ -2177,7 +2298,7 @@ function App() {
 
                   {/* Supervised Prediction Form */}
                   {models.length > 0 && (() => { const idx = selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : models.length - 1; const am = models[idx]; return (
-                    <Card><CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" />Enter Feature Values</CardTitle><CardDescription>Predict "{am.targetColumn}" using {ALGO_NAMES[am.algorithm] || am.algorithm}</CardDescription></CardHeader>
+                    <Card><CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" />Enter Feature Values</CardTitle><CardDescription>Enter new data values similar to your training dataset. The model will generate a prediction based on the patterns it learned.</CardDescription></CardHeader>
                       <CardContent className="space-y-6">
                         {am.modelData.numericCols.length > 0 && <div><p className="text-sm font-medium mb-3 flex items-center gap-2"><TrendingUp className="h-4 w-4 text-blue-500" />Numeric Features</p><div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{am.modelData.numericCols.map(col => <div key={col} className="space-y-1.5"><label className="text-sm font-medium text-muted-foreground">{col}</label><input type="number" step="any" value={predictionFormData[col] ?? ''} onChange={e => setPredictionFormData(prev => ({ ...prev, [col]: e.target.value }))} placeholder={`Enter ${col}`} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`predict-input-${col}`} /></div>)}</div></div>}
                         {am.modelData.categoricalCols.length > 0 && <div><p className="text-sm font-medium mb-3 flex items-center gap-2"><Layers className="h-4 w-4 text-emerald-500" />Categorical Features</p><div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{am.modelData.categoricalCols.map(col => <div key={col} className="space-y-1.5"><label className="text-sm font-medium text-muted-foreground">{col}</label><select value={predictionFormData[col] ?? ''} onChange={e => setPredictionFormData(prev => ({ ...prev, [col]: e.target.value }))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid={`predict-input-${col}`}><option value="">-- Select --</option>{am.modelData.encodingMap[col]?.map(val => <option key={val} value={val}>{val}</option>)}</select></div>)}</div></div>}
@@ -2500,12 +2621,20 @@ function App() {
                   <CardDescription>Select a model and a data record to generate explanations. SHAP measures global and local feature importance. LIME builds a local linear model to explain individual predictions.</CardDescription>
                 </CardHeader><CardContent className="space-y-4">
                   {models.length > 0 && xaiTab !== 'clusters' && <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-1.5"><label className="text-sm font-medium">Model</label>
+                    <div className="space-y-1.5"><label className="text-sm font-medium"><HelpTip text="Select the trained model you want to explain. If you trained multiple algorithms, you can compare their explanations.">Model</HelpTip></label>
                       <select value={selectedModelIdx === -1 ? models.length - 1 : selectedModelIdx} onChange={e => setSelectedModelIdx(Number(e.target.value))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="xai-model-select">
                         {models.map((m, i) => <option key={m.modelId} value={i}>{ALGO_NAMES[m.algorithm] || m.algorithm} — {m.problemType}</option>)}
                       </select></div>
-                    <div className="space-y-1.5"><label className="text-sm font-medium">Record (row) to explain</label>
-                      <input type="number" min={0} max={dataProfile ? dataProfile.rowCount - 1 : 0} value={xaiRow} onChange={e => setXaiRow(Math.max(0, Number(e.target.value)))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="xai-row-select" /></div>
+                    <div className="space-y-1.5"><label className="text-sm font-medium"><HelpTip text="Select a row (data point) from your dataset to understand why the model made that specific prediction. Try different rows to see how explanations change.">Record (row) to explain</HelpTip></label>
+                      <input type="number" min={0} max={dataProfile ? dataProfile.rowCount - 1 : 0} value={xaiRow} onChange={e => setXaiRow(Math.max(0, Number(e.target.value)))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="xai-row-select" />
+                      {smartRowSuggestions.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5" data-testid="smart-row-suggestions">
+                        {smartRowSuggestions.map((s, i) => (
+                          <button key={i} onClick={() => setXaiRow(s.idx)} className="group/sr inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-[10px] font-medium hover:bg-blue-50 dark:hover:bg-blue-950/30 hover:border-blue-300 dark:hover:border-blue-700 transition-colors" data-testid={`smart-row-${i}`} title={s.desc}>
+                            <Lightbulb className="h-3 w-3 text-amber-400 group-hover/sr:text-amber-500" />{s.label}
+                          </button>
+                        ))}
+                      </div>}
+                    </div>
                   </div>}
                   <div className="flex flex-wrap gap-3">
                     {xaiTab === 'shap' && models.length > 0 && <Button onClick={handleRunSHAP} disabled={xaiLoading} size="lg" className="h-11 bg-gradient-to-r from-violet-600 to-pink-500 hover:from-violet-700 hover:to-pink-600 text-white shadow-md" data-testid="run-shap-btn">
@@ -2521,6 +2650,9 @@ function App() {
                       <Eye className="h-4 w-4 mr-2" />Explain This Prediction (SHAP + LIME)
                     </Button>}
                   </div>
+                  {xaiTab === 'shap' && !shapGlobal && !xaiLoading && <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1.5" data-testid="shap-help-text"><Lightbulb className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />SHAP (SHapley Additive exPlanations) shows how each feature contributes to the model's prediction. It reveals both global patterns across the dataset and local explanations for individual records.</p>}
+                  {xaiTab === 'lime' && !limeResult && !xaiLoading && <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1.5" data-testid="lime-help-text"><Lightbulb className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />LIME (Local Interpretable Model-agnostic Explanations) explains individual predictions by building a simpler local model around a single data point. It shows which features most influenced that specific prediction.</p>}
+                  {xaiTab === 'clusters' && !clusterShap && !xaiLoading && unsupervisedResult && <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1.5" data-testid="cluster-help-text"><Lightbulb className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />Cluster explanation uses SHAP to show which features are most important in determining how data points are grouped into clusters. This helps you understand the characteristics that define each cluster.</p>}
                 </CardContent></Card></motion.div>
 
                 {/* ───── SHAP TAB ───── */}
@@ -3040,14 +3172,14 @@ function App() {
                 <Card className="border-2 border-dashed"><CardContent className="py-16 text-center">
                   <BarChart2 className="h-14 w-14 text-muted-foreground/30 mx-auto mb-5" />
                   <h3 className="text-lg font-semibold mb-2">No Data Loaded</h3>
-                  <p className="text-muted-foreground text-sm mb-4">Upload a dataset in the Analysis tab to explore your data.</p>
+                  <p className="text-muted-foreground text-sm mb-4">Please upload a dataset in the Analysis tab first, then come back to explore your data visually.</p>
                   <Button onClick={() => setActiveView('analysis')} size="lg" data-testid="explore-go-analysis"><Zap className="h-4 w-4 mr-2" />Go to Analysis</Button>
                 </CardContent></Card>
               ) : (<>
                 {/* Histogram */}
                 <motion.div variants={fadeInUp}>
                 <Card data-testid="histogram-card"><CardHeader>
-                  <CardTitle className="flex items-center gap-2"><BarChart2 className="h-5 w-5" />Feature Histograms</CardTitle>
+                  <CardTitle className="flex items-center gap-2"><BarChart2 className="h-5 w-5" /><HelpTip text="Histograms show the distribution of values in a numeric column. Each bar represents a range, and the bar height shows how many data points fall in that range. Look for skewed distributions, outliers, or multimodal patterns.">Feature Histograms</HelpTip></CardTitle>
                   <CardDescription>Select a numeric feature to see its distribution.</CardDescription>
                 </CardHeader><CardContent className="space-y-4">
                   <select value={histogramCol} onChange={e => setHistogramCol(e.target.value)} className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="histogram-col-select">
