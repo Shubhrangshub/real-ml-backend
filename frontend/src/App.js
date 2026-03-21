@@ -1340,16 +1340,30 @@ function App() {
 
   const handleExportCSV = useCallback(() => {
     if (!trainingResult && !shapGlobal && !limeResult && !predictionHistory?.length) return;
-    const csv = buildFullCSV();
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `analysis_data_${Date.now()}.csv`; a.click();
+    try {
+      const csv = buildFullCSV();
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `analysis_data_${Date.now()}.csv`;
+      a.style.display = 'none';
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (e) { setError('CSV download failed: ' + e.message); }
   }, [trainingResult, shapGlobal, limeResult, predictionHistory, buildFullCSV]);
 
   const handleExportSheets = useCallback(() => {
     if (!trainingResult && !shapGlobal && !limeResult && !predictionHistory?.length) return;
-    const csv = buildFullCSV();
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `analysis_for_google_sheets_${Date.now()}.csv`; a.click();
+    try {
+      const csv = buildFullCSV();
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `analysis_for_google_sheets_${Date.now()}.csv`;
+      a.style.display = 'none';
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (e) { setError('Google Sheets export failed: ' + e.message); }
   }, [trainingResult, shapGlobal, limeResult, predictionHistory, buildFullCSV]);
 
   // Load shared snapshot from URL on mount
