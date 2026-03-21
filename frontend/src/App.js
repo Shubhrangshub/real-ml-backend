@@ -5,10 +5,8 @@ import {
   Eye, Trash2, ChevronRight, ArrowUpRight, FileText, Target, Cpu, BarChart3,
   Download, AlertCircle, Layers, ShieldAlert, Table2, Info, SplitSquareVertical,
   Clock, Trophy, CheckCircle2, XCircle, Shield, Moon, Sun, FileUp, BarChart2,
-  Printer, HelpCircle, BookOpen, Lightbulb, Save, History, Share2, Copy, ExternalLink, Lock, Sheet
+  HelpCircle, BookOpen, Lightbulb, Save, History, Share2, Copy, ExternalLink, Lock, Sheet
 } from 'lucide-react';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
 import {
   computeGlobalSHAP, computeBeeswarmData, computeLocalSHAP,
   computeDependenceData, computeLIME, computeClassProbabilities,
@@ -1187,39 +1185,73 @@ function App() {
     }
   }, [handleSaveAnalysis]);
 
-  const handleExportCSV = useCallback(() => {
-    if (!trainingResult) return;
-    const lb = trainingResult.leaderboard || [];
-    let csv = 'Algorithm,Score,Duration(s)\n';
-    lb.forEach(m => { csv += `${m.algorithm},${m.score?.toFixed(4) || 'N/A'},${m.duration?.toFixed(2) || 'N/A'}\n`; });
-    if (trainingResult.metrics) { csv += '\nMetric,Value\n'; Object.entries(trainingResult.metrics).forEach(([k, v]) => { csv += `${k},${typeof v === 'number' ? v.toFixed(4) : v}\n`; }); }
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'analysis_results.csv'; a.click();
-  }, [trainingResult]);
+  const buildFullCSV = useCallback(() => {
+    const sections = [];
+    // --- Metrics Summary ---
+    if (trainingResult?.metrics) {
+      sections.push('--- Metrics Summary ---');
+      sections.push('Metric,Value');
+      Object.entries(trainingResult.metrics).forEach(([k, v]) => {
+        sections.push(`${k},${typeof v === 'number' ? v.toFixed(6) : v}`);
+      });
+    }
+    // --- Algorithm Leaderboard ---
+    const lb = trainingResult?.leaderboard || [];
+    if (lb.length > 0) {
+      sections.push('');
+      sections.push('--- Algorithm Leaderboard ---');
+      sections.push('Rank,Algorithm,Score,Duration(s)');
+      lb.forEach((m, i) => {
+        sections.push(`${i + 1},${m.algorithm},${m.score?.toFixed(6) || 'N/A'},${m.duration?.toFixed(3) || m.durationSec?.toFixed(3) || 'N/A'}`);
+      });
+    }
+    // --- SHAP Feature Importance ---
+    if (shapGlobal?.importance?.length > 0) {
+      sections.push('');
+      sections.push('--- SHAP Feature Importance ---');
+      sections.push('Feature,Importance');
+      shapGlobal.importance.forEach(f => {
+        sections.push(`${f.feature},${f.importance.toFixed(6)}`);
+      });
+    }
+    // --- LIME Explanations ---
+    if (limeResult?.contributions?.length > 0) {
+      sections.push('');
+      sections.push('--- LIME Explanations ---');
+      sections.push('Feature,Weight,Contribution');
+      limeResult.contributions.forEach(c => {
+        sections.push(`${c.feature},${c.weight.toFixed(6)},${c.contribution.toFixed(6)}`);
+      });
+      if (limeResult.intercept != null) sections.push(`Intercept,,${limeResult.intercept.toFixed(6)}`);
+      if (limeResult.prediction != null) sections.push(`Prediction,,${limeResult.prediction.toFixed(6)}`);
+    }
+    // --- Predictions ---
+    if (predictionHistory?.length > 0) {
+      sections.push('');
+      sections.push('--- Predictions ---');
+      const keys = Object.keys(predictionHistory[0].input || {});
+      sections.push([...keys, 'Prediction', 'Algorithm', 'Timestamp'].join(','));
+      predictionHistory.forEach(p => {
+        const vals = keys.map(k => p.input?.[k] ?? '');
+        sections.push([...vals, p.prediction ?? '', p.algorithm ?? '', p.timestamp ?? ''].join(','));
+      });
+    }
+    return sections.join('\n');
+  }, [trainingResult, shapGlobal, limeResult, predictionHistory]);
 
-  const handleExportJSON = useCallback(() => {
-    if (!trainingResult) return;
-    const data = {
-      exportDate: new Date().toISOString(),
-      targetColumn, problemType: trainingResult.problemType,
-      leaderboard: trainingResult.leaderboard, metrics: trainingResult.metrics,
-      predictions: predictionHistory,
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'analysis_results.json'; a.click();
-  }, [trainingResult, targetColumn, predictionHistory]);
+  const handleExportCSV = useCallback(() => {
+    if (!trainingResult && !shapGlobal && !limeResult && !predictionHistory?.length) return;
+    const csv = buildFullCSV();
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `analysis_data_${Date.now()}.csv`; a.click();
+  }, [trainingResult, shapGlobal, limeResult, predictionHistory, buildFullCSV]);
 
   const handleExportSheets = useCallback(() => {
-    if (!trainingResult) return;
-    const lb = trainingResult.leaderboard || [];
-    let tsv = 'Algorithm\tScore\tDuration(s)\n';
-    lb.forEach(m => { tsv += `${m.algorithm}\t${m.score?.toFixed(4) || 'N/A'}\t${m.duration?.toFixed(2) || 'N/A'}\n`; });
-    if (trainingResult.metrics) { tsv += '\nMetric\tValue\n'; Object.entries(trainingResult.metrics).forEach(([k, v]) => { tsv += `${k}\t${typeof v === 'number' ? v.toFixed(4) : v}\n`; }); }
-    navigator.clipboard.writeText(tsv).then(() => setError('')).catch(() => {
-      const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'analysis_for_sheets.tsv'; a.click();
-    });
-  }, [trainingResult]);
+    if (!trainingResult && !shapGlobal && !limeResult && !predictionHistory?.length) return;
+    const csv = buildFullCSV();
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `analysis_for_google_sheets_${Date.now()}.csv`; a.click();
+  }, [trainingResult, shapGlobal, limeResult, predictionHistory, buildFullCSV]);
 
   // Load shared snapshot from URL on mount
   useEffect(() => {
@@ -1318,6 +1350,9 @@ function App() {
     } catch { return []; }
   }, [models, selectedModelIdx, dataProfile]);
 
+  // ==================== XAI MODEL HELPER (moved up to avoid hoisting issues) ====================
+  const getXaiModel = useCallback(() => models[selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : models.length - 1], [models, selectedModelIdx]);
+
   // ==================== FEATURE INSIGHTS (derived from SHAP data) ====================
   const featureInsights = useMemo(() => {
     if (!shapGlobal || !shapSummary || !shapBeeswarm || !dataProfile) return null;
@@ -1406,7 +1441,7 @@ function App() {
     }
 
     return { topN, top2, top5, directions, optimalRanges, correlation, pairScatter, actionItems, target };
-  }, [shapGlobal, shapSummary, shapBeeswarm, dataProfile, targetColumn]);
+  }, [shapGlobal, shapSummary, shapBeeswarm, dataProfile, targetColumn, getXaiModel]);
 
   // ==================== DATA HANDLERS ====================
   const handleCsvTextChange = useCallback((text, isCleanAction) => {
@@ -1647,91 +1682,7 @@ function App() {
     event.target.value = '';
   };
 
-  // ==================== PDF EXPORT ====================
-  const handleExportPDF = () => {
-    const doc = new jsPDF();
-    const pw = doc.internal.pageSize.getWidth();
-    let y = 20;
-    const addLine = (text, size = 10, style = 'normal') => {
-      doc.setFontSize(size); doc.setFont('helvetica', style);
-      const lines = doc.splitTextToSize(text, pw - 30);
-      if (y + lines.length * (size * 0.5) > doc.internal.pageSize.getHeight() - 20) { doc.addPage(); y = 20; }
-      doc.text(lines, 15, y); y += lines.length * (size * 0.5) + 3;
-    };
-
-    // Title
-    addLine('AutoML Master - Training Report', 18, 'bold'); y += 5;
-    addLine(`Generated: ${new Date().toLocaleString()}`, 9); y += 5;
-
-    // Dataset Info
-    if (trainingResult?.dataInfo) {
-      addLine('Dataset Information', 14, 'bold'); y += 2;
-      doc.autoTable({
-        startY: y, margin: { left: 15 },
-        head: [['Property', 'Value']],
-        body: [
-          ['Samples', String(trainingResult.dataInfo.numSamples)],
-          ['Features', String(trainingResult.dataInfo.numFeatures)],
-          ['Target Column', trainingResult.dataInfo.targetColumn],
-          ['Problem Type', trainingResult.problemType],
-          ['Evaluation Mode', trainingResult.evalMode === 'cv' ? '5-Fold Cross Validation' : 'Train/Test Split (80/20)'],
-          ['Training Time', `${trainingResult.totalTime?.toFixed(2)}s`],
-        ],
-        theme: 'grid', styles: { fontSize: 9 },
-      });
-      y = doc.lastAutoTable.finalY + 10;
-    }
-
-    // Best Model
-    if (trainingResult?.bestModel) {
-      addLine('Best Model', 14, 'bold'); y += 2;
-      const bm = trainingResult.bestModel;
-      const metricRows = trainingResult.problemType === 'regression'
-        ? [['R² Score', `${(bm.testMetrics.r2 * 100).toFixed(2)}%`], ['MAE', bm.testMetrics.mae.toFixed(4)], ['RMSE', bm.testMetrics.rmse.toFixed(4)]]
-        : [['Accuracy', `${(bm.testMetrics.accuracy * 100).toFixed(2)}%`], ['Precision', `${(bm.testMetrics.precision * 100).toFixed(2)}%`], ['Recall', `${(bm.testMetrics.recall * 100).toFixed(2)}%`], ['F1 Score', `${(bm.testMetrics.f1 * 100).toFixed(2)}%`]];
-      doc.autoTable({
-        startY: y, margin: { left: 15 },
-        head: [['Algorithm', 'Metric', 'Value']],
-        body: metricRows.map(([m, v]) => [ALGO_NAMES[bm.algorithm] || bm.algorithm, m, v]),
-        theme: 'grid', styles: { fontSize: 9 },
-      });
-      y = doc.lastAutoTable.finalY + 10;
-    }
-
-    // Leaderboard
-    if (trainingResult?.leaderboard?.length > 1) {
-      addLine('Algorithm Leaderboard', 14, 'bold'); y += 2;
-      doc.autoTable({
-        startY: y, margin: { left: 15 },
-        head: [['Rank', 'Algorithm', 'Score', 'CV Score', 'Time']],
-        body: trainingResult.leaderboard.map((m, i) => [
-          `#${i + 1}`,
-          ALGO_NAMES[m.algorithm] || m.algorithm,
-          trainingResult.problemType === 'regression' ? `${(m.testMetrics.r2 * 100).toFixed(2)}%` : `${(m.testMetrics.accuracy * 100).toFixed(2)}%`,
-          m.cvScore != null ? `${(m.cvScore * 100).toFixed(2)}%` : '-',
-          m.durationSec ? `${m.durationSec.toFixed(3)}s` : '-',
-        ]),
-        theme: 'grid', styles: { fontSize: 9 },
-      });
-      y = doc.lastAutoTable.finalY + 10;
-    }
-
-    // Feature Importance
-    if (trainingResult?.bestModel?.featureImportance?.length > 0) {
-      addLine('Feature Importance', 14, 'bold'); y += 2;
-      doc.autoTable({
-        startY: y, margin: { left: 15 },
-        head: [['Feature', 'Importance']],
-        body: trainingResult.bestModel.featureImportance.map(f => [f.feature, `${(f.importance * 100).toFixed(1)}%`]),
-        theme: 'grid', styles: { fontSize: 9 },
-      });
-    }
-
-    doc.save(`automl_report_${Date.now()}.pdf`);
-  };
-
   // ==================== XAI — SHAP & LIME ====================
-  const getXaiModel = () => models[selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : models.length - 1];
   const getXaiData = (model) => {
     if (!model || !dataProfile) return null;
     let data = prepareInputForPrediction(dataProfile.rows, model.modelData);
@@ -2066,12 +2017,10 @@ function App() {
           </div><div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowGuide(prev => !prev)} data-testid="guide-toggle-btn" className={showGuide ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-700' : ''}><BookOpen className="h-4 w-4 mr-2" />{showGuide ? 'Hide Guide' : 'Help Guide'}</Button>
             {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="outline" size="sm" onClick={() => handleSaveAnalysis()} data-testid="save-analysis-btn"><Save className="h-4 w-4 mr-2" />Save</Button>}
-            {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="outline" size="sm" onClick={handleShareAnalysis} data-testid="share-analysis-btn"><Share2 className="h-4 w-4 mr-2" />Share</Button>}
+            {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="outline" size="sm" onClick={handleShareAnalysis} data-testid="share-analysis-btn"><Share2 className="h-4 w-4 mr-2" />Share Analysis</Button>}
+            {(trainingResult || shapGlobal || limeResult || predictionHistory?.length > 0) && !viewOnlyMode && <><Button variant="outline" size="sm" onClick={handleExportSheets} data-testid="export-sheets-btn" title="Export data as CSV for Google Sheets"><Sheet className="h-4 w-4 mr-2" />Export to Google Sheets</Button>
+              <Button variant="outline" size="sm" onClick={handleExportCSV} data-testid="export-csv-btn"><Download className="h-4 w-4 mr-2" />Download CSV</Button></>}
             {csvText && !viewOnlyMode && <Button variant="outline" size="sm" onClick={handleClearSession} data-testid="clear-session-btn"><Trash2 className="h-4 w-4 mr-2" />Clear Session</Button>}
-            {trainingResult && !viewOnlyMode && <><Button variant="outline" size="sm" onClick={handleExportPDF} data-testid="export-pdf-btn"><Printer className="h-4 w-4 mr-2" />PDF</Button>
-              <Button variant="outline" size="sm" onClick={handleExportCSV} data-testid="export-csv-btn"><Download className="h-4 w-4 mr-2" />CSV</Button>
-              <Button variant="outline" size="sm" onClick={handleExportJSON} data-testid="export-json-btn"><FileText className="h-4 w-4 mr-2" />JSON</Button>
-              <Button variant="outline" size="sm" onClick={handleExportSheets} data-testid="export-sheets-btn" title="Copy results as tab-separated values for Google Sheets"><Sheet className="h-4 w-4 mr-2" />Sheets</Button></>}
             <Button variant="outline" size="icon" onClick={() => setDarkMode(prev => !prev)} data-testid="dark-mode-toggle">{darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</Button>
           </div></div>
         </motion.header>
@@ -2107,7 +2056,7 @@ function App() {
         {/* ==================== VIEW-ONLY BANNER ==================== */}
         {viewOnlyMode && (
           <div className="mx-8 mt-4 p-3 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/20 flex items-center justify-between" data-testid="view-only-banner">
-            <div className="flex items-center gap-2"><Lock className="h-4 w-4 text-amber-600" /><span className="text-sm font-medium text-amber-800 dark:text-amber-300">View-Only Mode — This is a shared analysis. Editing is restricted.</span></div>
+            <div className="flex items-center gap-2"><Lock className="h-4 w-4 text-amber-600" /><span className="text-sm font-medium text-amber-800 dark:text-amber-300">This is a shared analysis (view-only). Request access to edit.</span></div>
             <Button variant="outline" size="sm" onClick={() => { setViewOnlyMode(false); window.history.replaceState({}, '', window.location.pathname); }} className="text-xs border-amber-300" data-testid="exit-view-only-btn">Exit View-Only</Button>
           </div>
         )}
