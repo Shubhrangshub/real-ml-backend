@@ -37,21 +37,32 @@ Build a 100% client-side Universal AI Dashboard (AutoML Master) in React. All ML
 - [x] Dark Mode Toggle
 
 ### Phase 10 (Feb 2026)
-- [x] **Metric Hover Tooltips** — All metrics (R², MAE, RMSE, Accuracy, Precision, Recall, F1, Silhouette, Davies-Bouldin, Calinski-Harabasz, CV Score, SHAP Value, Base Value) have plain-English tooltip explanations via MetricTip component
+- [x] **Metric Hover Tooltips** — All metrics have plain-English tooltip explanations via MetricTip component
 - [x] **Explainable AI (XAI) Module**:
-  - SHAP Analysis tab: Global Feature Importance, Beeswarm Plot, Waterfall Plot (per-row), Dependence Plot (per-feature), Force Plot
-  - LIME Explanation tab: Feature Contribution Chart, Prediction Probability Chart, SHAP vs LIME side-by-side comparison
+  - SHAP Analysis tab: Global Feature Importance, Beeswarm Plot, Waterfall Plot, Dependence Plot, Force Plot
+  - LIME Explanation tab: Feature Contribution Chart, Prediction Probability Chart, SHAP vs LIME comparison
   - Cluster Explanation tab: Cluster Feature Influence, Cluster SHAP Distribution
   - Row selector for individual explanations
   - "Explain This Prediction" button (computes both SHAP + LIME)
-  - Performance optimization: sampling for datasets > 5000 rows
+
+### Phase 11 (Feb 2026)
+- [x] **Performance Optimization** — All ML engine code optimized without changing algorithms or outputs:
+  - Replaced Math.min/max(...bigArray) with loop-based arrayMin/arrayMax/arrayMinMax (prevents stack overflow)
+  - Optimized Decision Tree findBestSplit: pre-sorted indices, reusable scratch array
+  - Optimized KNN prediction: bounded insertion sort (O(n*k) vs O(n*log(n)))
+  - Optimized Random Forest voting: direct max tracking instead of Object.entries().sort()
+  - Optimized extractImportance: Map-based O(1) lookup instead of indexOf
+  - Reuse parsed dataProfile.rows in handleTrain instead of re-parsing CSV
+  - Optimized explainableAI.js: shared background/basePred, Float64Array scratch, unified SHAP pass
 
 ## Testing Status
+- Iteration 13: 27/27 tests passed (100% frontend regression after optimization)
 - Iteration 12: 17/17 tests passed (100% frontend)
-- All XAI visualizations verified working for supervised and unsupervised
 
 ## Backlog
-- [ ] P1: Refactor App.js into modular components (~2700 lines)
+- [ ] P1: Counterfactual Explanations ("what would need to change" for different prediction)
+- [ ] P1: Shareable Report Link (unique URL for sharing analysis reports)
+- [ ] P2: Refactor App.js into modular components (~2770 lines)
 - [ ] P2: Real-time model comparison dashboard
 - [ ] P2: Advanced hyperparameter tuning UI
 - [ ] P3: Dataset preprocessing pipeline UI
