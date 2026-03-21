@@ -60,11 +60,13 @@ app.add_middleware(
 
 # MongoDB Setup
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017/")
+DB_NAME = os.environ.get("DB_NAME", "automl_db")
 try:
     mongo_client = MongoClient(MONGO_URL)
-    db = mongo_client["automl_db"]
+    db = mongo_client[DB_NAME]
     models_collection = db["models"]
     training_history_collection = db["training_history"]
+    snapshots_collection = db["snapshots"]
 except Exception as e:
     print(f"MongoDB connection warning: {e}")
     db = None
@@ -86,6 +88,17 @@ class TrainRequest(BaseModel):
 class PredictRequest(BaseModel):
     model_id: str
     data: List[Dict[str, Any]]
+
+class SnapshotSaveRequest(BaseModel):
+    name: str
+    dataset_name: Optional[str] = "Untitled"
+    target_column: Optional[str] = None
+    problem_type: Optional[str] = None
+    row_count: Optional[int] = 0
+    col_count: Optional[int] = 0
+    models_summary: Optional[List[Dict[str, Any]]] = []
+    key_metrics: Optional[Dict[str, Any]] = {}
+    state: Dict[str, Any]
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -842,6 +855,78 @@ async def get_columns(file_url: Optional[str] = None):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"CSV parsing failed: {str(e)}")
+
+# ==================== SNAPSHOT ENDPOINTS (History & Sharing) ====================
+
+@app.post("/api/snapshots")
+async def save_snapshot(req: SnapshotSaveRequest):
+    """Save an analysis snapshot for history and sharing."""
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    snapshot_id = str(uuid.uuid4())[:12]
+    doc = {
+        "snapshot_id": snapshot_id,
+        "name": req.name,
+        "dataset_name": req.dataset_name,
+        "target_column": req.target_column,
+        "problem_type": req.problem_type,
+        "row_count": req.row_count,
+        "col_count": req.col_count,
+        "models_summary": req.models_summary,
+        "key_metrics": req.key_metrics,
+        "state": req.state,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    try:
+        snapshots_collection.insert_one(doc)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Save failed: {str(e)}")
+    return {"status": "success", "snapshot_id": snapshot_id}
+
+@app.get("/api/snapshots")
+async def list_snapshots():
+    """List all saved analysis snapshots (without full state for performance)."""
+    if db is None:
+        return {"status": "success", "snapshots": []}
+    try:
+        cursor = snapshots_collection.find(
+            {}, {"_id": 0, "state": 0}
+        ).sort("created_at", -1).limit(50)
+        return {"status": "success", "snapshots": list(cursor)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/snapshots/{snapshot_id}")
+async def get_snapshot(snapshot_id: str):
+    """Get a full snapshot by ID (for sharing and restoring)."""
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    try:
+        doc = snapshots_collection.find_one(
+            {"snapshot_id": snapshot_id}, {"_id": 0}
+        )
+        if not doc:
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+        return {"status": "success", "snapshot": doc}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/snapshots/{snapshot_id}")
+async def delete_snapshot(snapshot_id: str):
+    """Delete a snapshot."""
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    try:
+        result = snapshots_collection.delete_one({"snapshot_id": snapshot_id})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+        return {"status": "success", "message": "Snapshot deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

@@ -5,7 +5,7 @@ import {
   Eye, Trash2, ChevronRight, ArrowUpRight, FileText, Target, Cpu, BarChart3,
   Download, AlertCircle, Layers, ShieldAlert, Table2, Info, SplitSquareVertical,
   Clock, Trophy, CheckCircle2, XCircle, Shield, Moon, Sun, FileUp, BarChart2,
-  Printer, HelpCircle, BookOpen, Lightbulb
+  Printer, HelpCircle, BookOpen, Lightbulb, Save, History, Share2, Copy, ExternalLink, Lock, Sheet
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -838,6 +838,8 @@ function detectAnomaliesFunc(rows, numericCols, method, threshold) {
 
 // ==================== APP COMPONENT ====================
 
+const API_URL = process.env.REACT_APP_BACKEND_URL || '';
+
 function App() {
   const [activeView, setActiveView] = useState('dashboard');
   const [error, setError] = useState('');
@@ -893,6 +895,10 @@ function App() {
   const [clusterComparison, setClusterComparison] = useState(null);
   const xaiCacheRef = useRef({});
   const [showGuide, setShowGuide] = useState(false);
+  const [historyList, setHistoryList] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [viewOnlyMode, setViewOnlyMode] = useState(false);
+  const [shareUrl, setShareUrl] = useState('');
 
   // ==================== DARK MODE TOGGLE ====================
   useEffect(() => {
@@ -1017,6 +1023,153 @@ function App() {
     xaiCacheRef.current = {};
     setActiveView('dashboard'); setError('');
   }, []);
+
+  // ==================== HISTORY & SHARING ====================
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/snapshots`);
+      const data = await res.json();
+      setHistoryList(data.snapshots || []);
+    } catch { setHistoryList([]); }
+    setHistoryLoading(false);
+  }, []);
+
+  const handleSaveAnalysis = useCallback(async (customName) => {
+    if (!trainingResult && !unsupervisedResult) { setError('Nothing to save — train a model first.'); return; }
+    const name = customName || `${targetColumn || 'Unsupervised'} — ${new Date().toLocaleString()}`;
+    const bestModel = trainingResult?.leaderboard?.[0];
+    try {
+      const body = {
+        name,
+        dataset_name: dataProfile?.fileName || 'Uploaded CSV',
+        target_column: targetColumn || null,
+        problem_type: trainingResult?.problemType || 'clustering',
+        row_count: dataProfile?.rowCount || 0,
+        col_count: dataProfile?.columns?.length || 0,
+        models_summary: (trainingResult?.leaderboard || []).map(m => ({ algorithm: m.algorithm, score: m.score })),
+        key_metrics: bestModel?.metrics || {},
+        state: {
+          csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan,
+          trainingResult, predictionResult, predictionHistory, selectedModelIdx,
+          unsupervisedResult, clusterResult, anomalyResult, batchResults,
+          shapGlobal, shapBeeswarm, shapLocal, shapDependence,
+          limeResult, limeProbs, clusterShap, clusterBeeswarm,
+          shapSummary, featureVsPred, clusterComparison, models,
+        },
+      };
+      const res = await fetch(`${API_URL}/api/snapshots`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (data.snapshot_id) { setError(''); fetchHistory(); return data.snapshot_id; }
+      else { setError('Save failed: ' + (data.detail || 'Unknown error')); }
+    } catch (e) { setError('Save failed: ' + e.message); }
+    return null;
+  }, [csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan,
+    trainingResult, predictionResult, predictionHistory, selectedModelIdx,
+    unsupervisedResult, clusterResult, anomalyResult, batchResults,
+    shapGlobal, shapBeeswarm, shapLocal, shapDependence,
+    limeResult, limeProbs, clusterShap, clusterBeeswarm,
+    shapSummary, featureVsPred, clusterComparison, models, dataProfile, fetchHistory]);
+
+  const handleLoadSnapshot = useCallback(async (snapshotId) => {
+    try {
+      const res = await fetch(`${API_URL}/api/snapshots/${snapshotId}`);
+      const data = await res.json();
+      if (!data.snapshot?.state) { setError('Snapshot not found or corrupted.'); return; }
+      const s = data.snapshot.state;
+      if (s.csvText) { setCsvText(s.csvText); const p = profileDataset(s.csvText); setDataProfile(p); setColumns(p?.headers || []); }
+      if (s.targetColumn !== undefined) setTargetColumn(s.targetColumn);
+      if (s.algorithm) setAlgorithm(s.algorithm);
+      if (s.evalMode) setEvalMode(s.evalMode);
+      if (s.cleaningLog) setCleaningLog(s.cleaningLog);
+      if (s.precleanScan) setPrecleanScan(s.precleanScan);
+      if (s.trainingResult) setTrainingResult(s.trainingResult);
+      if (s.predictionResult) setPredictionResult(s.predictionResult);
+      if (s.predictionHistory) setPredictionHistory(s.predictionHistory);
+      if (s.selectedModelIdx !== undefined) setSelectedModelIdx(s.selectedModelIdx);
+      if (s.unsupervisedResult) setUnsupervisedResult(s.unsupervisedResult);
+      if (s.clusterResult) setClusterResult(s.clusterResult);
+      if (s.anomalyResult) setAnomalyResult(s.anomalyResult);
+      if (s.batchResults) setBatchResults(s.batchResults);
+      if (s.shapGlobal) setShapGlobal(s.shapGlobal);
+      if (s.shapBeeswarm) setShapBeeswarm(s.shapBeeswarm);
+      if (s.shapLocal) setShapLocal(s.shapLocal);
+      if (s.shapDependence) setShapDependence(s.shapDependence);
+      if (s.limeResult) setLimeResult(s.limeResult);
+      if (s.limeProbs) setLimeProbs(s.limeProbs);
+      if (s.clusterShap) setClusterShap(s.clusterShap);
+      if (s.clusterBeeswarm) setClusterBeeswarm(s.clusterBeeswarm);
+      if (s.shapSummary) setShapSummary(s.shapSummary);
+      if (s.featureVsPred) setFeatureVsPred(s.featureVsPred);
+      if (s.clusterComparison) setClusterComparison(s.clusterComparison);
+      if (s.models) setModels(s.models);
+      setActiveView('dashboard');
+      setError('');
+    } catch (e) { setError('Failed to load snapshot: ' + e.message); }
+  }, []);
+
+  const handleDeleteSnapshot = useCallback(async (snapshotId) => {
+    try {
+      await fetch(`${API_URL}/api/snapshots/${snapshotId}`, { method: 'DELETE' });
+      fetchHistory();
+    } catch (e) { setError('Delete failed: ' + e.message); }
+  }, [fetchHistory]);
+
+  const handleShareAnalysis = useCallback(async () => {
+    let sid = await handleSaveAnalysis();
+    if (sid) {
+      const url = `${window.location.origin}${window.location.pathname}?snapshot=${sid}`;
+      setShareUrl(url);
+      try { await navigator.clipboard.writeText(url); } catch {}
+    }
+  }, [handleSaveAnalysis]);
+
+  const handleExportCSV = useCallback(() => {
+    if (!trainingResult) return;
+    const lb = trainingResult.leaderboard || [];
+    let csv = 'Algorithm,Score,Duration(s)\n';
+    lb.forEach(m => { csv += `${m.algorithm},${m.score?.toFixed(4) || 'N/A'},${m.duration?.toFixed(2) || 'N/A'}\n`; });
+    if (trainingResult.metrics) { csv += '\nMetric,Value\n'; Object.entries(trainingResult.metrics).forEach(([k, v]) => { csv += `${k},${typeof v === 'number' ? v.toFixed(4) : v}\n`; }); }
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'analysis_results.csv'; a.click();
+  }, [trainingResult]);
+
+  const handleExportJSON = useCallback(() => {
+    if (!trainingResult) return;
+    const data = {
+      exportDate: new Date().toISOString(),
+      targetColumn, problemType: trainingResult.problemType,
+      leaderboard: trainingResult.leaderboard, metrics: trainingResult.metrics,
+      predictions: predictionHistory,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'analysis_results.json'; a.click();
+  }, [trainingResult, targetColumn, predictionHistory]);
+
+  const handleExportSheets = useCallback(() => {
+    if (!trainingResult) return;
+    const lb = trainingResult.leaderboard || [];
+    let tsv = 'Algorithm\tScore\tDuration(s)\n';
+    lb.forEach(m => { tsv += `${m.algorithm}\t${m.score?.toFixed(4) || 'N/A'}\t${m.duration?.toFixed(2) || 'N/A'}\n`; });
+    if (trainingResult.metrics) { tsv += '\nMetric\tValue\n'; Object.entries(trainingResult.metrics).forEach(([k, v]) => { tsv += `${k}\t${typeof v === 'number' ? v.toFixed(4) : v}\n`; }); }
+    navigator.clipboard.writeText(tsv).then(() => setError('')).catch(() => {
+      const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'analysis_for_sheets.tsv'; a.click();
+    });
+  }, [trainingResult]);
+
+  // Load shared snapshot from URL on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const snapshotId = params.get('snapshot');
+    if (snapshotId) {
+      setViewOnlyMode(true);
+      handleLoadSnapshot(snapshotId);
+    }
+  }, [handleLoadSnapshot]);
+
+  // Fetch history when switching to history view
+  useEffect(() => { if (activeView === 'history') fetchHistory(); }, [activeView, fetchHistory]);
 
   // ==================== SAMPLE DATASETS ====================
   const sampleDatasets = [
@@ -1739,7 +1892,7 @@ function App() {
         <div className="flex h-full flex-col gap-2">
           <div className="flex h-16 items-center border-b border-sidebar-border px-6"><div className="flex items-center gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Brain className="h-6 w-6" /></div><div><h1 className="text-lg font-bold text-sidebar-foreground">AutoML</h1><p className="text-xs text-sidebar-foreground/60">Universal Dashboard</p></div></div></div>
           <nav className="flex-1 space-y-1 px-3 py-4" data-testid="sidebar-nav">
-            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }].map((item) => (
+            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }, { id: 'history', label: 'History', icon: History }].map((item) => (
               <Button key={item.id} variant={activeView === item.id ? 'secondary' : 'ghost'} className="w-full justify-start gap-3" onClick={() => setActiveView(item.id)} data-testid={`nav-${item.id}`}><item.icon className="h-4 w-4" />{item.label}</Button>
             ))}
           </nav>
@@ -1751,13 +1904,18 @@ function App() {
         <motion.header initial={{ y: -100 }} animate={{ y: 0 }} className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="flex h-16 items-center justify-between px-8"><div>
             <h2 className="text-2xl font-bold tracking-tight" data-testid="page-title">
-              {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}
+              {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'history' && 'Analysis History'}
             </h2>
-            <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations and model performance'}{activeView === 'analysis' && 'Upload data, select a target variable, and train ML models'}{activeView === 'predict' && 'Make predictions, view results, and explore visualizations'}{activeView === 'anomalies' && 'Detect outliers and unusual patterns in your data'}{activeView === 'models' && 'Manage, export, and import your trained models'}{activeView === 'explore' && 'Explore data distributions, correlations, and patterns'}{activeView === 'explainability' && 'Understand why the model made its predictions using SHAP and LIME'}</p>
+            <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations and model performance'}{activeView === 'analysis' && 'Upload data, select a target variable, and train ML models'}{activeView === 'predict' && 'Make predictions, view results, and explore visualizations'}{activeView === 'anomalies' && 'Detect outliers and unusual patterns in your data'}{activeView === 'models' && 'Manage, export, and import your trained models'}{activeView === 'explore' && 'Explore data distributions, correlations, and patterns'}{activeView === 'explainability' && 'Understand why the model made its predictions using SHAP and LIME'}{activeView === 'history' && 'View, restore, and share your saved analysis sessions'}</p>
           </div><div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowGuide(prev => !prev)} data-testid="guide-toggle-btn" className={showGuide ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-700' : ''}><BookOpen className="h-4 w-4 mr-2" />{showGuide ? 'Hide Guide' : 'Help Guide'}</Button>
-            {csvText && <Button variant="outline" size="sm" onClick={handleClearSession} data-testid="clear-session-btn"><Trash2 className="h-4 w-4 mr-2" />Clear Session</Button>}
-            {trainingResult && <Button variant="outline" size="sm" onClick={handleExportPDF} data-testid="export-pdf-btn"><Printer className="h-4 w-4 mr-2" />Export PDF</Button>}
+            {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="outline" size="sm" onClick={() => handleSaveAnalysis()} data-testid="save-analysis-btn"><Save className="h-4 w-4 mr-2" />Save</Button>}
+            {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="outline" size="sm" onClick={handleShareAnalysis} data-testid="share-analysis-btn"><Share2 className="h-4 w-4 mr-2" />Share</Button>}
+            {csvText && !viewOnlyMode && <Button variant="outline" size="sm" onClick={handleClearSession} data-testid="clear-session-btn"><Trash2 className="h-4 w-4 mr-2" />Clear Session</Button>}
+            {trainingResult && !viewOnlyMode && <><Button variant="outline" size="sm" onClick={handleExportPDF} data-testid="export-pdf-btn"><Printer className="h-4 w-4 mr-2" />PDF</Button>
+              <Button variant="outline" size="sm" onClick={handleExportCSV} data-testid="export-csv-btn"><Download className="h-4 w-4 mr-2" />CSV</Button>
+              <Button variant="outline" size="sm" onClick={handleExportJSON} data-testid="export-json-btn"><FileText className="h-4 w-4 mr-2" />JSON</Button>
+              <Button variant="outline" size="sm" onClick={handleExportSheets} data-testid="export-sheets-btn" title="Copy results as tab-separated values for Google Sheets"><Sheet className="h-4 w-4 mr-2" />Sheets</Button></>}
             <Button variant="outline" size="icon" onClick={() => setDarkMode(prev => !prev)} data-testid="dark-mode-toggle">{darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</Button>
           </div></div>
         </motion.header>
@@ -1787,6 +1945,26 @@ function App() {
                 </div>
               </CardContent>
             </Card>
+          </motion.div>
+        )}</AnimatePresence>
+
+        {/* ==================== VIEW-ONLY BANNER ==================== */}
+        {viewOnlyMode && (
+          <div className="mx-8 mt-4 p-3 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/20 flex items-center justify-between" data-testid="view-only-banner">
+            <div className="flex items-center gap-2"><Lock className="h-4 w-4 text-amber-600" /><span className="text-sm font-medium text-amber-800 dark:text-amber-300">View-Only Mode — This is a shared analysis. Editing is restricted.</span></div>
+            <Button variant="outline" size="sm" onClick={() => { setViewOnlyMode(false); window.history.replaceState({}, '', window.location.pathname); }} className="text-xs border-amber-300" data-testid="exit-view-only-btn">Exit View-Only</Button>
+          </div>
+        )}
+
+        {/* ==================== SHARE URL TOAST ==================== */}
+        <AnimatePresence>{shareUrl && (
+          <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -20, opacity: 0 }} className="mx-8 mt-4 p-3 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/20 flex items-center justify-between" data-testid="share-url-toast">
+            <div className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-600" /><span className="text-sm text-emerald-800 dark:text-emerald-300">Analysis saved &amp; link copied!</span></div>
+            <div className="flex items-center gap-2">
+              <code className="text-xs bg-white dark:bg-card border rounded px-2 py-1 max-w-[300px] truncate">{shareUrl}</code>
+              <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(shareUrl); }} className="text-xs" data-testid="copy-share-url-btn"><Copy className="h-3.5 w-3.5 mr-1" />Copy</Button>
+              <Button variant="ghost" size="sm" onClick={() => setShareUrl('')} className="text-xs"><XCircle className="h-3.5 w-3.5" /></Button>
+            </div>
           </motion.div>
         )}</AnimatePresence>
 
@@ -3306,6 +3484,62 @@ function App() {
                 : <div className="rounded-md border"><table className="w-full" data-testid="models-table"><thead><tr className="border-b bg-muted/50"><th className="p-4 text-left text-sm font-medium">Model ID</th><th className="p-4 text-left text-sm font-medium">Algorithm</th><th className="p-4 text-left text-sm font-medium">Type</th><th className="p-4 text-left text-sm font-medium">Created</th><th className="p-4 text-left text-sm font-medium">Actions</th></tr></thead>
                   <tbody>{models.map((model, idx) => <motion.tr key={model.modelId} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.05 }} className="border-b last:border-0 hover:bg-accent/50 transition-colors" data-testid={`model-row-${idx}`}><td className="p-4"><div className="flex items-center gap-2"><div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center"><Brain className="h-4 w-4 text-primary" /></div><code className="text-xs font-mono">{model.modelId.substring(0, 12)}...</code></div></td><td className="p-4"><Badge variant="outline">{ALGO_NAMES[model.algorithm] || model.algorithm}</Badge></td><td className="p-4 text-sm">{model.problemType}</td><td className="p-4 text-sm text-muted-foreground">{new Date(model.createdAt).toLocaleDateString()}</td><td className="p-4"><div className="flex gap-2"><Button variant="ghost" size="sm" onClick={() => setActiveView('predict')} data-testid={`use-model-${idx}`}><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="sm" onClick={() => handleDownloadModel(model.modelId)} className="text-primary" data-testid={`download-model-${idx}`}><Download className="h-4 w-4" /></Button><Button variant="ghost" size="sm" onClick={() => handleDeleteModel(model.modelId)} data-testid={`delete-model-${idx}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td></motion.tr>)}</tbody></table></div>
                 }</CardContent></Card>
+            </motion.div>
+          )}
+
+          {/* ==================== HISTORY ==================== */}
+          {activeView === 'history' && (
+            <motion.div key="history" variants={staggerContainer} initial="initial" animate="animate" exit="exit" className="space-y-6" data-testid="history-view">
+              <motion.div variants={fadeInUp}><Card><CardHeader>
+                <div className="flex items-center justify-between">
+                  <div><CardTitle className="flex items-center gap-2"><History className="h-5 w-5" />Saved Analyses</CardTitle>
+                    <CardDescription>Your analysis sessions are saved here. Click to restore, share, or delete.</CardDescription></div>
+                  <div className="flex items-center gap-2">
+                    {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button size="sm" onClick={() => handleSaveAnalysis()} data-testid="save-current-analysis-btn"><Save className="h-4 w-4 mr-2" />Save Current Analysis</Button>}
+                    <Button variant="outline" size="sm" onClick={fetchHistory} data-testid="refresh-history-btn"><ArrowUpRight className="h-4 w-4 mr-2" />Refresh</Button>
+                  </div>
+                </div>
+              </CardHeader><CardContent>
+                {historyLoading ? (
+                  <div className="py-12 text-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent mx-auto mb-3" /><p className="text-sm text-muted-foreground">Loading history...</p></div>
+                ) : historyList.length === 0 ? (
+                  <div className="py-12 text-center" data-testid="history-empty">
+                    <History className="h-14 w-14 text-muted-foreground/30 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No Saved Analyses</h3>
+                    <p className="text-muted-foreground text-sm mb-4">Train a model and click "Save" to store your analysis for later.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3" data-testid="history-list">
+                    {historyList.map((snap, idx) => (
+                      <div key={snap.snapshot_id || idx} className="group rounded-lg border p-4 hover:bg-accent/30 transition-colors" data-testid={`history-item-${idx}`}>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="font-semibold text-sm truncate">{snap.name}</h4>
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${snap.problem_type === 'classification' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : snap.problem_type === 'regression' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'}`}>{snap.problem_type || 'unknown'}</span>
+                            </div>
+                            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                              <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(snap.created_at).toLocaleString()}</span>
+                              <span>{snap.row_count} rows, {snap.col_count} cols</span>
+                              {snap.target_column && <span>Target: <strong>{snap.target_column}</strong></span>}
+                            </div>
+                            {snap.models_summary?.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2">
+                              {snap.models_summary.slice(0, 5).map((m, mi) => (
+                                <span key={mi} className="text-[10px] px-2 py-0.5 rounded-full bg-muted border">{ALGO_NAMES[m.algorithm] || m.algorithm}: {m.score?.toFixed(3)}</span>
+                              ))}
+                            </div>}
+                          </div>
+                          <div className="flex items-center gap-1.5 ml-4 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button variant="default" size="sm" onClick={() => handleLoadSnapshot(snap.snapshot_id)} data-testid={`load-snapshot-${idx}`}><Play className="h-3.5 w-3.5 mr-1.5" />Restore</Button>
+                            <Button variant="outline" size="sm" onClick={() => { const url = `${window.location.origin}${window.location.pathname}?snapshot=${snap.snapshot_id}`; navigator.clipboard.writeText(url); setShareUrl(url); }} data-testid={`share-snapshot-${idx}`}><Share2 className="h-3.5 w-3.5" /></Button>
+                            <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => handleDeleteSnapshot(snap.snapshot_id)} data-testid={`delete-snapshot-${idx}`}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent></Card></motion.div>
             </motion.div>
           )}
 
