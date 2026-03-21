@@ -57,6 +57,12 @@ Build a 100% client-side Universal AI Dashboard (AutoML Master) in React. All ML
   - Kept: Share Analysis (view-only dashboard via snapshot URL), Export to Google Sheets (CSV download), Download CSV (comprehensive with SHAP, LIME, predictions, metrics)
   - View-only banner: "This is a shared analysis (view-only). Request access to edit."
   - UI: Three buttons — "Share Analysis", "Export to Google Sheets", "Download CSV"
+- [x] **Safe Clipboard Share Fix**:
+  - `safeCopyToClipboard` utility: tries navigator.clipboard, falls back to textarea+execCommand
+  - Share toast now shows selectable input field (not truncated code tag) for manual copy
+  - Status feedback: "Link copied to clipboard" (success) / "Copy not supported here. Please copy manually." (fallback)
+  - All clipboard usage sites updated (share button, copy button, history share buttons)
+  - Fully wrapped in try-catch — no crashes when clipboard API is blocked (iframe/preview safe)
 
 ## Testing Status
 - Iteration 19: 13/13 (100% — Export System Simplification)
