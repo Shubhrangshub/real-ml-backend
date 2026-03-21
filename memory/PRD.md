@@ -51,15 +51,28 @@ Build a 100% client-side Universal AI Dashboard (AutoML Master) in React. All ML
   - Interpretation shown BELOW each metric value in MetricCard AND in hover tooltip (MetricTip)
   - MetricTip now accepts optional `value` prop for context-sensitive tooltip content
 
+### Phase 17 (Feb 2026)
+- [x] **Simplified Export System**:
+  - Removed PDF export (jsPDF/jspdf-autotable) and JSON export
+  - Kept: Share Analysis (view-only dashboard via snapshot URL), Export to Google Sheets (CSV download), Download CSV (comprehensive with SHAP, LIME, predictions, metrics)
+  - View-only banner: "This is a shared analysis (view-only). Request access to edit."
+  - UI: Three buttons — "Share Analysis", "Export to Google Sheets", "Download CSV"
+
 ## Testing Status
+- Iteration 19: 13/13 (100% — Export System Simplification)
 - Iteration 18: 13/13 (100% — Metric Interpretation)
 - Iteration 17: 29/29 (100% — History & Sharing)
 - Iteration 16: 24/24 (100% — Help System)
 - Iteration 15: 14/14 (100% — XAI)
 
 ## Backlog
+- [ ] P0: Refactor App.js into modular components (~3900+ lines)
+- [ ] P1: "What-If" Analyzer
+- [ ] P1: Auto-save After Training
 - [ ] P1: Counterfactual Explanations
-- [ ] P2: Refactor App.js into modular components (~3600+ lines)
 - [ ] P2: Real-time model comparison dashboard
 - [ ] P2: Advanced hyperparameter tuning UI
+- [ ] P2: Interactive Tutorial Mode
+- [ ] P2: Metric Comparison Radar Chart
+- [ ] P2: Performance Benchmark Mode
 - [ ] P3: Dataset preprocessing pipeline UI
