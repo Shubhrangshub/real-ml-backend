@@ -1,183 +1,137 @@
-You are working on a Universal AI Dashboard, a 100% client-side React application for in-browser machine learning.
-
-The application is currently broken because /app/frontend/src/App.js has corrupted JSX due to multiple failed search_replace operations.
-
-Your task is to fix the application and complete the Predictions Workspace refactor in a single pass, while minimizing unnecessary edits and avoiding repeated agent runs.
-
-PRIMARY OBJECTIVE
-
-Repair the corrupted JSX in:
-
-/app/frontend/src/App.js
-
-and implement a Unified Predictions Workspace.
-
-Do NOT perform incremental edits.
-Do NOT attempt multiple small replacements.
-
-Instead:
-
-• Identify the corrupted JSX section
-• Replace it with a clean implementation
-• Ensure the application compiles successfully
-
-REQUIRED UI ARCHITECTURE
-
-The dashboard sidebar should contain:
-
-• Dashboard
-• Dataset Scanner
-• Analysis
-• Predictions
-
-The Clusters tab must be removed completely.
-
-Clusters are not a separate page.
-
-PREDICTIONS WORKSPACE BEHAVIOR
-
-The Predictions page must dynamically adapt based on the dataset type.
-
-If the dataset is SUPERVISED
-
-Show:
-
-• Model predictions
-• Actual vs Predicted scatter plot
-• Model performance metrics
-• Model comparison chart
-• Feature importance chart
-• Residual plot
-
-Charts must be implemented using Recharts with proper:
-
-• titles
-• legends
-• axis labels
-
-If the dataset is UNSUPERVISED
-
-Show clustering results inside Predictions.
-
-Display:
-
-• clustering algorithm leaderboard
-• PCA cluster visualization
-• t-SNE cluster visualization
-• cluster distribution chart
-
-Clustering algorithms:
-
-• K-Means
-• Hierarchical Clustering
-• DBSCAN
-• Gaussian Mixture Model (GMM)
-
-Evaluation metrics:
-
-• Silhouette Score
-• Davies-Bouldin Index
-• Calinski-Harabasz Score
-
-CORRELATION ANALYSIS TOOL
-
-Inside Predictions add a Correlation Explorer.
-
-Users must be able to:
-
-• select any two variables
-• generate a scatter plot
-• view Pearson correlation value
-
-Also generate a correlation heatmap for numeric features.
-
-Use Recharts for scatter plots.
-
-UNSUPERVISED ML ENGINE
-
-Unsupervised logic must live in:
-
-/app/frontend/src/unsupervisedML.js
-
-Replace placeholder functions with real implementations.
-
-Include:
-
-Clustering:
-
-• K-Means
-• Hierarchical Clustering
-• DBSCAN
-• GMM
-
-Dimensionality reduction:
-
-• PCA
-• t-SNE
-
-Anomaly detection:
-
-• Isolation Forest
-• Local Outlier Factor
-
-All algorithms must run fully client-side using JavaScript.
-
-EXPLAINABILITY REQUIREMENT
-
-All ML metrics must include plain-English explanations.
-
-Examples:
-
-Silhouette Score:
-
-“Measures how well points fit within their cluster. Higher values mean clusters are clearly separated.”
-
-F1 Score:
-
-“Balances precision and recall. Higher values mean the model makes fewer mistakes.”
-
-Use tooltips or small explanation cards.
-
-PERFORMANCE RULES (IMPORTANT)
-
-To minimize credit usage and processing cost:
-
-• Do not refactor the entire project
-• Do not split App.js into new components
-• Do not modify unrelated files
-• Only edit the necessary JSX sections
-
-Focus only on:
-
-App.js
-unsupervisedML.js
-SUCCESS CONDITIONS
-
-The task is complete when:
-
-• The application compiles successfully
-• The Predictions workspace renders correctly
-• The Clusters tab is removed
-• Supervised datasets show predictions
-• Unsupervised datasets show clustering results
-• Correlation analysis tool works
-
-IMPORTANT
-
-Avoid repeated search_replace operations.
-
-Perform one clean JSX replacement for the corrupted section.
-
-Ensure the UI renders without duplicate sections or orphaned tags.
-
-Expected Result
-
-A working Universal AI Dashboard where:
-
-Predictions becomes the central ML workspace showing:
-
-• supervised model predictions
-• unsupervised clustering results
-• correlation analysis tools
-
-All running entirely in the browser.
+<analysis>**original_problem_statement:**
+The user initially requested the agent to implement a series of new features for the AutoML dashboard. The priorities were:
+1.  **Batch Predictions from CSV Upload**: Allow users to upload a CSV to get predictions for multiple rows.
+2.  **Model Export / Import**: Allow saving and loading trained models.
+3.  **Export Report as PDF**: Download a summary report of the analysis.
+4.  **Data Visualization Tab**: A new section for exploratory data analysis (histograms, heatmaps).
+5.  **Dark Mode Toggle**: A UI theme switch.
+
+After these were completed, the user made subsequent requests:
+-   **Metric Tooltips**: Add hover tooltips with plain-English explanations for all metrics in the dashboard.
+-   **Explainable AI (XAI) Module**: Integrate a comprehensive XAI section using SHAP and LIME to explain model predictions, both for supervised and unsupervised models.
+-   **Performance Optimization**: The current and final request is to improve the application's performance by optimizing expensive computations without altering any algorithms, models, or outputs.
+
+**User's preferred language**: English
+
+**what currently exists?**
+The project is a 100% client-side AutoML application built in React. All data processing, model training (e.g., SVM, Decision Trees, K-Means), and prediction logic are implemented in JavaScript and run directly in the browser. The frontend is a large, monolithic  file, supported by newer modules like . The application supports supervised and unsupervised learning, data cleaning, batch predictions, model import/export, PDF reporting, a data explorer tab, and a full Explainable AI (XAI) suite with SHAP and LIME visualizations.
+
+**Last working item**:
+    - Last item agent was working: The agent was working on a performance optimization task. It first analyzed the codebase to identify bottlenecks, such as redundant calculations in the custom decision tree and XAI implementations, inefficient sorting in KNN, and repeated data parsing. It then began implementing fixes by overwriting  with an optimized version. The next step is to apply the remaining optimizations to the main  file.
+    - Status: IN PROGRESS
+    - Agent Testing Done: N
+    - Which testing method agent to use? . The tests must verify that all analysis outputs (metrics, predictions, explanations) are *identical* to the pre-optimization version and that all features remain functional. This is a critical regression test.
+    - User Testing Done: N
+
+**All Pending/In progress Issue list**:
+There are no outstanding bugs or issues separate from the main in-progress task.
+
+**In progress Task List**:
+  - Task 1:  (P0) Complete Performance Optimization of the Application
+     - Where to resume: The agent has already updated  with optimizations. The next step is to open  and apply the remaining identified optimizations. This includes:
+        - Refactoring the decision tree  function to reduce array allocations.
+        - Optimizing the K-Nearest Neighbors prediction logic.
+        - Improving the Random Forest voting mechanism.
+        - Ensuring the main training handler avoids re-parsing data that is already available in the state.
+        - Replacing  calls that can cause stack overflows.
+     - What will be achieved with this? The application will run faster, consume less memory, and be more responsive, especially during model training and explanation generation, without changing any analytical results.
+     - Status:  IN PROGRESS
+     - Should Test frontend/backend/both after fix? Both. Primarily frontend logic, but testing must confirm that all calculation outputs are unchanged.
+     - Blocked on something: None
+
+**Upcoming and Future Tasks**
+-   **Upcoming Tasks:**
+    -   (P1) **Counterfactual Explanations**: The user expressed interest in adding a feature to show what would need to change in the data to achieve a different prediction outcome.
+    -   (P1) **Shareable Report Link**: The user also liked the idea of generating a unique URL to share a report, leveraging the client-side nature of the app.
+-   **Future Tasks:**
+    -   (P2) ** Modular Refactoring**: The user explicitly postponed a major refactoring of the massive  file to prioritize feature delivery. This remains a key technical debt item for future improvement.
+
+**Completed work in this session**
+- **Feature: 5-Feature Set Implementation**
+  - Implemented Batch Predictions, Model Export/Import, PDF Report Generation, a Data Explore Tab, and a Dark Mode toggle in .
+- **Feature: Metric Tooltips**
+  - Created and integrated a  component in  to display hover explanations for all supervised and unsupervised metrics.
+- **Feature: Explainable AI (XAI) Module**
+  - Created  for client-side SHAP and LIME logic.
+  - Added a Model Explainability UI section in  with multiple interactive charts (SHAP Beeswarm, Waterfall, LIME contributions, etc.).
+- **Bug Fix:**
+  - The testing agent fixed a bug in the XAI cluster explanation feature where data was not being correctly reconstructed. The fix was applied to  in .
+
+**Earlier issues found/mentioned but not fixed**
+   - None.
+
+**Known issue recurrence from previous fork**
+  - None.
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+- **Client-Side Machine Learning**: All core ML logic (SVM, Decision Trees, K-Means, etc.) is implemented in JavaScript and runs in the browser.
+- **Explainable AI (XAI)**: A custom, client-side implementation of SHAP and LIME for model interpretability, located in .
+- **Monolithic Architecture**: The majority of the application's code, state, and logic resides in a single React component (), which is over 2700 lines long.
+- **UI/UX**: The interface is built with React, shadcn/ui components, and TailwindCSS, with charts rendered by .
+
+**key DB schema**
+  - Not applicable. The application is client-side, and MongoDB is not used for the primary features.
+
+**changes in tech stack**
+  - No fundamental changes to the React/FastAPI/MongoDB stack.
+  - Added frontend dependencies:  and  for PDF generation.
+
+**All files of reference**
+- : The central file for all UI, state, and application logic. It's the primary file to be modified for the current optimization task.
+- : Contains the client-side XAI logic. It was recently overwritten with an optimized version.
+- : Contains the product requirements and has been updated after each major feature completion.
+
+**Areas that need refactoring**:
+- ****: This file is critically oversized and mixes UI, state management, and complex computational logic. It is a major source of technical debt. The user has explicitly postponed this task, but it should be addressed in the future by breaking it down into custom hooks, smaller components, and utility modules.
+
+**key api endpoints**
+- Not applicable, as core functionality is client-side.
+
+**Critical Info for New Agent**
+- **Client-Side First**: Remember that all ML and data processing logic is in JavaScript on the client. Do not attempt to move it to the backend. The performance optimizations must also happen in the JS code.
+- **Preserve Output**: The current task is strictly performance optimization. Do not change any algorithms, metrics, or final outputs. The results must be identical to the previous version.
+- **Monolith Awareness**: Be extremely careful when editing . It's a very large and complex file. Use targeted  and understand the context before making changes.
+- **Test Thoroughly**: After completing the optimizations, you must use  to run a full regression test to ensure no functionality was broken and that all calculations remain correct.
+
+**documents and test reports created in this job**
+- 
+- 
+-  (updated multiple times)
+
+**Last 10 User Messages and any pending HUMAN messages**
+1.  **Request:** Optimize execution performance without changing any analysis, models, or outputs. (IN PROGRESS)
+2.  **Request:** Add a fully automated Explainable AI (XAI) module using SHAP and LIME. (Completed)
+3.  **Request:** Add hover tooltips with plain-English explanations for all evaluation metrics. (Completed)
+4.  **Confirmation & Prioritization**: User approved prior work and asked to proceed with a new list of 5 features, deferring a major refactor. (Completed)
+5.  **User Message:** Asked the agent to confirm its plan. (Completed)
+The rest of the messages are tool results and agent actions. The most recent and active request is the performance optimization.
+
+**Project Health Check:**
+- **Broken:** The application is functionally complete but suffers from performance issues (slowdowns, potential browser freezing) during heavy computation, which is the focus of the current task.
+- **Mocked:** None.
+
+**3rd Party Integrations**
+- None.
+
+**Testing status**
+  - Testing agent used after significant changes: YES
+  - Troubleshoot agent used after agent stuck in loop: NO
+  - Test files created: None by the main agent.
+  - Known regressions: None. A bug found by the testing agent during the XAI implementation was successfully fixed.
+
+**Credentials to test flow:**
+- Not applicable.
+
+**What agent forgot to execute**
+- The agent is in the middle of a task. It has updated  but still needs to apply the remaining performance optimizations to  to complete the user's request.</analysis>
+
+Fix browser crashes caused by large operations:
+
+- Break long loops into smaller chunks using setTimeout or requestIdleCallback.
+- Avoid blocking the main thread for more than 100ms at a time.
+- Ensure garbage collection is enabled by removing unused references.
+
+Do not change any computation results.

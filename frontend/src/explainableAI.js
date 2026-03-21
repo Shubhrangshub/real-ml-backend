@@ -1,12 +1,11 @@
-// explainableAI.js — Client-side Explainable AI Engine
-// Implements approximate SHAP (marginal contribution) and LIME for in-browser model explanations
+// explainableAI.js — Client-side Explainable AI Engine (optimized)
 
-function mean(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; }
+function mean(arr) { let s = 0; for (let i = 0; i < arr.length; i++) s += arr[i]; return arr.length ? s / arr.length : 0; }
 
 function sampleN(arr, n) {
-  if (n >= arr.length) return [...arr];
-  const res = [], used = new Set();
-  while (res.length < n) { const i = Math.floor(Math.random() * arr.length); if (!used.has(i)) { used.add(i); res.push(arr[i]); } }
+  if (n >= arr.length) return arr.slice();
+  const res = new Array(n), used = new Set();
+  for (let i = 0; i < n;) { const idx = (Math.random() * arr.length) | 0; if (!used.has(idx)) { used.add(idx); res[i++] = arr[idx]; } }
   return res;
 }
 
@@ -15,10 +14,6 @@ function boxMuller() {
   while (!u) u = Math.random();
   while (!v) v = Math.random();
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
-
-function euclidean(a, b) {
-  let s = 0; for (let i = 0; i < a.length; i++) s += (a[i] - b[i]) ** 2; return Math.sqrt(s);
 }
 
 function lerpHex(c1, c2, t) {
@@ -38,46 +33,134 @@ export function importanceColor(rank, total) {
   return lerpHex('#ec4899', '#3b82f6', total > 1 ? rank / (total - 1) : 0);
 }
 
-// ── SHAP (marginal contribution approximation) ────────────────
+// ── Core SHAP (reusable scratch array, pre-computed bg/basePred) ──
 
-export function computeLocalSHAP(predictFn, instance, background, nSamples = 80) {
+function localSHAPFast(predictFn, instance, bg, basePred) {
   const p = instance.length;
-  const bg = sampleN(background, Math.min(nSamples, background.length));
   const instPred = predictFn(instance);
-  const basePred = mean(bg.map(b => predictFn(b)));
-  const sv = new Array(p).fill(0);
+  const sv = new Float64Array(p);
+  // Reuse a single scratch array instead of copying per-iteration
+  const scratch = new Float64Array(p);
+  for (let i = 0; i < p; i++) scratch[i] = instance[i];
+  const bgLen = bg.length;
   for (let f = 0; f < p; f++) {
     let total = 0;
-    for (const bgRow of bg) { const m = [...instance]; m[f] = bgRow[f]; total += instPred - predictFn(m); }
-    sv[f] = total / bg.length;
+    const orig = scratch[f];
+    for (let b = 0; b < bgLen; b++) { scratch[f] = bg[b][f]; total += instPred - predictFn(scratch); }
+    scratch[f] = orig;
+    sv[f] = total / bgLen;
   }
-  const ss = sv.reduce((a, b) => a + b, 0), target = instPred - basePred;
+  // Normalize to sum to (instPred - basePred)
+  let ss = 0; for (let f = 0; f < p; f++) ss += sv[f];
+  const target = instPred - basePred;
   if (Math.abs(ss) > 1e-10) { const sc = target / ss; for (let f = 0; f < p; f++) sv[f] *= sc; }
-  return { shapValues: sv, basePred, instancePred: instPred };
+  return { shapValues: Array.from(sv), basePred, instancePred: instPred };
 }
 
+// Public API (backward compat)
+export function computeLocalSHAP(predictFn, instance, background, nSamples = 80) {
+  const bg = sampleN(background, Math.min(nSamples, background.length));
+  const basePred = mean(bg.map(b => predictFn(b)));
+  return localSHAPFast(predictFn, instance, bg, basePred);
+}
+
+// ── Unified SHAP computation — single pass for all visualizations ──
+
+export function computeAllSHAP(predictFn, data, featureNames, opts = {}) {
+  const nInst = Math.min(opts.nInstances || 100, data.length);
+  const nBg = Math.min(opts.nBackground || 50, data.length);
+  const rowIdx = Math.min(opts.rowIndex || 0, data.length - 1);
+  const depFeature = Math.min(opts.dependenceFeature || 0, featureNames.length - 1);
+
+  // Shared background & base prediction — computed ONCE
+  const bg = sampleN(data, nBg);
+  let basePredSum = 0; for (const b of bg) basePredSum += predictFn(b);
+  const basePred = basePredSum / bg.length;
+
+  // Sample instances once for all views
+  const instances = sampleN(data, nInst);
+
+  // Feature ranges (loop-based, safe for large arrays)
+  const ranges = new Array(featureNames.length);
+  for (let i = 0; i < featureNames.length; i++) {
+    let lo = Infinity, hi = -Infinity;
+    for (let j = 0; j < data.length; j++) { const v = data[j][i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    ranges[i] = { min: lo, max: hi };
+  }
+
+  // Compute local SHAP for all sampled instances — ONE pass
+  const allShap = new Array(nInst);
+  for (let si = 0; si < nInst; si++) {
+    allShap[si] = localSHAPFast(predictFn, instances[si], bg, basePred);
+  }
+
+  // Global importance: mean |SHAP| per feature
+  const absSum = new Float64Array(featureNames.length);
+  for (let si = 0; si < nInst; si++) {
+    const sv = allShap[si].shapValues;
+    for (let i = 0; i < featureNames.length; i++) absSum[i] += Math.abs(sv[i]);
+  }
+  const importance = featureNames.map((f, i) => ({ feature: f, importance: absSum[i] / nInst }));
+  importance.sort((a, b) => b.importance - a.importance);
+
+  // Beeswarm points — derived from the same SHAP values
+  const pts = [];
+  for (let si = 0; si < nInst; si++) {
+    const inst = instances[si], sv = allShap[si].shapValues;
+    for (let fi = 0; fi < featureNames.length; fi++) {
+      const r = ranges[fi];
+      const norm = r.max > r.min ? (inst[fi] - r.min) / (r.max - r.min) : 0.5;
+      pts.push({ feature: featureNames[fi], featureIdx: fi, shapValue: sv[fi], featureValue: inst[fi], normalizedValue: norm, color: valueToColor(norm), jitter: (Math.random() - 0.5) * 0.35 });
+    }
+  }
+
+  // Local SHAP for the selected row
+  const localInst = data[rowIdx];
+  const local = localSHAPFast(predictFn, localInst, bg, basePred);
+
+  // Dependence data — reuse already-computed SHAP values
+  const dependence = new Array(nInst);
+  for (let si = 0; si < nInst; si++) {
+    dependence[si] = { featureValue: instances[si][depFeature], shapValue: allShap[si].shapValues[depFeature] };
+  }
+
+  return {
+    global: { importance, basePred },
+    beeswarm: { points: pts, ranges },
+    local: { ...local, featureNames, instance: localInst },
+    dependence,
+  };
+}
+
+// Keep individual functions for backward compat & standalone use
 export function computeGlobalSHAP(predictFn, data, featureNames, nInst = 50, nBg = 50) {
-  const insts = sampleN(data, Math.min(nInst, data.length));
   const bg = sampleN(data, Math.min(nBg, data.length));
-  const abs = new Array(featureNames.length).fill(0);
+  let bpSum = 0; for (const b of bg) bpSum += predictFn(b);
+  const basePred = bpSum / bg.length;
+  const insts = sampleN(data, Math.min(nInst, data.length));
+  const abs = new Float64Array(featureNames.length);
   for (const inst of insts) {
-    const { shapValues } = computeLocalSHAP(predictFn, inst, bg, nBg);
+    const { shapValues } = localSHAPFast(predictFn, inst, bg, basePred);
     for (let i = 0; i < featureNames.length; i++) abs[i] += Math.abs(shapValues[i]);
   }
   const imp = featureNames.map((f, i) => ({ feature: f, importance: abs[i] / insts.length }));
   imp.sort((a, b) => b.importance - a.importance);
-  return { importance: imp, basePred: mean(bg.map(b => predictFn(b))) };
+  return { importance: imp, basePred };
 }
 
 export function computeBeeswarmData(predictFn, data, featureNames, nInst = 100, nBg = 50) {
-  const insts = sampleN(data, Math.min(nInst, data.length));
   const bg = sampleN(data, Math.min(nBg, data.length));
+  let bpSum = 0; for (const b of bg) bpSum += predictFn(b);
+  const basePred = bpSum / bg.length;
+  const insts = sampleN(data, Math.min(nInst, data.length));
   const ranges = featureNames.map((_, i) => {
-    const vals = data.map(d => d[i]); return { min: Math.min(...vals), max: Math.max(...vals) };
+    let lo = Infinity, hi = -Infinity;
+    for (let j = 0; j < data.length; j++) { const v = data[j][i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    return { min: lo, max: hi };
   });
   const pts = [];
   for (const inst of insts) {
-    const { shapValues } = computeLocalSHAP(predictFn, inst, bg, nBg);
+    const { shapValues } = localSHAPFast(predictFn, inst, bg, basePred);
     for (let fi = 0; fi < featureNames.length; fi++) {
       const r = ranges[fi]; const norm = r.max > r.min ? (inst[fi] - r.min) / (r.max - r.min) : 0.5;
       pts.push({ feature: featureNames[fi], featureIdx: fi, shapValue: shapValues[fi], featureValue: inst[fi], normalizedValue: norm, color: valueToColor(norm), jitter: (Math.random() - 0.5) * 0.35 });
@@ -87,10 +170,12 @@ export function computeBeeswarmData(predictFn, data, featureNames, nInst = 100, 
 }
 
 export function computeDependenceData(predictFn, data, featureNames, featureIndex, nInst = 150, nBg = 50) {
-  const insts = sampleN(data, Math.min(nInst, data.length));
   const bg = sampleN(data, Math.min(nBg, data.length));
+  let bpSum = 0; for (const b of bg) bpSum += predictFn(b);
+  const basePred = bpSum / bg.length;
+  const insts = sampleN(data, Math.min(nInst, data.length));
   return insts.map(inst => {
-    const { shapValues } = computeLocalSHAP(predictFn, inst, bg, nBg);
+    const { shapValues } = localSHAPFast(predictFn, inst, bg, basePred);
     return { featureValue: inst[featureIndex], shapValue: shapValues[featureIndex] };
   });
 }
@@ -101,7 +186,9 @@ function weightedRidge(X, y, w, p, lambda) {
   const n = X.length;
   const A = Array.from({ length: p }, () => new Float64Array(p));
   const b = new Float64Array(p);
-  for (let i = 0; i < n; i++) for (let j = 0; j < p; j++) { for (let k = 0; k < p; k++) A[j][k] += w[i] * X[i][j] * X[i][k]; b[j] += w[i] * X[i][j] * y[i]; }
+  for (let i = 0; i < n; i++) { const wi = w[i], xi = X[i]; for (let j = 0; j < p; j++) { const wixj = wi * xi[j]; for (let k = j; k < p; k++) A[j][k] += wixj * xi[k]; b[j] += wixj * y[i]; } }
+  // Mirror symmetric entries
+  for (let j = 0; j < p; j++) for (let k = 0; k < j; k++) A[j][k] = A[k][j];
   for (let i = 0; i < p; i++) A[i][i] += lambda;
   for (let i = 0; i < p; i++) {
     let mr = i; for (let k = i + 1; k < p; k++) if (Math.abs(A[k][i]) > Math.abs(A[mr][i])) mr = k;
@@ -116,14 +203,23 @@ function weightedRidge(X, y, w, p, lambda) {
 
 export function computeLIME(predictFn, instance, data, featureNames, nPert = 300) {
   const p = instance.length;
-  const stds = featureNames.map((_, i) => { const v = data.map(d => d[i]), m = mean(v); return Math.sqrt(v.reduce((s, x) => s + (x - m) ** 2, 0) / v.length) || 1; });
+  // Pre-compute stds once from column-extracted data
+  const stds = new Float64Array(p);
+  for (let i = 0; i < p; i++) {
+    let sum = 0, sumSq = 0;
+    for (let j = 0; j < data.length; j++) { const v = data[j][i]; sum += v; sumSq += v * v; }
+    const m = sum / data.length;
+    stds[i] = Math.sqrt(sumSq / data.length - m * m) || 1;
+  }
   const kw = Math.sqrt(p) * 0.75;
   const X = [[...instance]], Y = [predictFn(instance)], W = [1.0];
   for (let k = 0; k < nPert; k++) {
-    const perturbed = instance.map((v, i) => v + boxMuller() * stds[i] * 0.5);
+    const perturbed = new Array(p);
+    let distSq = 0;
+    for (let i = 0; i < p; i++) { const d = boxMuller() * stds[i] * 0.5; perturbed[i] = instance[i] + d; distSq += d * d / (stds[i] * stds[i]); }
     const pred = predictFn(perturbed);
-    const dist = euclidean(perturbed, instance) / Math.sqrt(p);
-    X.push(perturbed); Y.push(pred); W.push(Math.exp(-(dist ** 2) / (2 * kw ** 2)));
+    const dist = Math.sqrt(distSq) / Math.sqrt(p);
+    X.push(perturbed); Y.push(pred); W.push(Math.exp(-(dist * dist) / (2 * kw * kw)));
   }
   const beta = weightedRidge(X, Y, W, p, 0.01);
   const intercept = Y[0] - instance.reduce((s, v, i) => s + v * beta[i], 0);
@@ -133,28 +229,36 @@ export function computeLIME(predictFn, instance, data, featureNames, nPert = 300
 }
 
 export function computeClassProbabilities(predictFn, instance, data, nPert = 200) {
-  const stds = instance.map((_, i) => { const v = data.map(d => d[i]), m = mean(v); return Math.sqrt(v.reduce((s, x) => s + (x - m) ** 2, 0) / v.length) || 1; });
-  const preds = [predictFn(instance)];
-  for (let k = 0; k < nPert; k++) {
-    const perturbed = instance.map((v, i) => v + boxMuller() * stds[i] * 0.3);
-    preds.push(predictFn(perturbed));
+  const p = instance.length;
+  const stds = new Float64Array(p);
+  for (let i = 0; i < p; i++) {
+    let sum = 0, sumSq = 0;
+    for (let j = 0; j < data.length; j++) { const v = data[j][i]; sum += v; sumSq += v * v; }
+    const m = sum / data.length;
+    stds[i] = Math.sqrt(sumSq / data.length - m * m) || 1;
   }
-  const counts = {}; preds.forEach(p => { const k = String(Math.round(p)); counts[k] = (counts[k] || 0) + 1; });
-  const total = preds.length;
+  const counts = {};
+  const p0 = Math.round(predictFn(instance));
+  counts[p0] = 1;
+  for (let k = 0; k < nPert; k++) {
+    const perturbed = new Array(p);
+    for (let i = 0; i < p; i++) perturbed[i] = instance[i] + boxMuller() * stds[i] * 0.3;
+    const key = String(Math.round(predictFn(perturbed)));
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  const total = nPert + 1;
   return Object.entries(counts).map(([cls, c]) => ({ class: cls, probability: c / total })).sort((a, b) => b.probability - a.probability);
 }
 
-// ── Waterfall data builder ──────────────────────────────────────
+// ── Data builders (unchanged logic) ─────────────────────────────
 
 export function buildWaterfallData(shapValues, featureNames, basePred) {
   const items = featureNames.map((f, i) => ({ feature: f, contribution: shapValues[i] }));
   items.sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
   let running = basePred;
-  items.forEach(d => { d.offset = Math.min(running, running + d.contribution); d.width = Math.abs(d.contribution); running += d.contribution; });
+  for (const d of items) { d.offset = Math.min(running, running + d.contribution); d.width = Math.abs(d.contribution); running += d.contribution; }
   return items;
 }
-
-// ── Force plot data builder ─────────────────────────────────────
 
 export function buildForceData(shapValues, featureNames, basePred, instancePred) {
   const features = featureNames.map((f, i) => ({ feature: f, value: shapValues[i] }));
