@@ -74,16 +74,18 @@ const METRIC_EXPLANATIONS = {
 };
 
 // Lightweight hover tooltip for metric names — wraps any inline text
-const MetricTip = ({ metricKey, children, className = '' }) => {
+const MetricTip = ({ metricKey, children, className = '', value }) => {
   const info = METRIC_EXPLANATIONS[metricKey];
   if (!info) return <span className={className}>{children}</span>;
+  const interp = value !== undefined ? interpretMetric(metricKey, value) : null;
   return (
     <span className={`group/tip relative inline-flex items-center gap-1 cursor-help ${className}`} data-testid={`metric-tip-${metricKey}`}>
       {children}
       <Info className="h-3 w-3 text-muted-foreground/50 group-hover/tip:text-foreground transition-colors shrink-0" />
-      <span className="invisible group-hover/tip:visible opacity-0 group-hover/tip:opacity-100 absolute z-[60] bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2.5 rounded-lg bg-popover border shadow-lg text-xs text-popover-foreground transition-all duration-150 pointer-events-none">
+      <span className="invisible group-hover/tip:visible opacity-0 group-hover/tip:opacity-100 absolute z-[60] bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2.5 rounded-lg bg-popover border shadow-lg text-xs text-popover-foreground transition-all duration-150 pointer-events-none">
         <span className="font-semibold block mb-0.5">{info.name}</span>
         <span className="text-muted-foreground leading-relaxed block">{info.description}</span>
+        {interp && <span className={`block mt-1.5 pt-1.5 border-t leading-relaxed font-medium ${interp.color}`}>{interp.text}</span>}
       </span>
     </span>
   );
@@ -108,6 +110,67 @@ function getScoreColor(score, higherBetter = true) {
   if (s >= 0.7) return { bg: 'bg-sky-50 dark:bg-sky-950/30', border: 'border-sky-300 dark:border-sky-800', text: 'text-sky-700 dark:text-sky-400', label: 'Good' };
   if (s >= 0.5) return { bg: 'bg-amber-50 dark:bg-amber-950/30', border: 'border-amber-300 dark:border-amber-800', text: 'text-amber-700 dark:text-amber-400', label: 'Fair' };
   return { bg: 'bg-red-50 dark:bg-red-950/30', border: 'border-red-300 dark:border-red-800', text: 'text-red-700 dark:text-red-400', label: 'Needs Work' };
+}
+
+function interpretMetric(key, value) {
+  if (value === undefined || value === null) return null;
+  const v = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(v)) return null;
+  switch (key) {
+    case 'r2':
+      if (v < 0) return { rating: 'poor', color: 'text-red-600 dark:text-red-400', text: 'The model performs worse than simply predicting the average value. This indicates a poor fit and unreliable predictions.' };
+      if (v < 0.3) return { rating: 'poor', color: 'text-red-600 dark:text-red-400', text: 'The model has very little predictive power. Consider trying different features or algorithms.' };
+      if (v < 0.5) return { rating: 'fair', color: 'text-amber-600 dark:text-amber-400', text: 'The model explains some variation but misses important patterns. There is room for significant improvement.' };
+      if (v < 0.7) return { rating: 'good', color: 'text-sky-600 dark:text-sky-400', text: 'The model captures a moderate amount of the variation. Decent performance but could be improved further.' };
+      if (v < 0.9) return { rating: 'good', color: 'text-sky-600 dark:text-sky-400', text: 'The model explains most of the variation in the data and performs well.' };
+      return { rating: 'excellent', color: 'text-emerald-600 dark:text-emerald-400', text: 'Excellent fit — the model explains nearly all variation in the data.' };
+    case 'accuracy':
+      if (v < 0.5) return { rating: 'poor', color: 'text-red-600 dark:text-red-400', text: 'The model is wrong more often than right. Consider different features or algorithms.' };
+      if (v < 0.7) return { rating: 'fair', color: 'text-amber-600 dark:text-amber-400', text: 'Below average accuracy. The model needs improvement. Note: accuracy alone can be misleading for imbalanced datasets.' };
+      if (v < 0.9) return { rating: 'good', color: 'text-sky-600 dark:text-sky-400', text: 'Good accuracy — the model correctly predicts most cases. For imbalanced data, also check precision and recall.' };
+      return { rating: 'excellent', color: 'text-emerald-600 dark:text-emerald-400', text: 'Very high accuracy — the model is correct in nearly all predictions.' };
+    case 'f1':
+      if (v < 0.5) return { rating: 'poor', color: 'text-red-600 dark:text-red-400', text: 'Poor performance — the model struggles to balance finding positives (recall) with being correct about them (precision).' };
+      if (v < 0.7) return { rating: 'fair', color: 'text-amber-600 dark:text-amber-400', text: 'Moderate performance. The balance between precision and recall could be improved.' };
+      if (v < 0.9) return { rating: 'good', color: 'text-sky-600 dark:text-sky-400', text: 'Good performance — the model effectively balances precision and recall.' };
+      return { rating: 'excellent', color: 'text-emerald-600 dark:text-emerald-400', text: 'Excellent — the model achieves both high precision and high recall.' };
+    case 'precision':
+      if (v < 0.5) return { rating: 'poor', color: 'text-red-600 dark:text-red-400', text: 'Many false alarms — when the model predicts positive, it is often wrong.' };
+      if (v < 0.7) return { rating: 'fair', color: 'text-amber-600 dark:text-amber-400', text: 'Moderate — a noticeable portion of positive predictions are incorrect.' };
+      if (v < 0.9) return { rating: 'good', color: 'text-sky-600 dark:text-sky-400', text: 'Good — most positive predictions are correct, with few false alarms.' };
+      return { rating: 'excellent', color: 'text-emerald-600 dark:text-emerald-400', text: 'Excellent — the model very rarely raises false alarms.' };
+    case 'recall':
+      if (v < 0.5) return { rating: 'poor', color: 'text-red-600 dark:text-red-400', text: 'The model misses most actual positives. Many real cases go undetected.' };
+      if (v < 0.7) return { rating: 'fair', color: 'text-amber-600 dark:text-amber-400', text: 'Moderate — the model catches some positives but misses a significant portion.' };
+      if (v < 0.9) return { rating: 'good', color: 'text-sky-600 dark:text-sky-400', text: 'Good — the model catches most actual positives with relatively few misses.' };
+      return { rating: 'excellent', color: 'text-emerald-600 dark:text-emerald-400', text: 'Excellent — the model detects nearly all actual positives.' };
+    case 'rmse':
+      return { rating: null, color: 'text-muted-foreground', text: `Average prediction error of ${v.toFixed(2)}. Lower values mean more accurate predictions. Compare to your target variable's range.` };
+    case 'mae':
+      return { rating: null, color: 'text-muted-foreground', text: `On average, predictions are off by ${v.toFixed(2)}. Lower is better.` };
+    case 'silhouette':
+      if (v < 0) return { rating: 'poor', color: 'text-red-600 dark:text-red-400', text: 'Negative score — data points may be in wrong clusters. The clustering structure is poor.' };
+      if (v < 0.25) return { rating: 'fair', color: 'text-amber-600 dark:text-amber-400', text: 'Clusters overlap significantly. The data may not have a clear clustering structure.' };
+      if (v < 0.5) return { rating: 'good', color: 'text-sky-600 dark:text-sky-400', text: 'Moderate cluster separation. Clusters are reasonable but have some overlap.' };
+      if (v < 0.75) return { rating: 'good', color: 'text-sky-600 dark:text-sky-400', text: 'Good — data points generally fit well within their assigned clusters.' };
+      return { rating: 'excellent', color: 'text-emerald-600 dark:text-emerald-400', text: 'Excellent — each cluster is distinct and well-defined.' };
+    case 'daviesBouldin':
+      if (v === Infinity) return null;
+      if (v > 2) return { rating: 'poor', color: 'text-red-600 dark:text-red-400', text: 'Clusters are too similar. Consider fewer clusters or a different algorithm.' };
+      if (v > 1) return { rating: 'fair', color: 'text-amber-600 dark:text-amber-400', text: 'Moderate cluster distinction. Some overlap exists between clusters.' };
+      if (v > 0.5) return { rating: 'good', color: 'text-sky-600 dark:text-sky-400', text: 'Good separation — each cluster has distinct characteristics.' };
+      return { rating: 'excellent', color: 'text-emerald-600 dark:text-emerald-400', text: 'Excellent distinction — clusters are clearly separated with minimal overlap.' };
+    case 'calinskiHarabasz':
+      if (v < 50) return { rating: 'fair', color: 'text-amber-600 dark:text-amber-400', text: 'Low score — clusters are not very dense or well-separated.' };
+      if (v < 200) return { rating: 'good', color: 'text-sky-600 dark:text-sky-400', text: 'Decent clustering — data points within clusters are reasonably compact.' };
+      return { rating: 'excellent', color: 'text-emerald-600 dark:text-emerald-400', text: 'Strong clustering — dense clusters that are well-separated from each other.' };
+    case 'cvScore':
+      if (v < 0.5) return { rating: 'poor', color: 'text-red-600 dark:text-red-400', text: 'Low cross-validation score — the model does not generalize well to unseen data.' };
+      if (v < 0.7) return { rating: 'fair', color: 'text-amber-600 dark:text-amber-400', text: 'Moderate generalization. The model may benefit from more data or better features.' };
+      if (v < 0.9) return { rating: 'good', color: 'text-sky-600 dark:text-sky-400', text: 'Good — the model performs consistently across different data splits.' };
+      return { rating: 'excellent', color: 'text-emerald-600 dark:text-emerald-400', text: 'Excellent — very consistent performance across all cross-validation folds.' };
+    default: return null;
+  }
 }
 
 // ==================== PERF HELPERS (stack-safe min/max) ====================
@@ -1865,6 +1928,7 @@ function App() {
   const MetricCard = ({ label, value, score, metricKey }) => {
     const explanation = METRIC_EXPLANATIONS[metricKey];
     const color = score !== undefined ? getScoreColor(score, explanation?.higherBetter !== false) : null;
+    const interp = metricKey ? interpretMetric(metricKey, score !== undefined ? score : parseFloat(String(value))) : null;
     return (
       <div className={`rounded-xl p-4 border-2 transition-all ${color ? `${color.bg} ${color.border}` : 'bg-muted/50 border-transparent'}`} data-testid={`metric-${metricKey || label}`}>
         <div className="flex items-center justify-between mb-1">
@@ -1872,15 +1936,17 @@ function App() {
           {explanation && (
             <div className="group relative">
               <Info className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help hover:text-foreground transition-colors" />
-              <div className="invisible group-hover:visible opacity-0 group-hover:opacity-100 absolute z-50 bottom-full right-0 mb-2 w-64 p-3 rounded-lg bg-popover border shadow-lg text-xs text-popover-foreground transition-all duration-200 pointer-events-none">
+              <div className="invisible group-hover:visible opacity-0 group-hover:opacity-100 absolute z-50 bottom-full right-0 mb-2 w-72 p-3 rounded-lg bg-popover border shadow-lg text-xs text-popover-foreground transition-all duration-200 pointer-events-none">
                 <p className="font-semibold mb-1">{explanation.name}</p>
                 <p className="text-muted-foreground leading-relaxed">{explanation.description}</p>
+                {interp && <p className={`mt-2 pt-2 border-t leading-relaxed font-medium ${interp.color}`}>{interp.text}</p>}
               </div>
             </div>
           )}
         </div>
         <p className={`text-2xl font-bold ${color ? color.text : ''}`}>{value}</p>
-        {color && <div className={`inline-flex items-center gap-1 mt-1.5 text-xs font-semibold ${color.text}`}>{color.label === 'Excellent' || color.label === 'Good' ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}{color.label}</div>}
+        {color && <div className={`inline-flex items-center gap-1 mt-1 text-xs font-semibold ${color.text}`}>{color.label === 'Excellent' || color.label === 'Good' ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}{color.label}</div>}
+        {interp && <p className={`text-[11px] mt-2 leading-relaxed ${interp.color}`} data-testid={`metric-interp-${metricKey}`}>{interp.text}</p>}
       </div>
     );
   };
@@ -2020,7 +2086,7 @@ function App() {
                   </CardContent></Card>
                   <Card><CardContent className="p-4 flex items-center gap-3">
                     <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0"><Sparkles className="h-5 w-5 text-amber-600" /></div>
-                    <div><p className="text-xs text-muted-foreground"><MetricTip metricKey="accuracy">Highest Accuracy</MetricTip></p><p className="font-semibold text-sm" data-testid="insight-highest">{(stats.highestScore * 100).toFixed(1)}%</p></div>
+                    <div><p className="text-xs text-muted-foreground"><MetricTip metricKey="accuracy" value={stats.highestScore}>Highest Accuracy</MetricTip></p><p className="font-semibold text-sm" data-testid="insight-highest">{(stats.highestScore * 100).toFixed(1)}%</p></div>
                   </CardContent></Card>
                 </motion.div>
 
@@ -2423,8 +2489,8 @@ function App() {
                       <div key={idx} className="flex items-center justify-between p-3 rounded-lg border" data-testid={`leaderboard-entry-${idx}`} style={idx === 0 ? { borderColor: ALGO_COLORS[model.algorithm], borderWidth: 2 } : {}}>
                         <div className="flex items-center gap-3"><Badge variant={idx === 0 ? 'default' : 'secondary'} style={idx === 0 ? { backgroundColor: ALGO_COLORS[model.algorithm] } : {}}>{idx + 1}</Badge><div><p className="font-medium">{ALGO_NAMES[model.algorithm] || model.algorithm}</p><p className="text-xs text-muted-foreground">{model.durationSec ? `${model.durationSec.toFixed(3)}s` : '-'}{idx === 0 && ' — Best Model'}</p></div></div>
                         <div className="text-right font-mono text-sm" data-testid={`leaderboard-score-${idx}`}>
-                          {(() => { const m = model.testMetrics; const s = m.accuracy !== undefined ? m.accuracy : (m.r2 !== undefined ? m.r2 : 0); const c = getScoreColor(s); return <div className={`font-semibold ${c.text}`}>{m.accuracy !== undefined ? <MetricTip metricKey="accuracy">{`${(m.accuracy * 100).toFixed(2)}% acc`}</MetricTip> : m.r2 !== undefined ? <MetricTip metricKey="r2">{`${(m.r2 * 100).toFixed(2)}% R\u00B2`}</MetricTip> : '-'}</div>; })()}
-                          {model.cvScore !== null && model.cvScore !== undefined && <div className="text-xs text-emerald-600 font-semibold" data-testid={`cv-score-${idx}`}><MetricTip metricKey="cvScore">CV: {(model.cvScore * 100).toFixed(2)}%</MetricTip></div>}
+                          {(() => { const m = model.testMetrics; const s = m.accuracy !== undefined ? m.accuracy : (m.r2 !== undefined ? m.r2 : 0); const c = getScoreColor(s); return <div className={`font-semibold ${c.text}`}>{m.accuracy !== undefined ? <MetricTip metricKey="accuracy" value={m.accuracy}>{`${(m.accuracy * 100).toFixed(2)}% acc`}</MetricTip> : m.r2 !== undefined ? <MetricTip metricKey="r2" value={m.r2}>{`${(m.r2 * 100).toFixed(2)}% R\u00B2`}</MetricTip> : '-'}</div>; })()}
+                          {model.cvScore !== null && model.cvScore !== undefined && <div className="text-xs text-emerald-600 font-semibold" data-testid={`cv-score-${idx}`}><MetricTip metricKey="cvScore" value={model.cvScore}>CV: {(model.cvScore * 100).toFixed(2)}%</MetricTip></div>}
                         </div>
                       </div>
                     ))}</div></CardContent></Card>
@@ -2439,7 +2505,7 @@ function App() {
                 <div className="flex items-center gap-4">
                   <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center"><Sparkles className="h-6 w-6 text-primary" /></div>
                   <div><p className="font-semibold">Unsupervised Analysis Complete</p>
-                    <p className="text-sm text-muted-foreground">Best: {unsupervisedResult.bestAlgorithm?.name} (<MetricTip metricKey="silhouette">Silhouette: {unsupervisedResult.bestAlgorithm?.metrics.silhouette.toFixed(3)}</MetricTip>) &middot; {unsupervisedResult.optimalK.bestK} clusters &middot; {unsupervisedResult.totalTime.toFixed(2)}s</p>
+                    <p className="text-sm text-muted-foreground">Best: {unsupervisedResult.bestAlgorithm?.name} (<MetricTip metricKey="silhouette" value={unsupervisedResult.bestAlgorithm?.metrics.silhouette}>Silhouette: {unsupervisedResult.bestAlgorithm?.metrics.silhouette.toFixed(3)}</MetricTip>) &middot; {unsupervisedResult.optimalK.bestK} clusters &middot; {unsupervisedResult.totalTime.toFixed(2)}s</p>
                   </div>
                 </div>
                 <Button onClick={() => { setActiveView('predict'); setPredictTab('results'); }} data-testid="view-unsupervised-results-btn"><Eye className="h-4 w-4 mr-2" />View Full Results</Button>
