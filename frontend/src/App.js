@@ -225,6 +225,83 @@ function profileDataset(text) {
   return { rowCount: rows.length, columnCount: headers.length, columns, headers, rows, numericColumns: columns.filter(c => c.type === 'numeric').map(c => c.name), categoricalColumns: columns.filter(c => c.type === 'categorical').map(c => c.name) };
 }
 
+// ==================== DATASET SUMMARY GENERATOR ====================
+const DOMAIN_KEYWORDS = {
+  finance: ['loan', 'credit', 'income', 'salary', 'interest', 'debt', 'balance', 'payment', 'bank', 'finance', 'mortgage', 'investment', 'revenue', 'profit', 'loss', 'amount', 'fee', 'tax', 'asset', 'liability', 'stock', 'portfolio'],
+  health: ['age', 'bmi', 'blood', 'heart', 'disease', 'patient', 'diagnosis', 'medical', 'health', 'hospital', 'treatment', 'symptom', 'drug', 'medicine', 'cholesterol', 'glucose', 'pressure', 'cancer', 'diabetes', 'weight', 'height', 'clinical'],
+  sales: ['sales', 'revenue', 'customer', 'product', 'order', 'purchase', 'quantity', 'discount', 'store', 'retail', 'marketing', 'campaign', 'conversion', 'churn', 'subscription'],
+  education: ['student', 'grade', 'score', 'gpa', 'exam', 'course', 'school', 'university', 'education', 'class', 'teacher', 'attendance', 'enrollment'],
+  realestate: ['house', 'property', 'price', 'sqft', 'bedroom', 'bathroom', 'area', 'location', 'rent', 'apartment', 'building', 'floor', 'garage', 'lot', 'neighborhood'],
+  hr: ['employee', 'department', 'position', 'hire', 'attrition', 'performance', 'satisfaction', 'overtime', 'tenure', 'promotion', 'salary', 'role'],
+  insurance: ['insurance', 'claim', 'premium', 'policy', 'coverage', 'deductible', 'beneficiary', 'charges', 'smoker', 'region'],
+  ecommerce: ['cart', 'click', 'session', 'page', 'bounce', 'visitor', 'item', 'shipping', 'review', 'rating'],
+  transportation: ['trip', 'distance', 'speed', 'vehicle', 'route', 'fare', 'driver', 'passenger', 'flight', 'delay'],
+  environment: ['temperature', 'humidity', 'weather', 'rainfall', 'pollution', 'emission', 'co2', 'energy', 'solar', 'wind'],
+};
+
+function generateDatasetSummary(profile) {
+  if (!profile || !profile.columns || profile.columns.length === 0) return null;
+  const colNamesLower = profile.columns.map(c => c.name.toLowerCase());
+  const allNamesJoined = colNamesLower.join(' ');
+
+  // Detect domain
+  let bestDomain = 'general';
+  let bestScore = 0;
+  for (const [domain, keywords] of Object.entries(DOMAIN_KEYWORDS)) {
+    let score = 0;
+    for (const kw of keywords) {
+      if (allNamesJoined.includes(kw)) score++;
+    }
+    if (score > bestScore) { bestScore = score; bestDomain = domain; }
+  }
+  const domainLabels = { finance: 'Financial / Credit Analysis', health: 'Healthcare / Medical', sales: 'Sales / Marketing', education: 'Education / Academic', realestate: 'Real Estate / Housing', hr: 'Human Resources / Employee', insurance: 'Insurance', ecommerce: 'E-Commerce', transportation: 'Transportation / Travel', environment: 'Environmental / Climate', general: 'General Data Analysis' };
+  const domainLabel = domainLabels[bestDomain] || 'General Data Analysis';
+
+  // Identify key variables (top 5 most interesting columns)
+  const scored = profile.columns.map(c => {
+    let s = 0;
+    if (c.type === 'numeric' && c.std > 0) s += 3;
+    if (c.uniqueCount >= 2 && c.uniqueCount <= 10 && c.type === 'categorical') s += 4;
+    if (c.uniqueCount === 2) s += 2;
+    if (c.missingCount === 0) s += 1;
+    return { ...c, score: s };
+  }).sort((a, b) => b.score - a.score);
+  const keyVars = scored.slice(0, Math.min(5, scored.length));
+
+  // Detect possible target
+  let possibleTarget = null;
+  for (const c of profile.columns) {
+    if (c.type === 'categorical' && c.uniqueCount >= 2 && c.uniqueCount <= 10) {
+      possibleTarget = { name: c.name, reason: `categorical with ${c.uniqueCount} classes`, task: 'classification' };
+      break;
+    }
+  }
+  if (!possibleTarget) {
+    for (const c of profile.columns) {
+      if (c.type === 'numeric' && c.uniqueCount > 10 && c.std > 0) {
+        possibleTarget = { name: c.name, reason: `continuous numeric variable`, task: 'regression' };
+        break;
+      }
+    }
+  }
+
+  // Build description
+  const numCols = profile.numericColumns.length;
+  const catCols = profile.categoricalColumns.length;
+  const keyNames = keyVars.map(v => v.name);
+  const description = [
+    `This dataset contains ${profile.rowCount} records with ${profile.columnCount} variables, covering the domain of ${domainLabel}.`,
+    `It includes ${numCols} numeric feature${numCols !== 1 ? 's' : ''} and ${catCols} categorical feature${catCols !== 1 ? 's' : ''}, providing a mix of quantitative measurements and categorical groupings.`,
+    possibleTarget ? `The most likely objective is ${possibleTarget.task} — predicting "${possibleTarget.name}" (${possibleTarget.reason}).` : `The dataset can be used for clustering or exploratory analysis to uncover patterns.`,
+    `Key variables include ${keyNames.slice(0, 3).join(', ')}${keyNames.length > 3 ? `, among others` : ''}.`,
+    numCols > 0 ? `Numeric features capture measurable quantities, while categorical variables represent groups or labels.` : `The data is primarily categorical, suitable for classification or grouping tasks.`,
+  ];
+
+  const focusLine = `This dataset mainly focuses on ${domainLabel.toLowerCase()}, with key variables like ${keyNames.slice(0, 3).join(', ')}.`;
+
+  return { domain: domainLabel, description, focusLine, keyVariables: keyVars, possibleTarget };
+}
+
 function suggestTask(profile, targetColumn) {
   if (!targetColumn || targetColumn === '__none__') return { task: 'clustering', message: `No target selected. Clustering recommended (${profile.numericColumns.length} numeric features).`, icon: 'layers' };
   const tc = profile.columns.find(c => c.name === targetColumn);
@@ -1326,6 +1403,8 @@ function App() {
 
   const taskSuggestion = useMemo(() => dataProfile ? suggestTask(dataProfile, targetColumn) : null, [dataProfile, targetColumn]);
 
+  const datasetSummary = useMemo(() => dataProfile ? generateDatasetSummary(dataProfile) : null, [dataProfile]);
+
   // Smart target suggestion: suggest the best target column based on data characteristics
   const suggestedTarget = useMemo(() => {
     if (!dataProfile || targetColumn) return null;
@@ -2258,6 +2337,36 @@ function App() {
                   <div className="grid gap-3 md:grid-cols-3"><div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 text-center"><p className="text-xs text-muted-foreground">Numeric</p><p className="text-2xl font-bold text-blue-600">{dataProfile.numericColumns.length}</p></div><div className="bg-emerald-50 dark:bg-emerald-950/30 rounded-lg p-3 text-center"><p className="text-xs text-muted-foreground">Categorical</p><p className="text-2xl font-bold text-emerald-600">{dataProfile.categoricalColumns.length}</p></div><div className="bg-violet-50 dark:bg-violet-950/30 rounded-lg p-3 text-center"><p className="text-xs text-muted-foreground">Rows</p><p className="text-2xl font-bold text-violet-600">{dataProfile.rowCount}</p></div></div>
                   <div className="rounded-md border overflow-auto max-h-64"><table className="w-full text-sm"><thead><tr className="border-b bg-muted/50"><th className="p-2 text-left font-medium">Column</th><th className="p-2 text-left font-medium">Type</th><th className="p-2 text-left font-medium">Unique</th><th className="p-2 text-left font-medium">Range / Values</th></tr></thead><tbody>{dataProfile.columns.map((col, idx) => <tr key={idx} className="border-b last:border-0"><td className="p-2 font-mono text-xs">{col.name}</td><td className="p-2"><Badge variant={col.type === 'numeric' ? 'default' : 'secondary'} className="text-xs">{col.type}</Badge></td><td className="p-2 text-xs">{col.uniqueCount}</td><td className="p-2 text-xs text-muted-foreground">{col.type === 'numeric' ? `${col.min?.toFixed(1)} — ${col.max?.toFixed(1)} (mean: ${col.mean?.toFixed(1)})` : col.sampleValues.slice(0, 3).join(', ')}</td></tr>)}</tbody></table></div>
                   {taskSuggestion && <div className={`p-4 rounded-lg border-2 flex items-start gap-3 ${taskSuggestion.task === 'regression' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30' : taskSuggestion.task === 'classification' ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30' : 'border-violet-500 bg-violet-50 dark:bg-violet-950/30'}`} data-testid="task-suggestion"><Info className="h-5 w-5 mt-0.5 shrink-0" /><div><p className="font-semibold text-sm">{taskSuggestion.message}</p>{taskSuggestion.task === 'clustering' && <Button size="sm" className="mt-2" onClick={() => setActiveView('clusters')} data-testid="go-to-clusters-btn"><Layers className="h-3 w-3 mr-1" />Go to Clustering</Button>}</div></div>}
+                </CardContent></Card></motion.div>}
+
+              {/* ==================== DATASET SUMMARY ==================== */}
+              {datasetSummary && <motion.div variants={fadeInUp}><Card className="border-2 border-indigo-500/30" data-testid="dataset-summary-card">
+                <CardHeader><CardTitle className="flex items-center gap-2"><Lightbulb className="h-5 w-5 text-indigo-500" />Dataset Summary</CardTitle>
+                  <CardDescription>Auto-generated overview of your data</CardDescription></CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant="outline" className="text-xs border-indigo-300 text-indigo-700 dark:text-indigo-300" data-testid="dataset-domain-badge">{datasetSummary.domain}</Badge>
+                  </div>
+                  <div className="space-y-1.5" data-testid="dataset-summary-text">
+                    {datasetSummary.description.map((line, i) => <p key={i} className="text-sm text-muted-foreground leading-relaxed">{line}</p>)}
+                  </div>
+                  <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800" data-testid="dataset-focus-line">
+                    <p className="text-sm font-medium text-indigo-800 dark:text-indigo-300">{datasetSummary.focusLine}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wide">Key Variables</p>
+                    <div className="flex flex-wrap gap-2" data-testid="dataset-key-variables">
+                      {datasetSummary.keyVariables.map((v, i) => <div key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border bg-background text-xs">
+                        <span className="font-mono font-medium">{v.name}</span>
+                        <Badge variant={v.type === 'numeric' ? 'default' : 'secondary'} className="text-[10px] px-1 py-0">{v.type}</Badge>
+                      </div>)}
+                    </div>
+                  </div>
+                  {datasetSummary.possibleTarget && <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 flex items-start gap-2" data-testid="dataset-target-suggestion">
+                    <Target className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+                    <div><p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">Suggested target: <span className="font-mono">{datasetSummary.possibleTarget.name}</span></p>
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5">Detected as {datasetSummary.possibleTarget.reason} — suitable for {datasetSummary.possibleTarget.task}.</p></div>
+                  </div>}
                 </CardContent></Card></motion.div>}
 
               {/* ==================== DATASET SCANNER ==================== */}
