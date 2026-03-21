@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Brain, Sparkles, TrendingUp, Activity, Database, Zap, Upload, Play,
@@ -859,10 +859,116 @@ function App() {
     try { localStorage.setItem('automl_dark_mode', darkMode); } catch {}
   }, [darkMode]);
 
-  // ==================== LOCALSTORAGE PERSISTENCE ====================
-  const [hasLoadedFromStorage, setHasLoadedFromStorage] = useState(false);
-  useEffect(() => { try { const saved = localStorage.getItem('automl_models'); if (saved) { const parsed = JSON.parse(saved); if (Array.isArray(parsed) && parsed.length > 0) setModels(parsed); } } catch (e) { console.error('Failed to load models:', e); } setHasLoadedFromStorage(true); }, []);
-  useEffect(() => { if (!hasLoadedFromStorage) return; try { const s = models.map(m => ({ ...m, modelData: { ...m.modelData } })); localStorage.setItem('automl_models', JSON.stringify(s)); } catch (e) { console.error('Failed to save models:', e); } }, [models, hasLoadedFromStorage]);
+  // ==================== SESSION PERSISTENCE ====================
+  const SESSION_KEY = 'automl_session';
+  const [sessionLoaded, setSessionLoaded] = useState(false);
+  const saveTimerRef = useRef(null);
+
+  // Load full session on mount
+  useEffect(() => {
+    try {
+      const savedModels = localStorage.getItem('automl_models');
+      if (savedModels) {
+        const parsed = JSON.parse(savedModels);
+        if (Array.isArray(parsed) && parsed.length > 0) setModels(parsed);
+      }
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (s.csvText) {
+          setCsvText(s.csvText);
+          const p = profileDataset(s.csvText);
+          setDataProfile(p);
+          setColumns(p?.headers || []);
+        }
+        if (s.targetColumn !== undefined) setTargetColumn(s.targetColumn);
+        if (s.algorithm) setAlgorithm(s.algorithm);
+        if (s.evalMode) setEvalMode(s.evalMode);
+        if (s.cleaningLog) setCleaningLog(s.cleaningLog);
+        if (s.precleanScan) setPrecleanScan(s.precleanScan);
+        if (s.trainingResult) setTrainingResult(s.trainingResult);
+        if (s.predictionResult) setPredictionResult(s.predictionResult);
+        if (s.predictionHistory) setPredictionHistory(s.predictionHistory);
+        if (s.selectedModelIdx !== undefined) setSelectedModelIdx(s.selectedModelIdx);
+        if (s.unsupervisedResult) setUnsupervisedResult(s.unsupervisedResult);
+        if (s.clusterResult) setClusterResult(s.clusterResult);
+        if (s.anomalyResult) setAnomalyResult(s.anomalyResult);
+        if (s.batchResults) setBatchResults(s.batchResults);
+        if (s.shapGlobal) setShapGlobal(s.shapGlobal);
+        if (s.shapBeeswarm) setShapBeeswarm(s.shapBeeswarm);
+        if (s.shapLocal) setShapLocal(s.shapLocal);
+        if (s.shapDependence) setShapDependence(s.shapDependence);
+        if (s.limeResult) setLimeResult(s.limeResult);
+        if (s.limeProbs) setLimeProbs(s.limeProbs);
+        if (s.clusterShap) setClusterShap(s.clusterShap);
+        if (s.clusterBeeswarm) setClusterBeeswarm(s.clusterBeeswarm);
+        if (s.activeView) setActiveView(s.activeView);
+        if (s.predictTab) setPredictTab(s.predictTab);
+        if (s.numClusters !== undefined) setNumClusters(s.numClusters);
+        if (s.anomalyMethod) setAnomalyMethod(s.anomalyMethod);
+        if (s.anomalyThreshold !== undefined) setAnomalyThreshold(s.anomalyThreshold);
+        if (s.histogramCol) setHistogramCol(s.histogramCol);
+        if (s.xaiTab) setXaiTab(s.xaiTab);
+        if (s.xaiRow !== undefined) setXaiRow(s.xaiRow);
+        if (s.xaiDepFeature !== undefined) setXaiDepFeature(s.xaiDepFeature);
+        if (s.corrVarX) setCorrVarX(s.corrVarX);
+        if (s.corrVarY) setCorrVarY(s.corrVarY);
+      }
+    } catch (e) { console.error('Failed to load session:', e); }
+    setSessionLoaded(true);
+  }, []);
+
+  // Save models separately for backward compat
+  useEffect(() => {
+    if (!sessionLoaded) return;
+    try {
+      const s = models.map(m => ({ ...m, modelData: { ...m.modelData } }));
+      localStorage.setItem('automl_models', JSON.stringify(s));
+    } catch (e) { console.error('Failed to save models:', e); }
+  }, [models, sessionLoaded]);
+
+  // Debounced session save (500ms after last state change)
+  useEffect(() => {
+    if (!sessionLoaded) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(SESSION_KEY, JSON.stringify({
+          csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan,
+          trainingResult, predictionResult, predictionHistory, selectedModelIdx,
+          unsupervisedResult, clusterResult, anomalyResult, batchResults,
+          shapGlobal, shapBeeswarm, shapLocal, shapDependence,
+          limeResult, limeProbs, clusterShap, clusterBeeswarm,
+          activeView, predictTab, numClusters, anomalyMethod, anomalyThreshold,
+          histogramCol, xaiTab, xaiRow, xaiDepFeature, corrVarX, corrVarY,
+        }));
+      } catch (e) { console.error('Session save failed:', e); }
+    }, 500);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, [sessionLoaded, csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan,
+    trainingResult, predictionResult, predictionHistory, selectedModelIdx,
+    unsupervisedResult, clusterResult, anomalyResult, batchResults,
+    shapGlobal, shapBeeswarm, shapLocal, shapDependence,
+    limeResult, limeProbs, clusterShap, clusterBeeswarm,
+    activeView, predictTab, numClusters, anomalyMethod, anomalyThreshold,
+    histogramCol, xaiTab, xaiRow, xaiDepFeature, corrVarX, corrVarY]);
+
+  // Clear all session data
+  const handleClearSession = useCallback(() => {
+    try { localStorage.removeItem(SESSION_KEY); localStorage.removeItem('automl_models'); } catch {}
+    setCsvText(''); setColumns([]); setDataProfile(null); setTargetColumn('');
+    setAlgorithm('auto'); setEvalMode('split'); setCleaningLog([]); setPrecleanScan(null);
+    setTrainingResult(null); setModels([]); setPredictionFormData({}); setPredictionResult(null);
+    setNumClusters(3); setClusterResult(null); setAnomalyMethod('zscore'); setAnomalyThreshold(3);
+    setAnomalyResult(null); setUnsupervisedResult(null); setClusterPredFormData({});
+    setClusterPredResult(null); setPredictTab('predict'); setPredictionHistory([]);
+    setSelectedModelIdx(-1); setCorrVarX(''); setCorrVarY('');
+    setBatchCsvText(''); setBatchResults(null); setHistogramCol('');
+    setXaiTab('shap'); setXaiRow(0); setXaiDepFeature(0);
+    setShapGlobal(null); setShapBeeswarm(null); setShapLocal(null); setShapDependence(null);
+    setLimeResult(null); setLimeProbs(null); setClusterShap(null); setClusterBeeswarm(null);
+    setActiveView('dashboard'); setError('');
+  }, []);
 
   // ==================== SAMPLE DATASETS ====================
   const sampleDatasets = [
@@ -1493,6 +1599,7 @@ function App() {
             </h2>
             <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations'}{activeView === 'analysis' && 'Upload data, auto-detect tasks, and train models'}{activeView === 'predict' && 'Predictions, results, visualizations & correlation analysis'}{activeView === 'anomalies' && 'Detect outliers in your data'}{activeView === 'models' && 'Manage your models'}{activeView === 'explore' && 'Histograms, correlation heatmap & scatter plots'}{activeView === 'explainability' && 'Understand why the model made its predictions'}</p>
           </div><div className="flex items-center gap-2">
+            {csvText && <Button variant="outline" size="sm" onClick={handleClearSession} data-testid="clear-session-btn"><Trash2 className="h-4 w-4 mr-2" />Clear Session</Button>}
             {trainingResult && <Button variant="outline" size="sm" onClick={handleExportPDF} data-testid="export-pdf-btn"><Printer className="h-4 w-4 mr-2" />Export PDF</Button>}
             <Button variant="outline" size="icon" onClick={() => setDarkMode(prev => !prev)} data-testid="dark-mode-toggle">{darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</Button>
           </div></div>
