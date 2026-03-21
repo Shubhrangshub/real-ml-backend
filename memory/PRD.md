@@ -63,8 +63,17 @@ Build a 100% client-side Universal AI Dashboard (AutoML Master) in React. All ML
   - Status feedback: "Link copied to clipboard" (success) / "Copy not supported here. Please copy manually." (fallback)
   - All clipboard usage sites updated (share button, copy button, history share buttons)
   - Fully wrapped in try-catch — no crashes when clipboard API is blocked (iframe/preview safe)
+- [x] **Dataset Summary Generator**:
+  - Auto-generates plain-English summary after dataset upload
+  - Domain detection via keyword matching (finance, health, insurance, real estate, sales, education, HR, etc.)
+  - 5-line description: what data is about, data types, likely objective, key variables, data characteristics
+  - Focus line: "This dataset mainly focuses on [domain], with key variables like [X, Y, Z]."
+  - Key Variables section with type badges, Suggested Target with task type
+  - Rendered between Dataset Profile and Dataset Scanner cards
 
 ## Testing Status
+- Iteration 21: 12/12 (100% — Dataset Summary)
+- Iteration 20: 10/10 (100% — Safe Clipboard Share)
 - Iteration 19: 13/13 (100% — Export System Simplification)
 - Iteration 18: 13/13 (100% — Metric Interpretation)
 - Iteration 17: 29/29 (100% — History & Sharing)
