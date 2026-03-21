@@ -1318,6 +1318,96 @@ function App() {
     } catch { return []; }
   }, [models, selectedModelIdx, dataProfile]);
 
+  // ==================== FEATURE INSIGHTS (derived from SHAP data) ====================
+  const featureInsights = useMemo(() => {
+    if (!shapGlobal || !shapSummary || !shapBeeswarm || !dataProfile) return null;
+    const fn = getXaiModel()?.modelData?.featureNames || [];
+    if (!fn.length) return null;
+    const target = targetColumn || 'target';
+
+    // Top features ranked
+    const topN = shapGlobal.importance.slice(0, 10);
+    const top2 = topN.slice(0, 2);
+    const top5 = topN.slice(0, 5);
+
+    // Direction of impact for each feature (from shapSummary)
+    const directions = {};
+    shapSummary.forEach(s => {
+      const net = s.positive + s.negative;
+      directions[s.feature] = {
+        positive: s.positive, negative: s.negative, net,
+        direction: Math.abs(s.positive) > Math.abs(s.negative) ? 'increase' : 'decrease',
+        label: Math.abs(s.positive) > Math.abs(s.negative) ? 'Higher values increase ' + target : 'Higher values decrease ' + target,
+      };
+    });
+
+    // Optimal ranges: for top features, find what feature value ranges produce positive vs negative SHAP
+    const optimalRanges = {};
+    top5.forEach(feat => {
+      const fi = fn.indexOf(feat.feature);
+      if (fi === -1) return;
+      const pts = shapBeeswarm.points.filter(p => p.featureIdx === fi);
+      if (!pts.length) return;
+      const highVal = pts.filter(p => p.normalizedValue > 0.6);
+      const lowVal = pts.filter(p => p.normalizedValue < 0.4);
+      const highShap = highVal.length > 0 ? highVal.reduce((s, p) => s + p.shapValue, 0) / highVal.length : 0;
+      const lowShap = lowVal.length > 0 ? lowVal.reduce((s, p) => s + p.shapValue, 0) / lowVal.length : 0;
+      optimalRanges[feat.feature] = {
+        highShap, lowShap,
+        recommendation: highShap > lowShap ? 'higher' : 'lower',
+        label: highShap > lowShap ? `Higher ${feat.feature} tends to increase ${target}` : `Lower ${feat.feature} tends to increase ${target}`,
+      };
+    });
+
+    // Correlation between top 2 features
+    let correlation = null;
+    if (top2.length === 2 && dataProfile.rows) {
+      const f1 = top2[0].feature, f2 = top2[1].feature;
+      const v1 = dataProfile.rows.map(r => typeof r[f1] === 'number' ? r[f1] : NaN).filter(v => !isNaN(v));
+      const v2 = dataProfile.rows.map(r => typeof r[f2] === 'number' ? r[f2] : NaN).filter(v => !isNaN(v));
+      const n = Math.min(v1.length, v2.length);
+      if (n > 2) {
+        const m1 = v1.slice(0, n).reduce((a, b) => a + b, 0) / n;
+        const m2 = v2.slice(0, n).reduce((a, b) => a + b, 0) / n;
+        let num = 0, d1 = 0, d2 = 0;
+        for (let i = 0; i < n; i++) { const a = v1[i] - m1, b = v2[i] - m2; num += a * b; d1 += a * a; d2 += b * b; }
+        const r = d1 > 0 && d2 > 0 ? num / (Math.sqrt(d1) * Math.sqrt(d2)) : 0;
+        const strength = Math.abs(r) > 0.7 ? 'strong' : Math.abs(r) > 0.3 ? 'moderate' : 'weak';
+        const dir = r > 0 ? 'positive' : 'negative';
+        correlation = { feature1: f1, feature2: f2, r, strength, dir, label: `${strength} ${dir} correlation (r = ${r.toFixed(3)})` };
+      }
+    }
+
+    // Scatter data for top 2 features
+    let pairScatter = null;
+    if (top2.length === 2 && dataProfile.rows && targetColumn) {
+      const f1 = top2[0].feature, f2 = top2[1].feature;
+      pairScatter = dataProfile.rows.slice(0, 500).map(r => ({
+        x: typeof r[f1] === 'number' ? r[f1] : null,
+        y: typeof r[f2] === 'number' ? r[f2] : null,
+        target: r[targetColumn],
+      })).filter(d => d.x !== null && d.y !== null);
+    }
+
+    // Business insights text
+    const actionItems = [];
+    if (top2[0]) {
+      const d = directions[top2[0].feature] || {};
+      const o = optimalRanges[top2[0].feature] || {};
+      actionItems.push(`Focus on "${top2[0].feature}" — it has the strongest influence on ${target}. ${o.recommendation === 'higher' ? 'Increasing' : 'Decreasing'} this feature tends to improve outcomes.`);
+    }
+    if (top2[1]) {
+      const d = directions[top2[1].feature] || {};
+      const o = optimalRanges[top2[1].feature] || {};
+      actionItems.push(`Optimize "${top2[1].feature}" as the second most impactful factor. ${o.recommendation === 'higher' ? 'Higher' : 'Lower'} values of this feature are associated with better ${target} outcomes.`);
+    }
+    if (correlation && Math.abs(correlation.r) > 0.3) {
+      actionItems.push(`"${correlation.feature1}" and "${correlation.feature2}" have a ${correlation.strength} ${correlation.dir} relationship (r=${correlation.r.toFixed(2)}). Changes in one may affect the other.`);
+    }
+
+    return { topN, top2, top5, directions, optimalRanges, correlation, pairScatter, actionItems, target };
+  }, [shapGlobal, shapSummary, shapBeeswarm, dataProfile, targetColumn]);
+
   // ==================== DATA HANDLERS ====================
   const handleCsvTextChange = useCallback((text, isCleanAction) => {
     setCsvText(text); setTrainingResult(null); setClusterResult(null); setAnomalyResult(null);
@@ -2852,7 +2942,7 @@ function App() {
                 {/* Tab selector */}
                 <motion.div variants={fadeInUp}>
                   <div className="flex gap-1 p-1 rounded-xl bg-muted/50 w-fit border border-border/50" data-testid="xai-tabs">
-                    {[{ id: 'shap', label: 'SHAP Analysis' }, { id: 'lime', label: 'LIME Explanation' }, ...(unsupervisedResult ? [{ id: 'clusters', label: 'Cluster Explanation' }] : [])].map(tab => (
+                    {[{ id: 'shap', label: 'SHAP Analysis' }, { id: 'lime', label: 'LIME Explanation' }, { id: 'insights', label: 'Feature Insights' }, ...(unsupervisedResult ? [{ id: 'clusters', label: 'Cluster Explanation' }] : [])].map(tab => (
                       <Button key={tab.id} variant={xaiTab === tab.id ? 'default' : 'ghost'} size="sm" onClick={() => setXaiTab(tab.id)} data-testid={`xai-tab-${tab.id}`}
                         className={xaiTab === tab.id ? 'shadow-md' : ''}>{tab.label}</Button>
                     ))}
@@ -3280,6 +3370,249 @@ function App() {
                       </div>
                     </div>
                   </CardContent></Card></motion.div>}
+                </>)}
+
+                {/* ───── INSIGHTS TAB ───── */}
+                {xaiTab === 'insights' && (<>
+                  {!featureInsights ? (
+                    <motion.div variants={fadeInUp}><Card className="border-2 border-dashed"><CardContent className="py-16 text-center">
+                      <Lightbulb className="h-14 w-14 text-muted-foreground/30 mx-auto mb-5" />
+                      <h3 className="text-lg font-semibold mb-2">Run SHAP Analysis First</h3>
+                      <p className="text-muted-foreground text-sm mb-4">Switch to the SHAP tab and click "Run SHAP Analysis" to generate data for feature insights.</p>
+                      <Button onClick={() => setXaiTab('shap')} size="lg" data-testid="insights-go-shap"><Sparkles className="h-4 w-4 mr-2" />Go to SHAP Analysis</Button>
+                    </CardContent></Card></motion.div>
+                  ) : (<>
+                    {/* Key Business Insights Summary */}
+                    <motion.div variants={fadeInUp}>
+                      <div className="flex items-center gap-3 mb-4 mt-2"><div className="h-px flex-1 bg-gradient-to-r from-amber-500/50 to-transparent" /><span className="text-sm font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Key Business Insights</span><div className="h-px flex-1 bg-gradient-to-l from-amber-500/50 to-transparent" /></div>
+                    </motion.div>
+
+                    <motion.div variants={fadeInUp}><Card data-testid="key-insights-card" className="border-amber-200/50 dark:border-amber-800/30 shadow-lg bg-gradient-to-br from-amber-50/50 to-orange-50/30 dark:from-amber-950/10 dark:to-orange-950/10"><CardHeader>
+                      <CardTitle className="flex items-center gap-2"><Trophy className="h-5 w-5 text-amber-500" />What Should You Do?</CardTitle>
+                      <CardDescription>These are the most important findings from your model. Use these recommendations to focus your efforts on what matters most.</CardDescription>
+                    </CardHeader><CardContent className="space-y-4">
+                      <div className="p-4 rounded-xl border-2 border-amber-300 dark:border-amber-700 bg-white dark:bg-card" data-testid="top-2-recommendation">
+                        <div className="flex items-center gap-2 mb-3"><span className="h-6 w-6 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center">!</span><span className="text-sm font-bold">Top 2 Features to Focus On</span></div>
+                        <p className="text-xs text-muted-foreground mb-3">These 2 features have the highest impact on <strong className="text-foreground">{featureInsights.target}</strong> and should be prioritized.</p>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {featureInsights.top2.map((feat, i) => {
+                            const dir = featureInsights.directions[feat.feature] || {};
+                            const opt = featureInsights.optimalRanges[feat.feature] || {};
+                            return <div key={i} className={`rounded-lg p-4 border-2 ${i === 0 ? 'border-pink-300 dark:border-pink-700 bg-pink-50/50 dark:bg-pink-950/10' : 'border-violet-300 dark:border-violet-700 bg-violet-50/50 dark:bg-violet-950/10'}`} data-testid={`top-feature-${i}`}>
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className={`h-7 w-7 rounded-full text-white text-xs font-bold flex items-center justify-center ${i === 0 ? 'bg-pink-500' : 'bg-violet-500'}`}>#{i + 1}</span>
+                                <span className="font-bold text-sm">{feat.feature}</span>
+                              </div>
+                              <p className="text-xs text-muted-foreground mb-2">SHAP importance: <strong className="text-foreground">{feat.importance.toFixed(4)}</strong></p>
+                              <div className={`flex items-center gap-1.5 text-xs font-semibold ${opt.recommendation === 'higher' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                                <TrendingUp className={`h-3.5 w-3.5 ${opt.recommendation !== 'higher' ? 'rotate-180' : ''}`} />
+                                {dir.label || (opt.recommendation === 'higher' ? `Higher values increase ${featureInsights.target}` : `Higher values decrease ${featureInsights.target}`)}
+                              </div>
+                              {opt.label && <p className="text-[11px] text-muted-foreground mt-1.5 italic">{opt.label}</p>}
+                            </div>;
+                          })}
+                        </div>
+                      </div>
+                      {/* Action Items */}
+                      <div className="space-y-2" data-testid="action-items">
+                        {featureInsights.actionItems.map((item, i) => (
+                          <div key={i} className="flex items-start gap-3 p-3 rounded-lg border bg-white dark:bg-card" data-testid={`action-item-${i}`}>
+                            <CheckCircle2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
+                            <p className="text-sm leading-relaxed">{item}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent></Card></motion.div>
+
+                    {/* Top Features Ranking */}
+                    <motion.div variants={fadeInUp}>
+                      <div className="flex items-center gap-3 mb-4 mt-6"><div className="h-px flex-1 bg-gradient-to-r from-violet-500/50 to-transparent" /><span className="text-sm font-semibold text-violet-600 dark:text-violet-400 uppercase tracking-wider">Feature Importance Ranking</span><div className="h-px flex-1 bg-gradient-to-l from-violet-500/50 to-transparent" /></div>
+                    </motion.div>
+
+                    <motion.div variants={fadeInUp}><Card data-testid="feature-ranking-card" className="border-violet-200/50 dark:border-violet-800/30 shadow-sm"><CardHeader>
+                      <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5 text-violet-500" />Top {featureInsights.topN.length} Features by SHAP Importance</CardTitle>
+                      <CardDescription>Features are ranked by their average absolute SHAP value — how much they influence the model's predictions. The bars show impact direction: pink means the feature tends to push predictions up, cyan means it tends to push them down.</CardDescription>
+                    </CardHeader><CardContent>
+                      <div className="space-y-3">
+                        {featureInsights.topN.map((feat, i) => {
+                          const dir = featureInsights.directions[feat.feature] || {};
+                          const opt = featureInsights.optimalRanges[feat.feature] || {};
+                          const maxImp = featureInsights.topN[0]?.importance || 1;
+                          const pct = (feat.importance / maxImp) * 100;
+                          const isTop2 = i < 2;
+                          return <div key={i} className={`rounded-lg border p-3 transition-colors ${isTop2 ? 'border-amber-300/60 dark:border-amber-700/40 bg-amber-50/30 dark:bg-amber-950/10' : 'hover:bg-accent/30'}`} data-testid={`ranked-feature-${i}`}>
+                            <div className="flex items-center gap-3 mb-2">
+                              <span className={`h-6 w-6 rounded-full text-xs font-bold flex items-center justify-center shrink-0 ${isTop2 ? 'bg-amber-500 text-white' : 'bg-muted text-muted-foreground'}`}>{i + 1}</span>
+                              <span className="font-semibold text-sm flex-1">{feat.feature}</span>
+                              <span className="text-xs font-mono text-muted-foreground">{feat.importance.toFixed(4)}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: dir.net >= 0 ? 'linear-gradient(to right, #ec4899, #f472b6)' : 'linear-gradient(to right, #06b6d4, #22d3ee)' }} />
+                              </div>
+                              <div className={`text-[10px] font-semibold shrink-0 ${dir.net >= 0 ? 'text-pink-600 dark:text-pink-400' : 'text-cyan-600 dark:text-cyan-400'}`}>
+                                {dir.direction === 'increase' ? 'Pushes up' : 'Pushes down'}
+                              </div>
+                            </div>
+                            {opt.label && <p className="text-[10px] text-muted-foreground mt-1.5">{opt.label}</p>}
+                          </div>;
+                        })}
+                      </div>
+                    </CardContent></Card></motion.div>
+
+                    {/* SHAP Direction Summary Chart */}
+                    {shapSummary && <motion.div variants={fadeInUp}><Card data-testid="insights-direction-chart" className="border-pink-200/50 dark:border-pink-800/30 shadow-sm"><CardHeader>
+                      <CardTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5 text-pink-500" />Impact Direction by Feature</CardTitle>
+                      <CardDescription>This chart shows whether each feature generally pushes the {featureInsights.target} up (pink) or down (cyan). Use this to understand the direction in which you should adjust each feature to improve outcomes.</CardDescription>
+                    </CardHeader><CardContent>
+                      <ResponsiveContainer width="100%" height={Math.max(200, featureInsights.top5.length * 44)}>
+                        <BarChart layout="vertical" data={featureInsights.top5.map(f => ({ feature: f.feature, ...(featureInsights.directions[f.feature] || {}) }))} margin={{ left: 20 }}>
+                          <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                          <XAxis type="number" tick={{ fontSize: 11 }} />
+                          <YAxis type="category" dataKey="feature" tick={{ fontSize: 11 }} width={120} />
+                          <Tooltip content={({ active, payload }) => active && payload?.length ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p className="font-semibold">{payload[0]?.payload?.feature}</p><p className="text-pink-500">Positive push: +{payload[0]?.payload?.positive?.toFixed(4)}</p><p className="text-cyan-500">Negative pull: {payload[0]?.payload?.negative?.toFixed(4)}</p></div> : null} />
+                          <ReferenceLine x={0} stroke="#94a3b8" strokeDasharray="4 4" />
+                          <Bar dataKey="positive" stackId="a" fill="#ec4899" radius={[0, 4, 4, 0]} name="Increases target" isAnimationActive={false} />
+                          <Bar dataKey="negative" stackId="a" fill="#06b6d4" radius={[4, 0, 0, 4]} name="Decreases target" isAnimationActive={false} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                      <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm" style={{ backgroundColor: '#ec4899' }} /> Increases {featureInsights.target}</span>
+                        <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm" style={{ backgroundColor: '#06b6d4' }} /> Decreases {featureInsights.target}</span>
+                      </div>
+                    </CardContent></Card></motion.div>}
+
+                    {/* Feature Pair Analysis */}
+                    {featureInsights.top2.length === 2 && (<>
+                      <motion.div variants={fadeInUp}>
+                        <div className="flex items-center gap-3 mb-4 mt-6"><div className="h-px flex-1 bg-gradient-to-r from-blue-500/50 to-transparent" /><span className="text-sm font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Feature Pair Analysis — Top 2</span><div className="h-px flex-1 bg-gradient-to-l from-blue-500/50 to-transparent" /></div>
+                      </motion.div>
+
+                      {/* Correlation */}
+                      {featureInsights.correlation && <motion.div variants={fadeInUp}><Card data-testid="pair-correlation-card" className="border-blue-200/50 dark:border-blue-800/30 shadow-sm"><CardHeader>
+                        <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5 text-blue-500" />Correlation: {featureInsights.correlation.feature1} vs {featureInsights.correlation.feature2}</CardTitle>
+                        <CardDescription>This shows how the top 2 features relate to each other. A strong correlation means changes in one feature tend to accompany changes in the other. This matters because adjusting one may indirectly affect the other.</CardDescription>
+                      </CardHeader><CardContent>
+                        <div className="flex items-center gap-6 p-4 rounded-xl border bg-muted/30">
+                          <div className="text-center">
+                            <p className="text-3xl font-bold" style={{ color: Math.abs(featureInsights.correlation.r) > 0.7 ? '#ef4444' : Math.abs(featureInsights.correlation.r) > 0.3 ? '#f59e0b' : '#22c55e' }}>{featureInsights.correlation.r.toFixed(3)}</p>
+                            <p className="text-xs text-muted-foreground mt-1">Correlation (r)</p>
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium capitalize">{featureInsights.correlation.label}</p>
+                            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                              {featureInsights.correlation.strength === 'strong' ? `These features are strongly ${featureInsights.correlation.dir === 'positive' ? 'linked — they tend to increase together' : 'opposed — when one increases, the other decreases'}. Consider their joint effect when making decisions.` :
+                               featureInsights.correlation.strength === 'moderate' ? `There is a moderate ${featureInsights.correlation.dir} relationship. They somewhat influence each other but can be adjusted somewhat independently.` :
+                               'These features are largely independent. You can adjust one without significantly affecting the other.'}
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent></Card></motion.div>}
+
+                      {/* Scatter Plot */}
+                      {featureInsights.pairScatter && featureInsights.pairScatter.length > 0 && <motion.div variants={fadeInUp}><Card data-testid="pair-scatter-card" className="border-indigo-200/50 dark:border-indigo-800/30 shadow-sm"><CardHeader>
+                        <CardTitle className="flex items-center gap-2"><Target className="h-5 w-5 text-indigo-500" />{featureInsights.top2[0].feature} vs {featureInsights.top2[1].feature}</CardTitle>
+                        <CardDescription>Each dot is a data point. The x-axis is {featureInsights.top2[0].feature}, the y-axis is {featureInsights.top2[1].feature}, and the color represents the {featureInsights.target} value. Look for patterns: if one corner is consistently one color, that region represents optimal conditions.</CardDescription>
+                      </CardHeader><CardContent>
+                        {(() => {
+                          const data = featureInsights.pairScatter;
+                          const targets = data.map(d => typeof d.target === 'number' ? d.target : 0);
+                          const tMin = arrayMin(targets), tMax = arrayMax(targets), tRange = tMax - tMin || 1;
+                          return (<>
+                            <ResponsiveContainer width="100%" height={380}>
+                              <ScatterChart margin={{ bottom: 25, left: 10 }}>
+                                <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                                <XAxis type="number" dataKey="x" name={featureInsights.top2[0].feature} tick={{ fontSize: 11 }} label={{ value: featureInsights.top2[0].feature, position: 'bottom', fontSize: 11 }} />
+                                <YAxis type="number" dataKey="y" name={featureInsights.top2[1].feature} tick={{ fontSize: 11 }} label={{ value: featureInsights.top2[1].feature, angle: -90, position: 'left', fontSize: 11 }} />
+                                <ZAxis range={[50, 50]} />
+                                <Tooltip content={({ active, payload }) => active && payload?.[0] ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p>{featureInsights.top2[0].feature}: <strong>{payload[0].payload.x?.toFixed(3)}</strong></p><p>{featureInsights.top2[1].feature}: <strong>{payload[0].payload.y?.toFixed(3)}</strong></p><p>{featureInsights.target}: <strong className="text-primary">{String(payload[0].payload.target)}</strong></p></div> : null} />
+                                <Scatter data={data} isAnimationActive={false}>
+                                  {data.map((d, i) => {
+                                    const norm = typeof d.target === 'number' ? (d.target - tMin) / tRange : 0.5;
+                                    return <Cell key={i} fill={valueToColor(norm)} />;
+                                  })}
+                                </Scatter>
+                              </ScatterChart>
+                            </ResponsiveContainer>
+                            <div className="flex items-center justify-center gap-3 mt-3 py-2 px-4 rounded-lg bg-muted/30">
+                              <span className="text-xs font-medium text-blue-500">Low {featureInsights.target}</span>
+                              <div className="h-4 w-44 rounded-full shadow-inner" style={{ background: 'linear-gradient(to right, #3b82f6, #7c3aed, #ec4899)' }} />
+                              <span className="text-xs font-medium text-pink-500">High {featureInsights.target}</span>
+                            </div>
+                          </>);
+                        })()}
+                      </CardContent></Card></motion.div>}
+
+                      {/* Joint Insight */}
+                      <motion.div variants={fadeInUp}><Card data-testid="pair-insight-card" className="border-emerald-200/50 dark:border-emerald-800/30 shadow-sm"><CardHeader>
+                        <CardTitle className="flex items-center gap-2"><Lightbulb className="h-5 w-5 text-emerald-500" />Combined Feature Insight</CardTitle>
+                        <CardDescription>How these two features together influence {featureInsights.target}.</CardDescription>
+                      </CardHeader><CardContent>
+                        <div className="space-y-3">
+                          {(() => {
+                            const f1 = featureInsights.top2[0].feature, f2 = featureInsights.top2[1].feature;
+                            const o1 = featureInsights.optimalRanges[f1] || {};
+                            const o2 = featureInsights.optimalRanges[f2] || {};
+                            const rec = `${o1.recommendation === 'higher' ? 'Higher' : 'Lower'} ${f1} and ${o2.recommendation === 'higher' ? 'higher' : 'lower'} ${f2} tend to result in ${o1.recommendation === 'higher' || o2.recommendation === 'higher' ? 'higher' : 'better'} ${featureInsights.target}.`;
+                            return <>
+                              <div className="p-4 rounded-xl border-2 border-emerald-300 dark:border-emerald-700 bg-emerald-50/30 dark:bg-emerald-950/10" data-testid="best-value-suggestion">
+                                <p className="text-sm font-semibold mb-1 text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5"><Trophy className="h-4 w-4" />Best Value Suggestion</p>
+                                <p className="text-sm leading-relaxed">{rec}</p>
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <div className="p-3 rounded-lg border bg-muted/20">
+                                  <p className="text-xs font-semibold mb-1">{f1}</p>
+                                  <p className="text-xs text-muted-foreground">Avg SHAP when high: <strong className={o1.highShap > 0 ? 'text-pink-600' : 'text-cyan-600'}>{o1.highShap?.toFixed(4)}</strong></p>
+                                  <p className="text-xs text-muted-foreground">Avg SHAP when low: <strong className={o1.lowShap > 0 ? 'text-pink-600' : 'text-cyan-600'}>{o1.lowShap?.toFixed(4)}</strong></p>
+                                </div>
+                                <div className="p-3 rounded-lg border bg-muted/20">
+                                  <p className="text-xs font-semibold mb-1">{f2}</p>
+                                  <p className="text-xs text-muted-foreground">Avg SHAP when high: <strong className={o2.highShap > 0 ? 'text-pink-600' : 'text-cyan-600'}>{o2.highShap?.toFixed(4)}</strong></p>
+                                  <p className="text-xs text-muted-foreground">Avg SHAP when low: <strong className={o2.lowShap > 0 ? 'text-pink-600' : 'text-cyan-600'}>{o2.lowShap?.toFixed(4)}</strong></p>
+                                </div>
+                              </div>
+                            </>;
+                          })()}
+                        </div>
+                      </CardContent></Card></motion.div>
+                    </>)}
+
+                    {/* Optimal Range Recommendations */}
+                    <motion.div variants={fadeInUp}>
+                      <div className="flex items-center gap-3 mb-4 mt-6"><div className="h-px flex-1 bg-gradient-to-r from-emerald-500/50 to-transparent" /><span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Optimization Recommendations</span><div className="h-px flex-1 bg-gradient-to-l from-emerald-500/50 to-transparent" /></div>
+                    </motion.div>
+
+                    <motion.div variants={fadeInUp}><Card data-testid="optimization-card" className="border-emerald-200/50 dark:border-emerald-800/30 shadow-sm"><CardHeader>
+                      <CardTitle className="flex items-center gap-2"><Target className="h-5 w-5 text-emerald-500" />Feature Optimization Guide</CardTitle>
+                      <CardDescription>Based on SHAP analysis, here is what tends to work best for each important feature. "Higher is better" means increasing this feature generally improves {featureInsights.target}. Use these as directional guidance, not absolute rules.</CardDescription>
+                    </CardHeader><CardContent>
+                      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                        {featureInsights.top5.map((feat, i) => {
+                          const opt = featureInsights.optimalRanges[feat.feature] || {};
+                          const dir = featureInsights.directions[feat.feature] || {};
+                          const isUp = opt.recommendation === 'higher';
+                          return <div key={i} className={`rounded-lg border p-4 transition-colors ${i < 2 ? 'border-amber-200/60 dark:border-amber-700/40 bg-amber-50/20 dark:bg-amber-950/5' : ''}`} data-testid={`opt-feature-${i}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-semibold text-sm">{feat.feature}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isUp ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}`}>
+                                {isUp ? 'Higher is better' : 'Lower is better'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <TrendingUp className={`h-4 w-4 ${isUp ? 'text-emerald-500' : 'text-blue-500 rotate-180'}`} />
+                              <span className="text-xs text-muted-foreground">{opt.label || dir.label || ''}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px]">
+                              <span className="text-muted-foreground">High val SHAP:</span>
+                              <span className={opt.highShap >= 0 ? 'text-pink-600 font-mono' : 'text-cyan-600 font-mono'}>{opt.highShap?.toFixed(3)}</span>
+                              <span className="text-muted-foreground ml-2">Low val SHAP:</span>
+                              <span className={opt.lowShap >= 0 ? 'text-pink-600 font-mono' : 'text-cyan-600 font-mono'}>{opt.lowShap?.toFixed(3)}</span>
+                            </div>
+                          </div>;
+                        })}
+                      </div>
+                    </CardContent></Card></motion.div>
+                  </>)}
                 </>)}
 
                 {/* ───── CLUSTER TAB ───── */}
