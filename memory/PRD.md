@@ -47,22 +47,29 @@ Build a 100% client-side Universal AI Dashboard (AutoML Master) in React. All ML
 
 ### Phase 11 (Feb 2026)
 - [x] **Performance Optimization** — All ML engine code optimized without changing algorithms or outputs:
-  - Replaced Math.min/max(...bigArray) with loop-based arrayMin/arrayMax/arrayMinMax (prevents stack overflow)
-  - Optimized Decision Tree findBestSplit: pre-sorted indices, reusable scratch array
-  - Optimized KNN prediction: bounded insertion sort (O(n*k) vs O(n*log(n)))
-  - Optimized Random Forest voting: direct max tracking instead of Object.entries().sort()
-  - Optimized extractImportance: Map-based O(1) lookup instead of indexOf
-  - Reuse parsed dataProfile.rows in handleTrain instead of re-parsing CSV
-  - Optimized explainableAI.js: shared background/basePred, Float64Array scratch, unified SHAP pass
+  - Replaced Math.min/max(...bigArray) with loop-based arrayMin/arrayMax/arrayMinMax
+  - Optimized Decision Tree findBestSplit, KNN prediction, Random Forest voting
+  - Optimized extractImportance with Map-based lookup
+  - Reuse parsed dataProfile.rows in handleTrain
+  - Optimized explainableAI.js: shared background/basePred, Float64Array scratch
+
+### Phase 12 (Feb 2026)
+- [x] **Session Persistence** — Full application state persisted to localStorage:
+  - Saved state: dataset (csvText), target column, algorithm, eval mode, cleaning log, training results, models, predictions, SHAP/LIME results, unsupervised results, UI selections
+  - Automatic restore on app load — skips "No Dataset Uploaded" screen
+  - Debounced save (500ms) after every state change
+  - Models also saved separately to `automl_models` for backward compat
+  - "Clear Session" button in header (visible when data is loaded) resets all state and localStorage
+  - dataProfile and columns re-derived from csvText on restore
 
 ## Testing Status
-- Iteration 13: 27/27 tests passed (100% frontend regression after optimization)
-- Iteration 12: 17/17 tests passed (100% frontend)
+- Iteration 14: 22/22 tests passed (100% — session persistence)
+- Iteration 13: 27/27 tests passed (100% — performance optimization regression)
 
 ## Backlog
 - [ ] P1: Counterfactual Explanations ("what would need to change" for different prediction)
 - [ ] P1: Shareable Report Link (unique URL for sharing analysis reports)
-- [ ] P2: Refactor App.js into modular components (~2770 lines)
+- [ ] P2: Refactor App.js into modular components (~2800+ lines)
 - [ ] P2: Real-time model comparison dashboard
 - [ ] P2: Advanced hyperparameter tuning UI
 - [ ] P3: Dataset preprocessing pipeline UI
