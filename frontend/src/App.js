@@ -74,6 +74,12 @@ function getScoreColor(score, higherBetter = true) {
   return { bg: 'bg-red-50 dark:bg-red-950/30', border: 'border-red-300 dark:border-red-800', text: 'text-red-700 dark:text-red-400', label: 'Needs Work' };
 }
 
+// ==================== PERF HELPERS (stack-safe min/max) ====================
+
+function arrayMin(arr) { let m = Infinity; for (let i = 0; i < arr.length; i++) if (arr[i] < m) m = arr[i]; return m; }
+function arrayMax(arr) { let m = -Infinity; for (let i = 0; i < arr.length; i++) if (arr[i] > m) m = arr[i]; return m; }
+function arrayMinMax(arr) { let lo = Infinity, hi = -Infinity; for (let i = 0; i < arr.length; i++) { const v = arr[i]; if (v < lo) lo = v; if (v > hi) hi = v; } return [lo, hi]; }
+
 // ==================== CLIENT-SIDE ML ENGINE ====================
 
 function generateId() {
@@ -112,7 +118,8 @@ function profileDataset(text) {
     const uniqueCount = new Set(values.map(String)).size;
     const profile = { name: col, type: isNumeric ? 'numeric' : 'categorical', uniqueCount, missingCount: values.filter(v => v === '' || v === null || v === undefined).length, sampleValues: [...new Set(values.map(String))].slice(0, 5) };
     if (isNumeric && numericValues.length > 0) {
-      profile.min = Math.min(...numericValues); profile.max = Math.max(...numericValues);
+      const [lo, hi] = arrayMinMax(numericValues);
+      profile.min = lo; profile.max = hi;
       profile.mean = numericValues.reduce((a, b) => a + b, 0) / numericValues.length;
       profile.std = Math.sqrt(numericValues.reduce((s, v) => s + (v - profile.mean) ** 2, 0) / numericValues.length);
     }
@@ -287,19 +294,22 @@ function buildDecisionTree(X, y, maxDepth, minSamples, isClassification) {
 
     let bestGain = 0, bestF = -1, bestT = 0, bestL = null, bestR = null;
 
+    // Reusable scratch for sorted index pairs to avoid per-feature allocation
+    const sortBuf = new Array(n);
     for (const f of featSubset) {
-      // Collect and sort values for percentile thresholds
-      const sorted = new Float64Array(n);
-      for (let i = 0; i < n; i++) sorted[i] = X[indices[i]][f];
-      sorted.sort();
+      // Sort indices by feature value — single allocation reused across features
+      for (let i = 0; i < n; i++) sortBuf[i] = i;
+      sortBuf.sort((a, b) => X[indices[a]][f] - X[indices[b]][f]);
       const step = Math.max(1, Math.floor(n / 25));
       for (let t = step; t < n; t += step) {
-        if (sorted[t] === sorted[t - 1]) continue;
-        const thresh = (sorted[t] + sorted[t - 1]) / 2;
-        const left = [], right = [];
-        for (let i = 0; i < n; i++) { (X[indices[i]][f] <= thresh ? left : right).push(indices[i]); }
-        if (left.length < 1 || right.length < 1) continue;
-        const gain = parentImp - (left.length / n) * impurity(left) - (right.length / n) * impurity(right);
+        const lv = X[indices[sortBuf[t - 1]]][f], rv = X[indices[sortBuf[t]]][f];
+        if (rv === lv) continue;
+        const thresh = (lv + rv) / 2;
+        // Build left/right from pre-sorted order — avoids scanning all indices per threshold
+        const left = new Array(t), right = new Array(n - t);
+        for (let i = 0; i < t; i++) left[i] = indices[sortBuf[i]];
+        for (let i = t; i < n; i++) right[i - t] = indices[sortBuf[i]];
+        const gain = parentImp - (t / n) * impurity(left) - ((n - t) / n) * impurity(right);
         if (gain > bestGain) { bestGain = gain; bestF = f; bestT = thresh; bestL = left; bestR = right; }
       }
     }
@@ -436,22 +446,42 @@ function predictOne(modelObj, x) {
   if (t === 'decision_tree') return predictTree(modelObj.tree, x);
   if (t === 'random_forest_regressor') return modelObj.trees.reduce((s, tr) => s + predictTree(tr, x), 0) / modelObj.trees.length;
   if (t === 'random_forest_classifier') {
-    const votes = {}; modelObj.trees.forEach(tr => { const p = predictTree(tr, x); votes[p] = (votes[p] || 0) + 1; });
-    return Number(Object.entries(votes).sort((a, b) => b[1] - a[1])[0][0]);
+    const votes = {}; let bestVote = -1, bestCount = 0;
+    for (let i = 0; i < modelObj.trees.length; i++) {
+      const p = predictTree(modelObj.trees[i], x);
+      const c = (votes[p] || 0) + 1;
+      votes[p] = c;
+      if (c > bestCount) { bestCount = c; bestVote = p; }
+    }
+    return Number(bestVote);
   }
   if (t === 'gradient_boosting') {
     let p = modelObj.baseMean; modelObj.trees.forEach(tr => { p += modelObj.learningRate * predictTree(tr, x); }); return p;
   }
   if (t === 'knn') {
     const xs = modelObj.means ? x.map((v, j) => (v - modelObj.means[j]) / modelObj.stds[j]) : x;
-    const dists = modelObj.X_train.map((xi, i) => ({ d: xi.reduce((s, v, j) => s + (v - xs[j]) ** 2, 0), l: modelObj.y_train[i] }));
-    dists.sort((a, b) => a.d - b.d);
-    const counts = {}; dists.slice(0, modelObj.k).forEach(d => { counts[d.l] = (counts[d.l] || 0) + 1; });
-    return Number(Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]);
+    const k = modelObj.k, xt = modelObj.X_train, yt = modelObj.y_train, nTr = xt.length;
+    // Maintain a small sorted buffer of k nearest instead of sorting all
+    const topD = new Float64Array(k).fill(Infinity);
+    const topL = new Array(k);
+    for (let i = 0; i < nTr; i++) {
+      const xi = xt[i];
+      let d = 0;
+      for (let j = 0; j < xs.length; j++) { const diff = xi[j] - xs[j]; d += diff * diff; }
+      if (d < topD[k - 1]) {
+        // Insert into sorted buffer (small k, so linear insert is fine)
+        let pos = k - 1;
+        while (pos > 0 && d < topD[pos - 1]) { topD[pos] = topD[pos - 1]; topL[pos] = topL[pos - 1]; pos--; }
+        topD[pos] = d; topL[pos] = yt[i];
+      }
+    }
+    const counts = {}; let bestLabel = topL[0], bestC = 0;
+    for (let i = 0; i < k; i++) { const l = topL[i]; const c = (counts[l] || 0) + 1; counts[l] = c; if (c > bestC) { bestC = c; bestLabel = l; } }
+    return Number(bestLabel);
   }
   if (t === 'svm') {
     const xs = modelObj.means ? x.map((v, j) => (v - modelObj.means[j]) / modelObj.stds[j]) : x;
-    if (modelObj.multiclass) { const sc = modelObj.classifiers.map(c => xs.reduce((s, v, j) => s + v * c.w[j], 0) + c.b); return modelObj.classes[sc.indexOf(Math.max(...sc))]; }
+    if (modelObj.multiclass) { const sc = modelObj.classifiers.map(c => xs.reduce((s, v, j) => s + v * c.w[j], 0) + c.b); let mx = -Infinity, mi = 0; for (let i = 0; i < sc.length; i++) if (sc[i] > mx) { mx = sc[i]; mi = i; } return modelObj.classes[mi]; }
     return (xs.reduce((s, v, j) => s + v * modelObj.w[j], 0) + modelObj.b) >= 0 ? modelObj.classes[1] : modelObj.classes[0];
   }
   if (t === 'naive_bayes') {
@@ -513,7 +543,8 @@ function extractImportance(modelObj, featureNames) {
   if (modelObj.type === 'decision_tree') return treeFeatureImportance(modelObj.tree, featureNames);
   if (modelObj.type === 'random_forest_regressor' || modelObj.type === 'random_forest_classifier' || modelObj.type === 'gradient_boosting') {
     const imp = new Array(featureNames.length).fill(0);
-    modelObj.trees.forEach(tree => { const ti = treeFeatureImportance(tree, featureNames); ti.forEach(f => { const idx = featureNames.indexOf(f.feature); if (idx >= 0) imp[idx] += f.importance; }); });
+    const fnMap = new Map(); featureNames.forEach((f, i) => fnMap.set(f, i));
+    modelObj.trees.forEach(tree => { const ti = treeFeatureImportance(tree, featureNames); ti.forEach(f => { const idx = fnMap.get(f.feature); if (idx !== undefined) imp[idx] += f.importance; }); });
     const total = imp.reduce((a, b) => a + b, 0);
     if (total === 0) return [];
     return featureNames.map((name, i) => ({ feature: name, importance: imp[i] / total })).filter(f => f.importance > 0).sort((a, b) => b.importance - a.importance).slice(0, 10);
@@ -629,14 +660,14 @@ function scanDataset(csvText, targetCol) {
     targetInfo = { exists: true, uniqueValues: [...new Set(vals)].length, task: isNum ? 'regression' : 'classification' };
     if (!isNum) {
       const counts = {}; vals.forEach(v => { counts[v] = (counts[v] || 0) + 1; });
-      const maxPct = Math.max(...Object.values(counts)) / vals.length;
+      const maxPct = arrayMax(Object.values(counts)) / vals.length;
       targetInfo.imbalanced = maxPct > 0.8; targetInfo.majorityPct = +(maxPct * 100).toFixed(1);
     }
   }
   let scaleIssue = false;
   if (numericCols.length > 1) {
-    const ranges = numericCols.map(h => { const v = rows.map(r => Number(r[h])).filter(v => !isNaN(v)); return Math.max(...v) - Math.min(...v); }).filter(r => r > 0);
-    if (ranges.length > 1 && Math.max(...ranges) / Math.min(...ranges) > 100) scaleIssue = true;
+    const ranges = numericCols.map(h => { const v = rows.map(r => Number(r[h])).filter(v => !isNaN(v)); const [lo, hi] = arrayMinMax(v); return hi - lo; }).filter(r => r > 0);
+    if (ranges.length > 1 && arrayMax(ranges) / arrayMin(ranges) > 100) scaleIssue = true;
   }
   const sizeWarning = n < 100;
   let score = 100;
@@ -718,7 +749,7 @@ function cleanNormalize(csvText) {
   const numCols = headers.filter(h => rows.map(r => r[h]).filter(v => v !== '' && v != null).filter(v => !isNaN(Number(v))).length > rows.length * 0.5);
   numCols.forEach(h => {
     const vals = rows.map(r => Number(r[h])).filter(v => !isNaN(v));
-    const min = Math.min(...vals), range = Math.max(...vals) - min;
+    const min = arrayMin(vals), range = arrayMax(vals) - min;
     if (range === 0) return;
     rows.forEach(r => { const v = Number(r[h]); if (!isNaN(v)) r[h] = ((v - min) / range).toFixed(4); });
     count++;
@@ -909,7 +940,8 @@ function App() {
     setTimeout(() => {
       try {
         const startTime = performance.now();
-        const { rows } = parseCSV(csvText);
+        // Reuse already-parsed rows from dataProfile when available to avoid re-parsing
+        const rows = dataProfile?.rows || parseCSV(csvText).rows;
         if (rows.length < 4) throw new Error('Need at least 4 rows for train-test splitting');
         const prepared = prepareFeatures(rows, targetColumn);
         const { X, y, featureNames, encodingMap, numericCols, categoricalCols, textCols, targetEncoding, leakageCols } = prepared;
@@ -1374,7 +1406,7 @@ function App() {
     if (!dataProfile || !histogramCol) return [];
     const vals = dataProfile.rows.map(r => r[histogramCol]).filter(v => typeof v === 'number');
     if (vals.length === 0) return [];
-    const min = Math.min(...vals), max = Math.max(...vals);
+    const [min, max] = arrayMinMax(vals);
     const range = max - min;
     if (range === 0) return [{ bin: `${min.toFixed(1)}`, count: vals.length }];
     const nBins = Math.min(20, Math.max(5, Math.ceil(Math.sqrt(vals.length))));
@@ -1877,7 +1909,7 @@ function App() {
                   {/* Regression Visualizations */}
                   {trainingResult.problemType === 'regression' && trainingResult.predictionsVsActual && (<>
                     <Card><CardHeader><CardTitle className="text-lg flex items-center gap-2"><Target className="h-4 w-4" />Actual vs Predicted</CardTitle><CardDescription>Points on the diagonal line represent perfect predictions. Spread away from the line indicates prediction error.</CardDescription></CardHeader><CardContent>
-                      <ResponsiveContainer width="100%" height={300}><ScatterChart><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="actual" name="Actual" type="number" tick={{fontSize: 11}} /><YAxis dataKey="predicted" name="Predicted" type="number" tick={{fontSize: 11}} /><ZAxis range={[60, 60]} /><Tooltip cursor={{strokeDasharray: '3 3'}} /><ReferenceLine segment={[{ x: Math.min(...trainingResult.predictionsVsActual.actual), y: Math.min(...trainingResult.predictionsVsActual.actual) }, { x: Math.max(...trainingResult.predictionsVsActual.actual), y: Math.max(...trainingResult.predictionsVsActual.actual) }]} stroke="#22c55e" strokeDasharray="5 5" strokeWidth={2} /><Scatter name="Predictions" data={trainingResult.predictionsVsActual.actual.map((a, i) => ({ actual: a, predicted: trainingResult.predictionsVsActual.predicted[i] }))} fill="hsl(var(--primary))" /></ScatterChart></ResponsiveContainer></CardContent></Card>
+                      <ResponsiveContainer width="100%" height={300}><ScatterChart><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="actual" name="Actual" type="number" tick={{fontSize: 11}} /><YAxis dataKey="predicted" name="Predicted" type="number" tick={{fontSize: 11}} /><ZAxis range={[60, 60]} /><Tooltip cursor={{strokeDasharray: '3 3'}} /><ReferenceLine segment={[{ x: arrayMin(trainingResult.predictionsVsActual.actual), y: arrayMin(trainingResult.predictionsVsActual.actual) }, { x: arrayMax(trainingResult.predictionsVsActual.actual), y: arrayMax(trainingResult.predictionsVsActual.actual) }]} stroke="#22c55e" strokeDasharray="5 5" strokeWidth={2} /><Scatter name="Predictions" data={trainingResult.predictionsVsActual.actual.map((a, i) => ({ actual: a, predicted: trainingResult.predictionsVsActual.predicted[i] }))} fill="hsl(var(--primary))" /></ScatterChart></ResponsiveContainer></CardContent></Card>
                     <Card><CardHeader><CardTitle className="text-lg flex items-center gap-2"><Activity className="h-4 w-4" />Residual Analysis</CardTitle><CardDescription>Points near the zero line mean accurate predictions. Patterns may reveal systematic errors.</CardDescription></CardHeader><CardContent>
                       <ResponsiveContainer width="100%" height={300}><ScatterChart><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="predicted" name="Predicted" type="number" tick={{fontSize: 11}} /><YAxis dataKey="residual" name="Residual" type="number" tick={{fontSize: 11}} /><ZAxis range={[60, 60]} /><Tooltip cursor={{strokeDasharray: '3 3'}} /><ReferenceLine y={0} stroke="#22c55e" strokeDasharray="5 5" strokeWidth={2} /><Scatter name="Residuals" data={trainingResult.predictionsVsActual.predicted.map((p, i) => ({ predicted: p, residual: trainingResult.predictionsVsActual.actual[i] - p }))} fill="hsl(var(--chart-2))" /></ScatterChart></ResponsiveContainer></CardContent></Card>
                   </>)}
@@ -2172,7 +2204,7 @@ function App() {
                   {/* Supervised Visualizations */}
                   {trainingResult && (<>
                     {trainingResult.predictionsVsActual && <Card data-testid="viz-actual-predicted"><CardHeader><CardTitle className="text-lg flex items-center gap-2"><Target className="h-4 w-4" />Actual vs Predicted</CardTitle><CardDescription>Points near the diagonal line indicate accurate predictions.</CardDescription></CardHeader><CardContent>
-                      <ResponsiveContainer width="100%" height={300}><ScatterChart><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="actual" name="Actual" type="number" tick={{fontSize: 11}} /><YAxis dataKey="predicted" name="Predicted" type="number" tick={{fontSize: 11}} /><ZAxis range={[60, 60]} /><Tooltip cursor={{strokeDasharray: '3 3'}} /><ReferenceLine segment={[{ x: Math.min(...trainingResult.predictionsVsActual.actual), y: Math.min(...trainingResult.predictionsVsActual.actual) }, { x: Math.max(...trainingResult.predictionsVsActual.actual), y: Math.max(...trainingResult.predictionsVsActual.actual) }]} stroke="#22c55e" strokeDasharray="5 5" strokeWidth={2} /><Scatter name="Predictions" data={trainingResult.predictionsVsActual.actual.map((a, i) => ({ actual: a, predicted: trainingResult.predictionsVsActual.predicted[i] }))} fill="hsl(var(--primary))" /></ScatterChart></ResponsiveContainer>
+                      <ResponsiveContainer width="100%" height={300}><ScatterChart><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="actual" name="Actual" type="number" tick={{fontSize: 11}} /><YAxis dataKey="predicted" name="Predicted" type="number" tick={{fontSize: 11}} /><ZAxis range={[60, 60]} /><Tooltip cursor={{strokeDasharray: '3 3'}} /><ReferenceLine segment={[{ x: arrayMin(trainingResult.predictionsVsActual.actual), y: arrayMin(trainingResult.predictionsVsActual.actual) }, { x: arrayMax(trainingResult.predictionsVsActual.actual), y: arrayMax(trainingResult.predictionsVsActual.actual) }]} stroke="#22c55e" strokeDasharray="5 5" strokeWidth={2} /><Scatter name="Predictions" data={trainingResult.predictionsVsActual.actual.map((a, i) => ({ actual: a, predicted: trainingResult.predictionsVsActual.predicted[i] }))} fill="hsl(var(--primary))" /></ScatterChart></ResponsiveContainer>
                     </CardContent></Card>}
 
                     {trainingResult.bestModel?.featureImportance?.length > 0 && <Card data-testid="viz-feature-importance"><CardHeader><CardTitle className="text-lg flex items-center gap-2"><TrendingUp className="h-4 w-4" />Feature Importance</CardTitle><CardDescription>Features ranked by their influence on predictions.</CardDescription></CardHeader><CardContent>
@@ -2628,7 +2660,7 @@ function App() {
                         <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Mean</p><p className="text-lg font-bold">{mean.toFixed(2)}</p></div>
                         <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Median</p><p className="text-lg font-bold">{median.toFixed(2)}</p></div>
                         <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Std Dev</p><p className="text-lg font-bold">{std.toFixed(2)}</p></div>
-                        <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Range</p><p className="text-lg font-bold">{Math.min(...vals).toFixed(1)} – {Math.max(...vals).toFixed(1)}</p></div>
+                        <div className="rounded-lg border p-3 bg-muted/30"><p className="text-xs text-muted-foreground">Range</p><p className="text-lg font-bold">{arrayMin(vals).toFixed(1)} – {arrayMax(vals).toFixed(1)}</p></div>
                       </div>
                     );
                   })()}
