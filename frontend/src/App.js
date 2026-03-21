@@ -960,6 +960,25 @@ function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [viewOnlyMode, setViewOnlyMode] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
+  const [shareCopyStatus, setShareCopyStatus] = useState(''); // 'copied' | 'manual' | ''
+
+  const safeCopyToClipboard = useCallback(async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch { return false; }
+    }
+  }, []);
 
   // ==================== DARK MODE TOGGLE ====================
   useEffect(() => {
@@ -1177,13 +1196,16 @@ function App() {
   }, [fetchHistory]);
 
   const handleShareAnalysis = useCallback(async () => {
-    let sid = await handleSaveAnalysis();
-    if (sid) {
-      const url = `${window.location.origin}${window.location.pathname}?snapshot=${sid}`;
-      setShareUrl(url);
-      try { await navigator.clipboard.writeText(url); } catch {}
-    }
-  }, [handleSaveAnalysis]);
+    try {
+      let sid = await handleSaveAnalysis();
+      if (sid) {
+        const url = `${window.location.origin}${window.location.pathname}?snapshot=${sid}`;
+        setShareUrl(url);
+        const ok = await safeCopyToClipboard(url);
+        setShareCopyStatus(ok ? 'copied' : 'manual');
+      }
+    } catch { setShareCopyStatus('manual'); }
+  }, [handleSaveAnalysis, safeCopyToClipboard]);
 
   const buildFullCSV = useCallback(() => {
     const sections = [];
@@ -2063,12 +2085,16 @@ function App() {
 
         {/* ==================== SHARE URL TOAST ==================== */}
         <AnimatePresence>{shareUrl && (
-          <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -20, opacity: 0 }} className="mx-8 mt-4 p-3 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/20 flex items-center justify-between" data-testid="share-url-toast">
-            <div className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-600" /><span className="text-sm text-emerald-800 dark:text-emerald-300">Analysis saved &amp; link copied!</span></div>
+          <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -20, opacity: 0 }} className="mx-8 mt-4 p-3 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/20" data-testid="share-url-toast">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                {shareCopyStatus === 'copied' ? <><CheckCircle2 className="h-4 w-4 text-emerald-600" /><span className="text-sm font-medium text-emerald-800 dark:text-emerald-300" data-testid="share-copy-success">Link copied to clipboard</span></> : <><AlertCircle className="h-4 w-4 text-amber-600" /><span className="text-sm font-medium text-amber-800 dark:text-amber-300" data-testid="share-copy-fallback">Copy not supported here. Please copy manually.</span></>}
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => { setShareUrl(''); setShareCopyStatus(''); }} className="text-xs"><XCircle className="h-3.5 w-3.5" /></Button>
+            </div>
             <div className="flex items-center gap-2">
-              <code className="text-xs bg-white dark:bg-card border rounded px-2 py-1 max-w-[300px] truncate">{shareUrl}</code>
-              <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(shareUrl); }} className="text-xs" data-testid="copy-share-url-btn"><Copy className="h-3.5 w-3.5 mr-1" />Copy</Button>
-              <Button variant="ghost" size="sm" onClick={() => setShareUrl('')} className="text-xs"><XCircle className="h-3.5 w-3.5" /></Button>
+              <input type="text" readOnly value={shareUrl} onClick={e => e.target.select()} className="flex-1 text-xs bg-white dark:bg-card border rounded px-2 py-1.5 font-mono select-all focus:outline-none focus:ring-1 focus:ring-emerald-400" data-testid="share-url-input" />
+              <Button variant="outline" size="sm" onClick={async () => { const ok = await safeCopyToClipboard(shareUrl); setShareCopyStatus(ok ? 'copied' : 'manual'); }} className="text-xs shrink-0" data-testid="copy-share-url-btn"><Copy className="h-3.5 w-3.5 mr-1" />Copy</Button>
             </div>
           </motion.div>
         )}</AnimatePresence>
@@ -3879,7 +3905,7 @@ function App() {
                           </div>
                           <div className="flex items-center gap-1.5 ml-4 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Button variant="default" size="sm" onClick={() => handleLoadSnapshot(snap.snapshot_id)} data-testid={`load-snapshot-${idx}`}><Play className="h-3.5 w-3.5 mr-1.5" />Restore</Button>
-                            <Button variant="outline" size="sm" onClick={() => { const url = `${window.location.origin}${window.location.pathname}?snapshot=${snap.snapshot_id}`; navigator.clipboard.writeText(url); setShareUrl(url); }} data-testid={`share-snapshot-${idx}`}><Share2 className="h-3.5 w-3.5" /></Button>
+                            <Button variant="outline" size="sm" onClick={async () => { const url = `${window.location.origin}${window.location.pathname}?snapshot=${snap.snapshot_id}`; setShareUrl(url); const ok = await safeCopyToClipboard(url); setShareCopyStatus(ok ? 'copied' : 'manual'); }} data-testid={`share-snapshot-${idx}`}><Share2 className="h-3.5 w-3.5" /></Button>
                             <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => handleDeleteSnapshot(snap.snapshot_id)} data-testid={`delete-snapshot-${idx}`}><Trash2 className="h-3.5 w-3.5" /></Button>
                           </div>
                         </div>
