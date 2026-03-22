@@ -70,6 +70,11 @@ Build a 100% client-side Universal AI Dashboard (AutoML Master) in React. All ML
   - Focus line: "This dataset mainly focuses on [domain], with key variables like [X, Y, Z]."
   - Key Variables section with type badges, Suggested Target with task type
   - Rendered between Dataset Profile and Dataset Scanner cards
+- [x] **XAI Model Recommendation**:
+  - Auto-detects and recommends the best model for SHAP/LIME analysis based on score (accuracy for classification, R² for regression)
+  - Green recommendation banner above model selector: "Recommended: [model] — best [metric]"
+  - Dropdown shows all models with scores and ⭐ [Recommended] tag on the best one
+  - Best model auto-selected by default; users can still pick any other model
 
 ## Testing Status
 - Iteration 21: 12/12 (100% — Dataset Summary)

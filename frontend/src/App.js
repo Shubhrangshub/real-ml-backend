@@ -1469,7 +1469,24 @@ function App() {
   }, [models, selectedModelIdx, dataProfile]);
 
   // ==================== XAI MODEL HELPER (moved up to avoid hoisting issues) ====================
-  const getXaiModel = useCallback(() => models[selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : models.length - 1], [models, selectedModelIdx]);
+  const bestXaiModelIdx = useMemo(() => {
+    if (models.length === 0) return -1;
+    let bestIdx = 0;
+    let bestScore = -Infinity;
+    models.forEach((m, i) => {
+      const score = m.problemType === 'classification'
+        ? (m.metrics?.accuracy ?? m.metrics?.f1 ?? 0)
+        : (m.metrics?.r2 ?? 0);
+      if (score > bestScore) { bestScore = score; bestIdx = i; }
+    });
+    return bestIdx;
+  }, [models]);
+
+  const getXaiModel = useCallback(() => {
+    if (models.length === 0) return null;
+    if (selectedModelIdx >= 0 && selectedModelIdx < models.length) return models[selectedModelIdx];
+    return bestXaiModelIdx >= 0 ? models[bestXaiModelIdx] : models[models.length - 1];
+  }, [models, selectedModelIdx, bestXaiModelIdx]);
 
   // ==================== FEATURE INSIGHTS (derived from SHAP data) ====================
   const featureInsights = useMemo(() => {
@@ -3056,9 +3073,17 @@ function App() {
                   <CardDescription>Select a model and a data record to generate explanations. SHAP measures global and local feature importance. LIME builds a local linear model to explain individual predictions.</CardDescription>
                 </CardHeader><CardContent className="space-y-4">
                   {models.length > 0 && xaiTab !== 'clusters' && <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-1.5"><label className="text-sm font-medium"><HelpTip text="Select the trained model you want to explain. If you trained multiple algorithms, you can compare their explanations.">Model</HelpTip></label>
-                      <select value={selectedModelIdx === -1 ? models.length - 1 : selectedModelIdx} onChange={e => setSelectedModelIdx(Number(e.target.value))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="xai-model-select">
-                        {models.map((m, i) => <option key={m.modelId} value={i}>{ALGO_NAMES[m.algorithm] || m.algorithm} — {m.problemType}</option>)}
+                    <div className="space-y-1.5"><label className="text-sm font-medium"><HelpTip text="Select the trained model you want to explain. The recommended model has the highest performance score.">Model</HelpTip></label>
+                      {bestXaiModelIdx >= 0 && (selectedModelIdx === -1 || selectedModelIdx === bestXaiModelIdx) && <div className="flex items-center gap-1.5 mb-1.5 px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800" data-testid="xai-model-recommendation">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                        <span className="text-xs text-emerald-700 dark:text-emerald-300">Recommended: <strong>{ALGO_NAMES[models[bestXaiModelIdx].algorithm] || models[bestXaiModelIdx].algorithm}</strong> — best {models[bestXaiModelIdx].problemType === 'classification' ? 'accuracy' : 'R² score'}</span>
+                      </div>}
+                      <select value={selectedModelIdx === -1 ? bestXaiModelIdx >= 0 ? bestXaiModelIdx : models.length - 1 : selectedModelIdx} onChange={e => setSelectedModelIdx(Number(e.target.value))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="xai-model-select">
+                        {models.map((m, i) => {
+                          const score = m.problemType === 'classification' ? (m.metrics?.accuracy ?? m.metrics?.f1 ?? 0) : (m.metrics?.r2 ?? 0);
+                          const isBest = i === bestXaiModelIdx;
+                          return <option key={m.modelId} value={i}>{isBest ? '\u2B50 ' : ''}{ALGO_NAMES[m.algorithm] || m.algorithm} — {m.problemType} ({(score * 100).toFixed(1)}%){isBest ? ' [Recommended]' : ''}</option>;
+                        })}
                       </select></div>
                     <div className="space-y-1.5"><label className="text-sm font-medium"><HelpTip text="Select a row (data point) from your dataset to understand why the model made that specific prediction. Try different rows to see how explanations change.">Record (row) to explain</HelpTip></label>
                       <input type="number" min={0} max={dataProfile ? dataProfile.rowCount - 1 : 0} value={xaiRow} onChange={e => setXaiRow(Math.max(0, Number(e.target.value)))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="xai-row-select" />
