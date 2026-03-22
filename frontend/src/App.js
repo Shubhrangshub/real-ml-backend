@@ -992,6 +992,7 @@ function App() {
   const [precleanScan, setPrecleanScan] = useState(null);
   const [isTraining, setIsTraining] = useState(false);
   const [trainingResult, setTrainingResult] = useState(null);
+  const isRestoringRef = useRef(false);
   const [models, setModels] = useState([]);
   const [predictionFormData, setPredictionFormData] = useState({});
   const [predictionResult, setPredictionResult] = useState(null);
@@ -1070,6 +1071,7 @@ function App() {
 
   // Load full session on mount
   useEffect(() => {
+    isRestoringRef.current = true;
     try {
       const savedModels = localStorage.getItem('automl_models');
       if (savedModels) {
@@ -1123,6 +1125,7 @@ function App() {
       }
     } catch (e) { console.error('Failed to load session:', e); }
     setSessionLoaded(true);
+    setTimeout(() => { isRestoringRef.current = false; }, 500);
   }, []);
 
   // Save models separately for backward compat
@@ -1230,6 +1233,7 @@ function App() {
 
   const handleLoadSnapshot = useCallback(async (snapshotId) => {
     try {
+      isRestoringRef.current = true;
       const res = await fetch(`${API_URL}/api/snapshots/${snapshotId}`);
       const data = await res.json();
       if (!data.snapshot?.state) { setError('Snapshot not found or corrupted.'); return; }
@@ -1262,7 +1266,9 @@ function App() {
       if (s.models) setModels(s.models);
       setActiveView('dashboard');
       setError('');
-    } catch (e) { setError('Failed to load snapshot: ' + e.message); }
+      // Reset restoring flag after state settles
+      setTimeout(() => { isRestoringRef.current = false; }, 500);
+    } catch (e) { setError('Failed to load snapshot: ' + e.message); isRestoringRef.current = false; }
   }, []);
 
   const handleDeleteSnapshot = useCallback(async (snapshotId) => {
@@ -1283,6 +1289,23 @@ function App() {
       }
     } catch { setShareCopyStatus('manual'); }
   }, [handleSaveAnalysis, safeCopyToClipboard]);
+
+  // ==================== AUTO-SAVE AFTER TRAINING ====================
+  useEffect(() => {
+    if (isRestoringRef.current || !sessionLoaded) return;
+    if (trainingResult && trainingResult.status === 'success') {
+      handleSaveAnalysis();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trainingResult]);
+
+  useEffect(() => {
+    if (isRestoringRef.current || !sessionLoaded) return;
+    if (unsupervisedResult) {
+      handleSaveAnalysis();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unsupervisedResult]);
 
   const buildFullCSV = useCallback(() => {
     const sections = [];
