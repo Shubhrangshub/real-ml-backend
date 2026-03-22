@@ -76,7 +76,18 @@ Build a 100% client-side Universal AI Dashboard (AutoML Master) in React. All ML
   - Dropdown shows all models with scores and ⭐ [Recommended] tag on the best one
   - Best model auto-selected by default; users can still pick any other model
 
+- [x] **Auto-Save After Training**:
+  - Automatically saves analysis to history when training completes (supervised and unsupervised)
+  - Uses isRestoringRef guard to prevent duplicate saves during snapshot restore or localStorage load
+  - Every dataset + analysis is preserved in MongoDB history
+- [x] **Sharing End-to-End**:
+  - Share Analysis generates snapshot URL with ?snapshot={id} parameter
+  - Shared link loads full state: dataset, training results, models, SHAP/LIME data
+  - View-only mode with banner: "This is a shared analysis (view-only). Request access to edit."
+  - Save/Share/Export buttons hidden in view-only mode
+
 ## Testing Status
+- Iteration 22: 16/16 (100% — Auto-Save & Share E2E)
 - Iteration 21: 12/12 (100% — Dataset Summary)
 - Iteration 20: 10/10 (100% — Safe Clipboard Share)
 - Iteration 19: 13/13 (100% — Export System Simplification)
