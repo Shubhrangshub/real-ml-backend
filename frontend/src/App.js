@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import AuthPage from './AuthPage';
 import {
   Brain, Sparkles, TrendingUp, Activity, Database, Zap, Upload, Play,
   Eye, Trash2, ChevronRight, ArrowUpRight, FileText, Target, Cpu, BarChart3,
   Download, AlertCircle, Layers, ShieldAlert, Table2, Info, SplitSquareVertical,
   Clock, Trophy, CheckCircle2, XCircle, Shield, Moon, Sun, FileUp, BarChart2,
-  HelpCircle, BookOpen, Lightbulb, Save, History, Share2, Copy, ExternalLink, Lock, Sheet
+  HelpCircle, BookOpen, Lightbulb, Save, History, Share2, Copy, ExternalLink, Lock, Sheet, LogOut
 } from 'lucide-react';
 import {
   computeGlobalSHAP, computeBeeswarmData, computeLocalSHAP,
@@ -979,6 +980,63 @@ function detectAnomaliesFunc(rows, numericCols, method, threshold) {
 const API_URL = process.env.REACT_APP_BACKEND_URL || '';
 
 function App() {
+  // ==================== AUTH STATE ====================
+  const [authUser, setAuthUser] = useState(null); // null = checking, false = not auth, {user} = auth
+  const [authChecked, setAuthChecked] = useState(false);
+  const authProcessedRef = useRef(false);
+
+  // Check for Google OAuth callback (session_id in URL fragment)
+  useEffect(() => {
+    if (authProcessedRef.current) return;
+    const hash = window.location.hash;
+    if (hash.includes('session_id=')) {
+      authProcessedRef.current = true;
+      const sessionId = hash.split('session_id=')[1]?.split('&')[0];
+      if (sessionId) {
+        fetch(`${API_URL}/api/auth/google`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId }),
+        }).then(r => r.json()).then(data => {
+          if (data.token) localStorage.setItem('automl_token', data.token);
+          if (data.user) { setAuthUser(data.user); setAuthChecked(true); }
+          else { setAuthUser(false); setAuthChecked(true); }
+          window.history.replaceState({}, '', window.location.pathname);
+        }).catch(() => { setAuthUser(false); setAuthChecked(true); window.history.replaceState({}, '', window.location.pathname); });
+        return;
+      }
+    }
+    // Check existing session via stored token
+    const token = localStorage.getItem('automl_token');
+    if (!token) { setAuthUser(false); setAuthChecked(true); return; }
+    fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+      .then(user => { setAuthUser(user); setAuthChecked(true); })
+      .catch(() => { localStorage.removeItem('automl_token'); setAuthUser(false); setAuthChecked(true); });
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    const token = localStorage.getItem('automl_token');
+    await fetch(`${API_URL}/api/auth/logout`, { method: 'POST', headers: token ? { 'Authorization': `Bearer ${token}` } : {} });
+    localStorage.removeItem('automl_token');
+    setAuthUser(false);
+  }, []);
+
+  // Show login page if not authenticated
+  if (!authChecked) {
+    return <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-zinc-950 dark:to-zinc-900"><div className="h-8 w-8 animate-spin rounded-full border-4 border-violet-500 border-t-transparent" /></div>;
+  }
+  if (!authUser) {
+    // Allow view-only shared snapshots without login
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get('snapshot')) {
+      return <AuthPage onAuth={(user) => { setAuthUser(user); }} />;
+    }
+  }
+
+  return <AppMain authUser={authUser} onLogout={handleLogout} />;
+}
+
+function AppMain({ authUser, onLogout }) {
   const [activeView, setActiveView] = useState('dashboard');
   const [error, setError] = useState('');
   const [dragActive, setDragActive] = useState(false);
@@ -1188,7 +1246,7 @@ function App() {
   const fetchHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/snapshots`);
+      const res = await fetch(`${API_URL}/api/snapshots`, { headers: { 'Authorization': `Bearer ${localStorage.getItem('automl_token') || ''}` } });
       const data = await res.json();
       setHistoryList(data.snapshots || []);
     } catch { setHistoryList([]); }
@@ -1218,7 +1276,7 @@ function App() {
           shapSummary, featureVsPred, clusterComparison, models,
         },
       };
-      const res = await fetch(`${API_URL}/api/snapshots`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const res = await fetch(`${API_URL}/api/snapshots`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('automl_token') || ''}` }, body: JSON.stringify(body) });
       const data = await res.json();
       if (data.snapshot_id) { setError(''); fetchHistory(); return data.snapshot_id; }
       else { setError('Save failed: ' + (data.detail || 'Unknown error')); }
@@ -1273,7 +1331,7 @@ function App() {
 
   const handleDeleteSnapshot = useCallback(async (snapshotId) => {
     try {
-      await fetch(`${API_URL}/api/snapshots/${snapshotId}`, { method: 'DELETE' });
+      await fetch(`${API_URL}/api/snapshots/${snapshotId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${localStorage.getItem('automl_token') || ''}` } });
       fetchHistory();
     } catch (e) { setError('Delete failed: ' + e.message); }
   }, [fetchHistory]);
@@ -2180,6 +2238,11 @@ function App() {
               <Button variant="outline" size="sm" onClick={handleExportCSV} data-testid="export-csv-btn"><Download className="h-4 w-4 mr-2" />Download CSV</Button></>}
             {csvText && !viewOnlyMode && <Button variant="outline" size="sm" onClick={handleClearSession} data-testid="clear-session-btn"><Trash2 className="h-4 w-4 mr-2" />Clear Session</Button>}
             <Button variant="outline" size="icon" onClick={() => setDarkMode(prev => !prev)} data-testid="dark-mode-toggle">{darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</Button>
+            {authUser && <div className="flex items-center gap-2 ml-2 pl-2 border-l">
+              {authUser.picture ? <img src={authUser.picture} alt="" className="h-7 w-7 rounded-full" referrerPolicy="no-referrer" /> : <div className="h-7 w-7 rounded-full bg-violet-500 flex items-center justify-center text-white text-xs font-bold">{(authUser.name || authUser.email)?.[0]?.toUpperCase()}</div>}
+              <span className="text-sm font-medium hidden md:inline max-w-[120px] truncate" data-testid="user-name">{authUser.name || authUser.email}</span>
+              <Button variant="ghost" size="icon" onClick={onLogout} title="Sign out" data-testid="logout-btn"><LogOut className="h-4 w-4" /></Button>
+            </div>}
           </div></div>
         </motion.header>
 

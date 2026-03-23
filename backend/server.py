@@ -26,12 +26,14 @@ import base64
 import pandas as pd
 import numpy as np
 import requests
+import bcrypt
+import jwt
 from io import StringIO, BytesIO
 from typing import Optional, List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Response as FastAPIResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
@@ -56,7 +58,10 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
+
+JWT_SECRET = os.environ.get("JWT_SECRET", uuid.uuid4().hex)
 
 # MongoDB Setup
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017/")
@@ -67,6 +72,8 @@ try:
     models_collection = db["models"]
     training_history_collection = db["training_history"]
     snapshots_collection = db["snapshots"]
+    users_collection = db["users"]
+    sessions_collection = db["user_sessions"]
 except Exception as e:
     print(f"MongoDB connection warning: {e}")
     db = None
@@ -99,6 +106,160 @@ class SnapshotSaveRequest(BaseModel):
     models_summary: Optional[List[Dict[str, Any]]] = []
     key_metrics: Optional[Dict[str, Any]] = {}
     state: Dict[str, Any]
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    name: str
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class GoogleSessionRequest(BaseModel):
+    session_id: str
+
+# ==================== AUTH HELPERS ====================
+
+def get_current_user(request: Request) -> Optional[Dict]:
+    """Extract user from session_token cookie or Authorization header."""
+    if db is None:
+        return None
+    token = None
+    # Try cookie first
+    token = request.cookies.get("session_token")
+    # Fallback to Authorization header
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
+        return None
+    session = sessions_collection.find_one({"session_token": token}, {"_id": 0})
+    if not session:
+        return None
+    # Check expiry
+    expires_at = session.get("expires_at")
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at and expires_at < datetime.now(timezone.utc):
+        return None
+    user = users_collection.find_one({"user_id": session["user_id"]}, {"_id": 0})
+    return user
+
+def require_auth(request: Request) -> Dict:
+    """Get current user or raise 401."""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+# ==================== AUTH ENDPOINTS ====================
+
+@app.post("/api/auth/signup")
+async def signup(req: SignupRequest, response: FastAPIResponse):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    existing = users_collection.find_one({"email": req.email}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    hashed = bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode()
+    users_collection.insert_one({
+        "user_id": user_id, "email": req.email, "name": req.name,
+        "password_hash": hashed, "picture": "",
+        "auth_provider": "email",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    # Create session
+    session_token = uuid.uuid4().hex
+    sessions_collection.insert_one({
+        "user_id": user_id, "session_token": session_token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    response.set_cookie("session_token", session_token, path="/", httponly=True, secure=True, samesite="none", max_age=7*24*3600)
+    return {"status": "success", "token": session_token, "user": {"user_id": user_id, "email": req.email, "name": req.name, "picture": ""}}
+
+@app.post("/api/auth/login")
+async def login(req: LoginRequest, response: FastAPIResponse):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    user = users_collection.find_one({"email": req.email}, {"_id": 0})
+    if not user or not user.get("password_hash"):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not bcrypt.checkpw(req.password.encode(), user["password_hash"].encode()):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    session_token = uuid.uuid4().hex
+    sessions_collection.insert_one({
+        "user_id": user["user_id"], "session_token": session_token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    response.set_cookie("session_token", session_token, path="/", httponly=True, secure=True, samesite="none", max_age=7*24*3600)
+    return {"status": "success", "token": session_token, "user": {"user_id": user["user_id"], "email": user["email"], "name": user["name"], "picture": user.get("picture", "")}}
+
+@app.post("/api/auth/google")
+async def google_auth(req: GoogleSessionRequest, response: FastAPIResponse):
+    """Exchange Emergent Google OAuth session_id for a local session."""
+    try:
+        r = requests.get(
+            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+            headers={"X-Session-ID": req.session_id}, timeout=10
+        )
+        if r.status_code != 200:
+            raise HTTPException(status_code=401, detail="Invalid Google session")
+        gdata = r.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Google auth failed: {str(e)}")
+    email = gdata.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="No email from Google")
+    # Upsert user
+    existing = users_collection.find_one({"email": email}, {"_id": 0})
+    if existing:
+        user_id = existing["user_id"]
+        users_collection.update_one({"email": email}, {"$set": {"name": gdata.get("name", existing.get("name", "")), "picture": gdata.get("picture", "")}})
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        users_collection.insert_one({
+            "user_id": user_id, "email": email,
+            "name": gdata.get("name", ""), "picture": gdata.get("picture", ""),
+            "password_hash": "", "auth_provider": "google",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    session_token = uuid.uuid4().hex
+    sessions_collection.insert_one({
+        "user_id": user_id, "session_token": session_token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    response.set_cookie("session_token", session_token, path="/", httponly=True, secure=True, samesite="none", max_age=7*24*3600)
+    return {"status": "success", "token": session_token, "user": {"user_id": user_id, "email": email, "name": gdata.get("name", ""), "picture": gdata.get("picture", "")}}
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request):
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {"user_id": user["user_id"], "email": user["email"], "name": user["name"], "picture": user.get("picture", "")}
+
+@app.post("/api/auth/logout")
+async def logout(request: Request, response: FastAPIResponse):
+    token = request.cookies.get("session_token")
+    # Also check Authorization header for token (used by frontend localStorage auth)
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if token and db is not None:
+        sessions_collection.delete_many({"session_token": token})
+    response.delete_cookie("session_token", path="/", secure=True, samesite="none")
+    return {"status": "success"}
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -859,13 +1020,15 @@ async def get_columns(file_url: Optional[str] = None):
 # ==================== SNAPSHOT ENDPOINTS (History & Sharing) ====================
 
 @app.post("/api/snapshots")
-async def save_snapshot(req: SnapshotSaveRequest):
+async def save_snapshot(req: SnapshotSaveRequest, request: Request):
     """Save an analysis snapshot for history and sharing."""
     if db is None:
         raise HTTPException(status_code=500, detail="Database not available")
+    user = get_current_user(request)
     snapshot_id = str(uuid.uuid4())[:12]
     doc = {
         "snapshot_id": snapshot_id,
+        "user_id": user["user_id"] if user else None,
         "name": req.name,
         "dataset_name": req.dataset_name,
         "target_column": req.target_column,
@@ -875,7 +1038,7 @@ async def save_snapshot(req: SnapshotSaveRequest):
         "models_summary": req.models_summary,
         "key_metrics": req.key_metrics,
         "state": req.state,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
         snapshots_collection.insert_one(doc)
@@ -884,13 +1047,15 @@ async def save_snapshot(req: SnapshotSaveRequest):
     return {"status": "success", "snapshot_id": snapshot_id}
 
 @app.get("/api/snapshots")
-async def list_snapshots():
-    """List all saved analysis snapshots (without full state for performance)."""
+async def list_snapshots(request: Request):
+    """List saved analysis snapshots for the current user."""
     if db is None:
         return {"status": "success", "snapshots": []}
+    user = get_current_user(request)
+    query = {"user_id": user["user_id"]} if user else {"user_id": None}
     try:
         cursor = snapshots_collection.find(
-            {}, {"_id": 0, "state": 0}
+            query, {"_id": 0, "state": 0}
         ).sort("created_at", -1).limit(50)
         return {"status": "success", "snapshots": list(cursor)}
     except Exception as e:
@@ -898,7 +1063,7 @@ async def list_snapshots():
 
 @app.get("/api/snapshots/{snapshot_id}")
 async def get_snapshot(snapshot_id: str):
-    """Get a full snapshot by ID (for sharing and restoring)."""
+    """Get a full snapshot by ID (for sharing — no auth required for view-only)."""
     if db is None:
         raise HTTPException(status_code=500, detail="Database not available")
     try:
@@ -914,12 +1079,16 @@ async def get_snapshot(snapshot_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/snapshots/{snapshot_id}")
-async def delete_snapshot(snapshot_id: str):
-    """Delete a snapshot."""
+async def delete_snapshot(snapshot_id: str, request: Request):
+    """Delete a snapshot (only owner can delete)."""
     if db is None:
         raise HTTPException(status_code=500, detail="Database not available")
+    user = get_current_user(request)
+    query = {"snapshot_id": snapshot_id}
+    if user:
+        query["user_id"] = user["user_id"]
     try:
-        result = snapshots_collection.delete_one({"snapshot_id": snapshot_id})
+        result = snapshots_collection.delete_one(query)
         if result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Snapshot not found")
         return {"status": "success", "message": "Snapshot deleted"}
