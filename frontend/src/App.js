@@ -228,6 +228,7 @@ function profileDataset(text) {
 
 // ==================== DATASET SUMMARY GENERATOR ====================
 const DOMAIN_KEYWORDS = {
+  telecom: ['churn', 'churned', 'tenure', 'contract', 'monthly', 'internet', 'fiber', 'dsl', 'streaming', 'phone', 'bandwidth', 'plan', 'subscriber', 'telecom', 'service'],
   finance: ['loan', 'credit', 'income', 'salary', 'interest', 'debt', 'balance', 'payment', 'bank', 'finance', 'mortgage', 'investment', 'revenue', 'profit', 'loss', 'amount', 'fee', 'tax', 'asset', 'liability', 'stock', 'portfolio'],
   health: ['age', 'bmi', 'blood', 'heart', 'disease', 'patient', 'diagnosis', 'medical', 'health', 'hospital', 'treatment', 'symptom', 'drug', 'medicine', 'cholesterol', 'glucose', 'pressure', 'cancer', 'diabetes', 'weight', 'height', 'clinical'],
   sales: ['sales', 'revenue', 'customer', 'product', 'order', 'purchase', 'quantity', 'discount', 'store', 'retail', 'marketing', 'campaign', 'conversion', 'churn', 'subscription'],
@@ -255,7 +256,7 @@ function generateDatasetSummary(profile) {
     }
     if (score > bestScore) { bestScore = score; bestDomain = domain; }
   }
-  const domainLabels = { finance: 'Financial / Credit Analysis', health: 'Healthcare / Medical', sales: 'Sales / Marketing', education: 'Education / Academic', realestate: 'Real Estate / Housing', hr: 'Human Resources / Employee', insurance: 'Insurance', ecommerce: 'E-Commerce', transportation: 'Transportation / Travel', environment: 'Environmental / Climate', general: 'General Data Analysis' };
+  const domainLabels = { telecom: 'Telecom / Customer Churn', finance: 'Financial / Credit Analysis', health: 'Healthcare / Medical', sales: 'Sales / Marketing', education: 'Education / Academic', realestate: 'Real Estate / Housing', hr: 'Human Resources / Employee', insurance: 'Insurance', ecommerce: 'E-Commerce', transportation: 'Transportation / Travel', environment: 'Environmental / Climate', general: 'General Data Analysis' };
   const domainLabel = domainLabels[bestDomain] || 'General Data Analysis';
 
   // Identify key variables (top 5 most interesting columns)
