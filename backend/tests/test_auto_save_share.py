@@ -12,7 +12,7 @@ import requests
 import os
 import time
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://shap-analytics.preview.emergentagent.com')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://model-explainer-2.preview.emergentagent.com')
 
 # Sample dataset for testing (Loan Approval)
 LOAN_APPROVAL_CSV = """age,income,credit_score,loan_amount,approved

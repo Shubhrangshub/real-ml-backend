@@ -21,7 +21,7 @@
   },
 
   "passed_tests": [
-    "TEST 1: PASSED - App loaded successfully at https://shap-analytics.preview.emergentagent.com",
+    "TEST 1: PASSED - App loaded successfully at https://model-explainer-2.preview.emergentagent.com",
     "TEST 2: PASSED - Dark mode toggle button found in top-right header (sun/moon icon)",
     "TEST 3: PASSED - Dark mode enabled when toggle clicked (html element has 'dark' class)",
     "TEST 4: PASSED - Light mode restored after toggling back",

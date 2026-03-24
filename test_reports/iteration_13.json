@@ -21,7 +21,7 @@
   },
 
   "passed_tests": [
-    "TEST 1: PASSED - App loaded successfully at https://shap-analytics.preview.emergentagent.com",
+    "TEST 1: PASSED - App loaded successfully at https://model-explainer-2.preview.emergentagent.com",
     "TEST 2: PASSED - Dark mode toggle works (toggles 'dark' class on html element)",
     "TEST 3: PASSED - Loaded Loan Approval sample dataset (classification, 20 rows)",
     "TEST 4: PASSED - Selected 'approved' as target column",
