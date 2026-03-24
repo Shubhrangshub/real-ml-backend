@@ -2681,7 +2681,7 @@ function AppMain({ authUser, onLogout }) {
 
               {/* TRAINING RESULTS */}
               {trainingResult && <motion.div variants={fadeInUp} initial="initial" animate="animate" data-testid="training-results"><Card className="border-2 border-primary"><CardHeader><CardTitle className="flex items-center gap-2 text-primary"><Sparkles className="h-5 w-5" />Training Complete!</CardTitle>
-                <CardDescription className="text-sm mt-2">Your <strong>{trainingResult.problemType}</strong> model was trained on {trainingResult.dataInfo?.numSamples} samples in {trainingResult.totalTime?.toFixed(2)}s. The best algorithm is <strong>{ALGO_NAMES[trainingResult.bestModel?.algorithm] || trainingResult.bestModel?.algorithm}</strong> with {trainingResult.problemType === 'regression' ? `an R\u00B2 of ${(trainingResult.bestModel.testMetrics.r2 * 100).toFixed(1)}%` : `${(trainingResult.bestModel.testMetrics.accuracy * 100).toFixed(1)}% accuracy`}.</CardDescription></CardHeader>
+                <CardDescription className="text-sm mt-2">Your <strong>{trainingResult.problemType}</strong> model was trained on {trainingResult.dataInfo?.numSamples} samples in {trainingResult.totalTime?.toFixed(2)}s. The best algorithm is <strong>{ALGO_NAMES[trainingResult.bestModel?.algorithm] || trainingResult.bestModel?.algorithm}</strong> with {trainingResult.problemType === 'regression' ? `an R\u00B2 of ${((trainingResult.bestModel?.testMetrics?.r2 || 0) * 100).toFixed(1)}%` : `${((trainingResult.bestModel?.testMetrics?.accuracy || 0) * 100).toFixed(1)}% accuracy`}.</CardDescription></CardHeader>
                 <CardContent className="space-y-6">
                   {/* Summary Cards */}
                   <div className="grid gap-4 md:grid-cols-4">
@@ -2705,32 +2705,32 @@ function AppMain({ authUser, onLogout }) {
                     <CardContent>
                       {trainingResult.problemType === 'regression' ? (
                         <div className="grid gap-3 md:grid-cols-3" data-testid="test-metrics-grid">
-                          <MetricCard label="R\u00B2 Score" value={`${(trainingResult.bestModel.testMetrics.r2 * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.r2} metricKey="r2" />
-                          <MetricCard label="MAE" value={trainingResult.bestModel.testMetrics.mae.toFixed(2)} metricKey="mae" />
-                          <MetricCard label="RMSE" value={trainingResult.bestModel.testMetrics.rmse.toFixed(2)} metricKey="rmse" />
+                          <MetricCard label="R\u00B2 Score" value={`${((trainingResult.bestModel?.testMetrics?.r2 || 0) * 100).toFixed(2)}%`} score={trainingResult.bestModel?.testMetrics?.r2} metricKey="r2" />
+                          <MetricCard label="MAE" value={(trainingResult.bestModel?.testMetrics?.mae || 0).toFixed(2)} metricKey="mae" />
+                          <MetricCard label="RMSE" value={(trainingResult.bestModel?.testMetrics?.rmse || 0).toFixed(2)} metricKey="rmse" />
                         </div>
                       ) : (
                         <div className="space-y-4">
                           <div className="grid gap-3 md:grid-cols-4" data-testid="test-metrics-grid">
-                            <MetricCard label="Accuracy" value={`${(trainingResult.bestModel.testMetrics.accuracy * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.accuracy} metricKey="accuracy" />
-                            <MetricCard label="Precision" value={`${(trainingResult.bestModel.testMetrics.precision * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.precision} metricKey="precision" />
-                            <MetricCard label="Recall" value={`${(trainingResult.bestModel.testMetrics.recall * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.recall} metricKey="recall" />
-                            <MetricCard label="F1 Score" value={`${(trainingResult.bestModel.testMetrics.f1 * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.f1} metricKey="f1" />
+                            <MetricCard label="Accuracy" value={`${((trainingResult.bestModel?.testMetrics?.accuracy || 0) * 100).toFixed(2)}%`} score={trainingResult.bestModel?.testMetrics?.accuracy} metricKey="accuracy" />
+                            <MetricCard label="Precision" value={`${((trainingResult.bestModel?.testMetrics?.precision || 0) * 100).toFixed(2)}%`} score={trainingResult.bestModel?.testMetrics?.precision} metricKey="precision" />
+                            <MetricCard label="Recall" value={`${((trainingResult.bestModel?.testMetrics?.recall || 0) * 100).toFixed(2)}%`} score={trainingResult.bestModel?.testMetrics?.recall} metricKey="recall" />
+                            <MetricCard label="F1 Score" value={`${((trainingResult.bestModel?.testMetrics?.f1 || 0) * 100).toFixed(2)}%`} score={trainingResult.bestModel?.testMetrics?.f1} metricKey="f1" />
                           </div>
 
                           {/* Confusion Matrix Heatmap */}
-                          {trainingResult.bestModel.testMetrics.confusionMatrix && (
+                          {trainingResult.bestModel?.testMetrics?.confusionMatrix && (
                             <div data-testid="confusion-matrix">
                               <p className="text-sm font-medium mb-2 flex items-center gap-2"><Target className="h-4 w-4" />Confusion Matrix</p>
                               <p className="text-xs text-muted-foreground mb-4">Green cells on the diagonal = correct predictions. Red cells = misclassifications. A perfect model would only have green diagonal cells.</p>
                               <div className="overflow-auto"><table className="text-sm border-collapse">
-                                <thead><tr><td className="p-2"></td><td className="p-2 text-xs text-center text-muted-foreground font-medium" colSpan={trainingResult.bestModel.testMetrics.confusionMatrix.classes.length}>Predicted</td></tr>
-                                <tr><td className="p-2 text-xs text-muted-foreground font-medium">Actual</td>{trainingResult.bestModel.testMetrics.confusionMatrix.classes.map((cls, i) => <td key={i} className="p-2 text-center font-mono text-xs font-medium min-w-[60px]">{trainingResult.bestModel.testMetrics.confusionMatrix.classes.length <= 2 && trainingResult.problemType === 'classification' && models[models.length - 1]?.modelData?.targetEncoding ? models[models.length - 1].modelData.targetEncoding[cls] : cls}</td>)}</tr></thead>
-                                <tbody>{trainingResult.bestModel.testMetrics.confusionMatrix.classes.map((cls, i) => {
-                                  const maxVal = Math.max(...trainingResult.bestModel.testMetrics.confusionMatrix.matrix.flat());
+                                <thead><tr><td className="p-2"></td><td className="p-2 text-xs text-center text-muted-foreground font-medium" colSpan={trainingResult.bestModel?.testMetrics?.confusionMatrix.classes.length}>Predicted</td></tr>
+                                <tr><td className="p-2 text-xs text-muted-foreground font-medium">Actual</td>{trainingResult.bestModel?.testMetrics?.confusionMatrix.classes.map((cls, i) => <td key={i} className="p-2 text-center font-mono text-xs font-medium min-w-[60px]">{trainingResult.bestModel?.testMetrics?.confusionMatrix.classes.length <= 2 && trainingResult.problemType === 'classification' && models[models.length - 1]?.modelData?.targetEncoding ? models[models.length - 1].modelData.targetEncoding[cls] : cls}</td>)}</tr></thead>
+                                <tbody>{trainingResult.bestModel?.testMetrics?.confusionMatrix.classes.map((cls, i) => {
+                                  const maxVal = Math.max(...trainingResult.bestModel?.testMetrics?.confusionMatrix.matrix.flat());
                                   return (
-                                  <tr key={i}><td className="p-2 font-mono text-xs font-medium">{trainingResult.bestModel.testMetrics.confusionMatrix.classes.length <= 2 && trainingResult.problemType === 'classification' && models[models.length - 1]?.modelData?.targetEncoding ? models[models.length - 1].modelData.targetEncoding[cls] : cls}</td>
-                                  {trainingResult.bestModel.testMetrics.confusionMatrix.matrix[i].map((val, j) => {
+                                  <tr key={i}><td className="p-2 font-mono text-xs font-medium">{trainingResult.bestModel?.testMetrics?.confusionMatrix.classes.length <= 2 && trainingResult.problemType === 'classification' && models[models.length - 1]?.modelData?.targetEncoding ? models[models.length - 1].modelData.targetEncoding[cls] : cls}</td>
+                                  {trainingResult.bestModel?.testMetrics?.confusionMatrix.matrix[i].map((val, j) => {
                                     const intensity = maxVal > 0 ? val / maxVal : 0;
                                     const bg = i === j
                                       ? `rgba(34, 197, 94, ${0.15 + intensity * 0.55})`
@@ -2743,11 +2743,11 @@ function AppMain({ authUser, onLogout }) {
                           )}
 
                           {/* Per-Class Metrics */}
-                          {trainingResult.bestModel.testMetrics.perClassMetrics && (
+                          {trainingResult.bestModel?.testMetrics?.perClassMetrics && (
                             <div data-testid="per-class-metrics">
                               <p className="text-sm font-medium mb-3">Per-Class Metrics</p>
                               <div className="rounded-md border"><table className="w-full text-sm"><thead><tr className="border-b bg-muted/50"><th className="p-2 text-left font-medium">Class</th><th className="p-2 text-right font-medium"><MetricTip metricKey="precision">Precision</MetricTip></th><th className="p-2 text-right font-medium"><MetricTip metricKey="recall">Recall</MetricTip></th><th className="p-2 text-right font-medium"><MetricTip metricKey="f1">F1 Score</MetricTip></th></tr></thead>
-                              <tbody>{trainingResult.bestModel.testMetrics.perClassMetrics.map((pc, i) => <tr key={i} className="border-b last:border-0"><td className="p-2 font-mono text-xs">{models[models.length - 1]?.modelData?.targetEncoding ? models[models.length - 1].modelData.targetEncoding[pc.class] : pc.class}</td><td className="p-2 text-right">{(pc.precision * 100).toFixed(1)}%</td><td className="p-2 text-right">{(pc.recall * 100).toFixed(1)}%</td><td className="p-2 text-right font-medium">{(pc.f1 * 100).toFixed(1)}%</td></tr>)}</tbody></table></div>
+                              <tbody>{trainingResult.bestModel?.testMetrics?.perClassMetrics.map((pc, i) => <tr key={i} className="border-b last:border-0"><td className="p-2 font-mono text-xs">{models[models.length - 1]?.modelData?.targetEncoding ? models[models.length - 1].modelData.targetEncoding[pc.class] : pc.class}</td><td className="p-2 text-right">{(pc.precision * 100).toFixed(1)}%</td><td className="p-2 text-right">{(pc.recall * 100).toFixed(1)}%</td><td className="p-2 text-right font-medium">{(pc.f1 * 100).toFixed(1)}%</td></tr>)}</tbody></table></div>
                             </div>
                           )}
                         </div>
@@ -2787,7 +2787,7 @@ function AppMain({ authUser, onLogout }) {
                   {trainingResult.leaderboard?.length > 1 && <Card data-testid="model-comparison-chart"><CardHeader><CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="h-4 w-4" />Model Comparison</CardTitle><CardDescription>Side-by-side comparison of all algorithms. The best model is automatically selected for predictions.</CardDescription></CardHeader><CardContent>
                     <ResponsiveContainer width="100%" height={300}><BarChart data={trainingResult.leaderboard.filter(m => m.algorithm !== 'baseline').map(m => ({
                       name: ALGO_NAMES[m.algorithm] || m.algorithm,
-                      score: trainingResult.problemType === 'regression' ? +(m.testMetrics.r2 * 100).toFixed(2) : +(m.testMetrics.accuracy * 100).toFixed(2),
+                      score: trainingResult.problemType === 'regression' ? +((m.testMetrics?.r2 || 0) * 100).toFixed(2) : +((m.testMetrics?.accuracy || 0) * 100).toFixed(2),
                       fill: ALGO_COLORS[m.algorithm] || '#6b7280'
                     }))}><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="name" tick={{fontSize: 11}} /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} /><Tooltip formatter={(v) => `${v}%`} /><ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="8 4" label={{ value: '50% baseline', position: 'right', fontSize: 10, fill: '#94a3b8' }} /><Bar dataKey="score" radius={[6, 6, 0, 0]}>{trainingResult.leaderboard.filter(m => m.algorithm !== 'baseline').map((m, i) => <Cell key={i} fill={ALGO_COLORS[m.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
                   </CardContent></Card>}
@@ -2798,7 +2798,7 @@ function AppMain({ authUser, onLogout }) {
                       <ResponsiveContainer width="100%" height={300}><BarChart data={trainingResult.leaderboard.filter(m => m.cvScore !== null && m.algorithm !== 'baseline').map(m => ({
                         name: ALGO_NAMES[m.algorithm] || m.algorithm,
                         cvScore: +(m.cvScore * 100).toFixed(2),
-                        testScore: +(trainingResult.problemType === 'regression' ? (m.testMetrics.r2 * 100) : (m.testMetrics.accuracy * 100)).toFixed(2),
+                        testScore: +(trainingResult.problemType === 'regression' ? ((m.testMetrics?.r2 || 0) * 100) : ((m.testMetrics?.accuracy || 0) * 100)).toFixed(2),
                         fill: ALGO_COLORS[m.algorithm] || '#6b7280'
                       }))}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} /><Tooltip formatter={(v) => `${v}%`} /><Legend /><Bar dataKey="cvScore" name="CV Score" radius={[4, 4, 0, 0]}>{trainingResult.leaderboard.filter(m => m.cvScore !== null && m.algorithm !== 'baseline').map((m, i) => <Cell key={i} fill={ALGO_COLORS[m.algorithm] || '#6b7280'} />)}</Bar><Bar dataKey="testScore" name="Test Score" radius={[4, 4, 0, 0]} fill="#94a3b8" opacity={0.5} /></BarChart></ResponsiveContainer>
                     </CardContent></Card>
@@ -3050,11 +3050,11 @@ function AppMain({ authUser, onLogout }) {
                 </CardHeader><CardContent>
                   <div className="grid gap-3 md:grid-cols-4">
                     {trainingResult.problemType === 'regression' ? (<>
-                      <MetricCard label="R\u00B2" value={`${(trainingResult.bestModel.testMetrics.r2 * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.r2} metricKey="r2" />
-                      <MetricCard label="MAE" value={trainingResult.bestModel.testMetrics.mae.toFixed(2)} metricKey="mae" />
+                      <MetricCard label="R\u00B2" value={`${((trainingResult.bestModel?.testMetrics?.r2 || 0) * 100).toFixed(2)}%`} score={trainingResult.bestModel?.testMetrics?.r2} metricKey="r2" />
+                      <MetricCard label="MAE" value={(trainingResult.bestModel?.testMetrics?.mae || 0).toFixed(2)} metricKey="mae" />
                     </>) : (<>
-                      <MetricCard label="Accuracy" value={`${(trainingResult.bestModel.testMetrics.accuracy * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.accuracy} metricKey="accuracy" />
-                      <MetricCard label="F1" value={`${(trainingResult.bestModel.testMetrics.f1 * 100).toFixed(2)}%`} score={trainingResult.bestModel.testMetrics.f1} metricKey="f1" />
+                      <MetricCard label="Accuracy" value={`${((trainingResult.bestModel?.testMetrics?.accuracy || 0) * 100).toFixed(2)}%`} score={trainingResult.bestModel?.testMetrics?.accuracy} metricKey="accuracy" />
+                      <MetricCard label="F1" value={`${((trainingResult.bestModel?.testMetrics?.f1 || 0) * 100).toFixed(2)}%`} score={trainingResult.bestModel?.testMetrics?.f1} metricKey="f1" />
                     </>)}
                   </div>
                 </CardContent></Card>}
@@ -3078,7 +3078,7 @@ function AppMain({ authUser, onLogout }) {
                     </CardContent></Card>}
 
                     {trainingResult.leaderboard?.length > 1 && <Card data-testid="viz-model-comparison"><CardHeader><CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="h-4 w-4" />Prediction Distribution by Model</CardTitle><CardDescription>Performance comparison across all trained algorithms.</CardDescription></CardHeader><CardContent>
-                      <ResponsiveContainer width="100%" height={300}><BarChart data={trainingResult.leaderboard.filter(m => m.algorithm !== 'baseline').map(m => ({ name: ALGO_NAMES[m.algorithm] || m.algorithm, score: trainingResult.problemType === 'regression' ? +(m.testMetrics.r2 * 100).toFixed(2) : +(m.testMetrics.accuracy * 100).toFixed(2), fill: ALGO_COLORS[m.algorithm] || '#6b7280' }))}><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="name" tick={{fontSize: 11}} /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} /><Tooltip formatter={(v) => `${v}%`} /><ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="8 4" /><Bar dataKey="score" radius={[6, 6, 0, 0]}>{trainingResult.leaderboard.filter(m => m.algorithm !== 'baseline').map((m, i) => <Cell key={i} fill={ALGO_COLORS[m.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
+                      <ResponsiveContainer width="100%" height={300}><BarChart data={trainingResult.leaderboard.filter(m => m.algorithm !== 'baseline').map(m => ({ name: ALGO_NAMES[m.algorithm] || m.algorithm, score: trainingResult.problemType === 'regression' ? +((m.testMetrics?.r2 || 0) * 100).toFixed(2) : +((m.testMetrics?.accuracy || 0) * 100).toFixed(2), fill: ALGO_COLORS[m.algorithm] || '#6b7280' }))}><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="name" tick={{fontSize: 11}} /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} /><Tooltip formatter={(v) => `${v}%`} /><ReferenceLine y={50} stroke="#94a3b8" strokeDasharray="8 4" /><Bar dataKey="score" radius={[6, 6, 0, 0]}>{trainingResult.leaderboard.filter(m => m.algorithm !== 'baseline').map((m, i) => <Cell key={i} fill={ALGO_COLORS[m.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
                     </CardContent></Card>}
                   </>)}
 
