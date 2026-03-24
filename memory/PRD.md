@@ -1,130 +1,72 @@
 # AutoML Master - Product Requirements Document
 
 ## Original Problem Statement
-Build a 100% client-side Universal AI Dashboard (AutoML Master) in React. All ML analysis runs directly in the browser.
+Full-stack AutoML application (React + FastAPI + MongoDB) that enables users to upload CSV datasets, train machine learning models, visualize results, and generate explanations. The app provides automated model training, comparison, and explainability tools.
 
 ## Architecture
-- **Frontend**: React + Tailwind CSS + Shadcn UI + Recharts + Framer Motion
-- **ML Engine**: Custom client-side JS (supervised in App.js, unsupervised in unsupervisedML.js)
-- **XAI Engine**: explainableAI.js (SHAP approximation + LIME)
-- **Backend**: FastAPI + MongoDB (snapshots API for history & sharing)
+- **Frontend:** React SPA (`/app/frontend/src/App.js`) with Shadcn UI components, Framer Motion animations, Recharts for data visualization, Sonner for toast notifications
+- **Backend:** FastAPI (`/app/backend/server.py`) with MongoDB for persistence
+- **Database:** MongoDB (users, snapshots collections)
+- **ML:** 100% client-side JavaScript (scikit-learn style algorithms in App.js + explainableAI.js)
+- **Auth:** Email/password JWT + Google OAuth
 
-## Core Files
-- `/app/frontend/src/App.js` — Main UI + supervised ML (~3600 lines)
-- `/app/frontend/src/unsupervisedML.js` — Unsupervised ML engine
-- `/app/frontend/src/explainableAI.js` — SHAP & LIME computation engine
-- `/app/backend/server.py` — FastAPI with snapshot CRUD endpoints
+## Core Features (Implemented)
+- [x] User auth (signup/login/Google OAuth)
+- [x] CSV file upload and data profiling
+- [x] Automated model training (Auto mode trains all compatible algorithms)
+- [x] Model leaderboard with ranking
+- [x] Feature importance charts
+- [x] Regression visualizations (Actual vs Predicted, Residual Analysis)
+- [x] Cross-validation support
+- [x] Single prediction with form inputs
+- [x] Batch prediction from CSV
+- [x] Model download (pickle format)
+- [x] Unsupervised learning (K-Means, DBSCAN)
+- [x] Dark/Light mode
+- [x] Shareable analysis snapshots
+- [x] History with auto-save
 
-## Completed Features
+## 7-Point Validation Fixes (Completed - March 24, 2026)
+- [x] **P0: Export System** - Download CSV, Share Analysis, Export to Google Sheets all working with toast feedback
+- [x] **P1: Decision Tree Visualization** - View Tree button on leaderboard, modal with interactive flowchart
+- [x] **P1: UI Floating/Clipping** - SmartTooltip component with viewport-aware positioning
+- [x] **P1: Visualization Quality** - Improved chart heights, margins, Y-axis widths, label spacing
+- [x] **P1: SHAP + LIME Explanations** - Plain-English panels explaining "What does this mean?" and "Why this prediction?"
+- [x] **P1: History Deduplication** - Fingerprint-based dedup (dsName|target|models|evalMode), debounced auto-save, saveInProgressRef
+- [x] **P1: Overall Stability** - Try/catch in all handlers, null guards, loading states on export buttons
 
-### Phase 1-10 (Previous)
-- [x] Supervised (11 algos) + Unsupervised learning, Dataset Scanner, K-Fold CV
-- [x] Batch Predictions, Model Export/Import, PDF Reports, Data Explorer, Dark Mode
-- [x] Metric Hover Tooltips, Explainable AI (SHAP + LIME + Cluster Explanations)
+## Key API Endpoints
+- POST /api/auth/signup, /api/auth/login, /api/auth/logout
+- GET /api/auth/me
+- POST /api/train, /api/predict
+- POST /api/snapshots (create/update with fingerprint dedup)
+- GET /api/snapshots (list), GET /api/snapshots/{id} (view)
+- DELETE /api/snapshots/{id}
+- POST /api/export/prepare, GET /api/export/download/{token}
+- GET /api/models, DELETE /api/models/{id}, GET /api/models/{id}/download
 
-### Phase 11 (Feb 2026)
-- [x] Performance Optimization
-
-### Phase 12 (Feb 2026)
-- [x] Session Persistence (localStorage + Clear Session)
-
-### Phase 13 (Feb 2026)
-- [x] Enhanced XAI Dashboard (7 new charts, vibrant colors, descriptions)
-
-### Phase 14 (Feb 2026)
-- [x] Smart Guided Help System (HelpTip, Guide Panel, Target Suggestion, Smart Row Suggestions)
-
-### Phase 15 (Feb 2026)
-- [x] History & Sharing System (MongoDB snapshots, share URLs, view-only mode, CSV/JSON/Sheets export)
-
-### Phase 16 (Feb 2026)
-- [x] **Smart Metric Interpretation System**:
-  - `interpretMetric(key, value)` function — context-sensitive plain-English explanations for all metrics based on actual values
-  - **R²**: Special handling for <0 ("worse than predicting average"), <0.3, <0.5, <0.7, <0.9, 0.9+
-  - **Accuracy**: <50% (poor), <70% (fair + imbalanced dataset warning), <90% (good), 90%+ (excellent)
-  - **F1 Score**: <0.5 (poor), <0.7 (moderate), <0.9 (good), 0.9+ (excellent) with precision/recall balance explanation
-  - **Precision/Recall**: 4-tier interpretation with false alarm / missed detection context
-  - **RMSE/MAE**: Actual error value mentioned, "lower is better" guidance
-  - **Silhouette**: Negative (wrong clusters), <0.25 (overlapping), <0.5 (moderate), <0.75 (good), 0.75+ (excellent)
-  - **Davies-Bouldin, Calinski-Harabasz, CV Score**: Full threshold-based interpretations
-  - **Color coding**: Emerald (Excellent), Sky (Good), Amber (Fair), Red (Poor/Needs Work) + CheckCircle2/AlertCircle icons
-  - Interpretation shown BELOW each metric value in MetricCard AND in hover tooltip (MetricTip)
-  - MetricTip now accepts optional `value` prop for context-sensitive tooltip content
-
-### Phase 17 (Feb 2026)
-- [x] **Simplified Export System**:
-  - Removed PDF export (jsPDF/jspdf-autotable) and JSON export
-  - Kept: Share Analysis (view-only dashboard via snapshot URL), Export to Google Sheets (CSV download), Download CSV (comprehensive with SHAP, LIME, predictions, metrics)
-  - View-only banner: "This is a shared analysis (view-only). Request access to edit."
-  - UI: Three buttons — "Share Analysis", "Export to Google Sheets", "Download CSV"
-- [x] **Safe Clipboard Share Fix**:
-  - `safeCopyToClipboard` utility: tries navigator.clipboard, falls back to textarea+execCommand
-  - Share toast now shows selectable input field (not truncated code tag) for manual copy
-  - Status feedback: "Link copied to clipboard" (success) / "Copy not supported here. Please copy manually." (fallback)
-  - All clipboard usage sites updated (share button, copy button, history share buttons)
-  - Fully wrapped in try-catch — no crashes when clipboard API is blocked (iframe/preview safe)
-- [x] **Dataset Summary Generator**:
-  - Auto-generates plain-English summary after dataset upload
-  - Domain detection via keyword matching (finance, health, insurance, real estate, sales, education, HR, etc.)
-  - 5-line description: what data is about, data types, likely objective, key variables, data characteristics
-  - Focus line: "This dataset mainly focuses on [domain], with key variables like [X, Y, Z]."
-  - Key Variables section with type badges, Suggested Target with task type
-  - Rendered between Dataset Profile and Dataset Scanner cards
-- [x] **XAI Model Recommendation**:
-  - Auto-detects and recommends the best model for SHAP/LIME analysis based on score (accuracy for classification, R² for regression)
-  - Green recommendation banner above model selector: "Recommended: [model] — best [metric]"
-  - Dropdown shows all models with scores and ⭐ [Recommended] tag on the best one
-  - Best model auto-selected by default; users can still pick any other model
-
-- [x] **Auto-Save After Training**:
-  - Automatically saves analysis to history when training completes (supervised and unsupervised)
-  - Uses isRestoringRef guard to prevent duplicate saves during snapshot restore or localStorage load
-  - Every dataset + analysis is preserved in MongoDB history
-- [x] **Sharing End-to-End**:
-  - Share Analysis generates snapshot URL with ?snapshot={id} parameter
-  - Shared link loads full state: dataset, training results, models, SHAP/LIME data
-  - View-only mode with banner: "This is a shared analysis (view-only). Request access to edit."
-  - Save/Share/Export buttons hidden in view-only mode
-
-### Phase 18 (Mar 2026)
-- [x] **User Authentication System (Email + Google)**:
-  - Email/password signup & login with bcrypt password hashing
-  - Google OAuth via Emergent-managed auth.emergentagent.com
-  - JWT session tokens stored in localStorage (iframe-compatible, no cookie issues)
-  - Auth state management: login page shown when not authenticated, loading spinner during auth check
-  - User profile + logout button in header
-  - Per-user snapshot isolation: each user sees only their own history/analyses
-  - Shared links (?snapshot=) work without login (view-only, no auth required)
-  - Backend: users + user_sessions MongoDB collections, 7-day session expiry
-  - New files: AuthPage.js, input.jsx, label.jsx
-
-## Testing Status
-- Iteration 23: 13/13 Backend + all Frontend (100% — Auth System)
-- Iteration 22: 16/16 (100% — Auto-Save & Share E2E)
-- Iteration 21: 12/12 (100% — Dataset Summary)
-- Iteration 20: 10/10 (100% — Safe Clipboard Share)
-- Iteration 19: 13/13 (100% — Export System Simplification)
-- Iteration 18: 13/13 (100% — Metric Interpretation)
-- Iteration 17: 29/29 (100% — History & Sharing)
-- Iteration 16: 24/24 (100% — Help System)
-- Iteration 15: 14/14 (100% — XAI)
-
-- [x] **Deduplicated Save System**:
-  - Fingerprint-based deduplication: dataset_name + target_column + models_used
-  - Same analysis retrained → updates existing entry instead of creating duplicate
-  - Different analysis (new target, new algorithm) → creates new entry
-  - Share Analysis always creates fresh snapshot (forceNew)
-  - Backend upsert: matches user_id + fingerprint, updates state/timestamp if found
-  - lastSavedFingerprintRef prevents unnecessary API calls for identical analyses
+## Test Credentials
+- Email: test@automl.com / Password: Test1234!
 
 ## Backlog
-- [ ] P0: Refactor App.js into modular components (~3900+ lines)
-- [ ] P1: "What-If" Analyzer
-- [ ] P1: Auto-save After Training
-- [ ] P1: Counterfactual Explanations
-- [ ] P2: Real-time model comparison dashboard
-- [ ] P2: Advanced hyperparameter tuning UI
-- [ ] P2: Interactive Tutorial Mode
-- [ ] P2: Metric Comparison Radar Chart
-- [ ] P2: Performance Benchmark Mode
-- [ ] P3: Dataset preprocessing pipeline UI
+
+### P1 - Upcoming
+- [ ] Real-time Collaborative Sessions
+- [ ] Model Deployment API
+- [ ] Automated Report Generation (PDF/HTML)
+
+### P2 - Future
+- [ ] Advanced hyperparameter tuning UI
+- [ ] Interactive Tutorial Mode
+- [ ] Metric Comparison Radar Chart
+- [ ] Performance Benchmark Mode
+- [ ] "What-If" Analyzer
+- [ ] Counterfactual Explanations
+
+### P3 - Low Priority
+- [ ] Dataset preprocessing pipeline UI
+- [ ] Real-time model comparison dashboard
+
+### Refactoring
+- [ ] Break App.js (~4500 lines) into modular components
+- [ ] Split server.py (~1150 lines) into routes/models/logic modules
