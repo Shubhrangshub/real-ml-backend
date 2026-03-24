@@ -1029,9 +1029,14 @@ async def save_snapshot(req: SnapshotSaveRequest, request: Request):
     user_id = user["user_id"] if user else None
 
     # Deduplicate: if same user + fingerprint exists, update instead of insert
-    if req.fingerprint and user_id:
+    if req.fingerprint:
+        dedup_query = {"fingerprint": req.fingerprint}
+        if user_id:
+            dedup_query["user_id"] = user_id
+        else:
+            dedup_query["user_id"] = None
         existing = snapshots_collection.find_one(
-            {"user_id": user_id, "fingerprint": req.fingerprint}, {"_id": 0, "snapshot_id": 1}
+            dedup_query, {"_id": 0, "snapshot_id": 1}
         )
         if existing:
             snapshots_collection.update_one(
@@ -1123,14 +1128,19 @@ class ExportCSVRequest(BaseModel):
     csv_content: str
     filename: str = "export.csv"
 
-# Temporary store for download tokens
-_pending_downloads: Dict[str, Dict[str, str]] = {}
+# Temporary store for download tokens with expiry
+_pending_downloads: Dict[str, Dict] = {}
 
 @app.post("/api/export/prepare")
 async def prepare_export(req: ExportCSVRequest):
     """Store CSV content and return a one-time download token."""
+    # Clean expired tokens (older than 5 minutes)
+    now = datetime.now(timezone.utc).timestamp()
+    expired = [k for k, v in _pending_downloads.items() if now - v.get("ts", 0) > 300]
+    for k in expired:
+        _pending_downloads.pop(k, None)
     token = str(uuid.uuid4())[:16]
-    _pending_downloads[token] = {"content": req.csv_content, "filename": req.filename}
+    _pending_downloads[token] = {"content": req.csv_content, "filename": req.filename, "ts": now}
     return {"status": "success", "token": token}
 
 @app.get("/api/export/download/{token}")

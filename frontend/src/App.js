@@ -6,8 +6,10 @@ import {
   Eye, Trash2, ChevronRight, ArrowUpRight, FileText, Target, Cpu, BarChart3,
   Download, AlertCircle, Layers, ShieldAlert, Table2, Info, SplitSquareVertical,
   Clock, Trophy, CheckCircle2, XCircle, Shield, Moon, Sun, FileUp, BarChart2,
-  HelpCircle, BookOpen, Lightbulb, Save, History, Share2, Copy, ExternalLink, Lock, Sheet, LogOut
+  HelpCircle, BookOpen, Lightbulb, Save, History, Share2, Copy, ExternalLink, Lock, Sheet, LogOut,
+  GitBranch, X
 } from 'lucide-react';
+import { Toaster, toast } from 'sonner';
 import {
   computeGlobalSHAP, computeBeeswarmData, computeLocalSHAP,
   computeDependenceData, computeLIME, computeClassProbabilities,
@@ -73,34 +75,61 @@ const METRIC_EXPLANATIONS = {
 };
 
 // Lightweight hover tooltip for metric names — wraps any inline text
+const SmartTooltip = ({ children, className = '' }) => {
+  const tipRef = React.useRef(null);
+  const parentRef = React.useRef(null);
+  React.useEffect(() => {
+    const el = tipRef.current;
+    const parent = parentRef.current;
+    if (!el || !parent) return;
+    const handleEnter = () => {
+      const rect = parent.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      el.style.left = ''; el.style.right = ''; el.style.top = ''; el.style.bottom = '';
+      if (rect.left + 260 > vw) { el.style.right = '0'; el.style.left = 'auto'; }
+      else { el.style.left = '0'; }
+      if (rect.bottom + 120 > vh) { el.style.bottom = '100%'; el.style.top = 'auto'; el.style.marginBottom = '6px'; el.style.marginTop = '0'; }
+      else { el.style.top = '100%'; el.style.bottom = 'auto'; el.style.marginTop = '6px'; el.style.marginBottom = '0'; }
+    };
+    parent.addEventListener('mouseenter', handleEnter);
+    return () => parent.removeEventListener('mouseenter', handleEnter);
+  }, []);
+  return (
+    <span ref={parentRef} className={`group/tip relative inline-flex items-center gap-1 cursor-help ${className}`}>
+      {React.Children.map(children, (child, i) =>
+        i === React.Children.count(children) - 1 ? <span ref={tipRef} className="invisible group-hover/tip:visible opacity-0 group-hover/tip:opacity-100 absolute z-[9999] w-64 p-2.5 rounded-lg bg-popover border shadow-xl text-xs text-popover-foreground transition-all duration-150 pointer-events-none">{child}</span> : child
+      )}
+    </span>
+  );
+};
+
 const MetricTip = ({ metricKey, children, className = '', value }) => {
   const info = METRIC_EXPLANATIONS[metricKey];
   if (!info) return <span className={className}>{children}</span>;
   const interp = value !== undefined ? interpretMetric(metricKey, value) : null;
   return (
-    <span className={`group/tip relative inline-flex items-center gap-1 cursor-help ${className}`} data-testid={`metric-tip-${metricKey}`}>
+    <SmartTooltip className={className}>
       {children}
       <Info className="h-3 w-3 text-muted-foreground/50 group-hover/tip:text-foreground transition-colors shrink-0" />
-      <span className="invisible group-hover/tip:visible opacity-0 group-hover/tip:opacity-100 absolute z-[9999] top-full left-0 mt-1.5 w-64 p-2.5 rounded-lg bg-popover border shadow-xl text-xs text-popover-foreground transition-all duration-150 pointer-events-none" style={{position:'absolute'}}>
+      <span data-testid={`metric-tip-${metricKey}`}>
         <span className="font-semibold block mb-0.5">{info.name}</span>
         <span className="text-muted-foreground leading-relaxed block">{info.description}</span>
         {interp && <span className={`block mt-1.5 pt-1.5 border-t leading-relaxed font-medium ${interp.color}`}>{interp.text}</span>}
       </span>
-    </span>
+    </SmartTooltip>
   );
 };
 
 // Generic help tooltip — shows a (?) icon with a hover explanation
 const HelpTip = ({ text, children, className = '' }) => (
-  <span className={`group/help relative inline-flex items-center gap-1.5 ${className}`}>
+  <SmartTooltip className={className}>
     {children}
     <span className="cursor-help" data-testid="help-tip-icon">
-      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/40 group-hover/help:text-blue-500 transition-colors shrink-0" />
+      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/40 group-hover/tip:text-blue-500 transition-colors shrink-0" />
     </span>
-    <span className="invisible group-hover/help:visible opacity-0 group-hover/help:opacity-100 absolute z-[9999] top-full left-0 mt-1.5 w-64 p-3 rounded-lg bg-popover border shadow-xl text-xs text-popover-foreground transition-all duration-150 pointer-events-none leading-relaxed" style={{position:'absolute'}}>
-      {text}
-    </span>
-  </span>
+    <span>{text}</span>
+  </SmartTooltip>
 );
 
 function getScoreColor(score, higherBetter = true) {
@@ -1099,6 +1128,9 @@ function AppMain({ authUser, onLogout }) {
   const [viewOnlyMode, setViewOnlyMode] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
   const [shareCopyStatus, setShareCopyStatus] = useState(''); // 'copied' | 'manual' | ''
+  const [treeModalOpen, setTreeModalOpen] = useState(false);
+  const [treeModalAlgo, setTreeModalAlgo] = useState(null);
+  const [exportLoading, setExportLoading] = useState('');
 
   const safeCopyToClipboard = useCallback(async (text) => {
     try {
@@ -1263,13 +1295,16 @@ function AppMain({ authUser, onLogout }) {
     return `${dsName}|${target}|${modelKeys}`;
   }, [dataProfile, targetColumn, trainingResult, unsupervisedResult]);
 
+  const saveInProgressRef = useRef(false);
   const handleSaveAnalysis = useCallback(async (customName, forceNew) => {
     if (!trainingResult && !unsupervisedResult) { setError('Nothing to save — train a model first.'); return; }
+    if (saveInProgressRef.current) return; // prevent concurrent saves
     const fingerprint = computeFingerprint();
 
     // Skip if exact same analysis was already saved (unless forced by Share or manual Save)
     if (!forceNew && !customName && fingerprint === lastSavedFingerprintRef.current) return;
 
+    saveInProgressRef.current = true;
     const name = customName || `${targetColumn || 'Unsupervised'} — ${new Date().toLocaleString()}`;
     const bestModel = trainingResult?.leaderboard?.[0];
     try {
@@ -1281,7 +1316,7 @@ function AppMain({ authUser, onLogout }) {
         row_count: dataProfile?.rowCount || 0,
         col_count: dataProfile?.columns?.length || 0,
         models_summary: (trainingResult?.leaderboard || []).map(m => ({ algorithm: m.algorithm, score: m.score })),
-        key_metrics: bestModel?.metrics || {},
+        key_metrics: bestModel?.metrics || bestModel?.testMetrics || {},
         fingerprint: forceNew ? null : fingerprint,
         state: {
           csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan,
@@ -1296,10 +1331,13 @@ function AppMain({ authUser, onLogout }) {
       const data = await res.json();
       if (data.snapshot_id) {
         lastSavedFingerprintRef.current = fingerprint;
-        setError(''); fetchHistory(); return data.snapshot_id;
+        setError(''); fetchHistory();
+        if (customName || forceNew) toast.success(data.action === 'updated' ? 'Analysis updated!' : 'Analysis saved!');
+        return data.snapshot_id;
       }
-      else { setError('Save failed: ' + (data.detail || 'Unknown error')); }
-    } catch (e) { setError('Save failed: ' + e.message); }
+      else { toast.error('Save failed: ' + (data.detail || 'Unknown error')); }
+    } catch (e) { toast.error('Save failed: ' + e.message); }
+    finally { saveInProgressRef.current = false; }
     return null;
   }, [csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan,
     trainingResult, predictionResult, predictionHistory, selectedModelIdx,
@@ -1356,6 +1394,7 @@ function AppMain({ authUser, onLogout }) {
   }, [fetchHistory]);
 
   const handleShareAnalysis = useCallback(async () => {
+    setExportLoading('share');
     try {
       let sid = await handleSaveAnalysis(null, true);
       if (sid) {
@@ -1363,24 +1402,33 @@ function AppMain({ authUser, onLogout }) {
         setShareUrl(url);
         const ok = await safeCopyToClipboard(url);
         setShareCopyStatus(ok ? 'copied' : 'manual');
-      }
-    } catch { setShareCopyStatus('manual'); }
+        if (ok) toast.success('Share link copied to clipboard!');
+        else toast.info('Share link generated — please copy it manually.');
+      } else { toast.error('Failed to generate share link.'); }
+    } catch { toast.error('Share failed. Please try again.'); setShareCopyStatus('manual'); }
+    finally { setExportLoading(''); }
   }, [handleSaveAnalysis, safeCopyToClipboard]);
 
   // ==================== AUTO-SAVE AFTER TRAINING ====================
+  const autoSaveTimerRef = useRef(null);
   useEffect(() => {
     if (isRestoringRef.current || !sessionLoaded) return;
     if (trainingResult && trainingResult.status === 'success') {
-      handleSaveAnalysis();
+      // Debounce auto-save to prevent rapid re-runs creating duplicates
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => handleSaveAnalysis(), 800);
     }
+    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trainingResult]);
 
   useEffect(() => {
     if (isRestoringRef.current || !sessionLoaded) return;
     if (unsupervisedResult) {
-      handleSaveAnalysis();
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => handleSaveAnalysis(), 800);
     }
+    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unsupervisedResult]);
 
@@ -1444,29 +1492,39 @@ function AppMain({ authUser, onLogout }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ csv_content: csvContent, filename })
       });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
       const data = await res.json();
       if (data.token) {
         const downloadUrl = `${API_URL}/api/export/download/${data.token}`;
-        // Use hidden iframe to trigger download — works in sandboxed iframes
         const iframe = document.createElement('iframe');
         iframe.style.display = 'none';
         document.body.appendChild(iframe);
         iframe.src = downloadUrl;
         setTimeout(() => { try { document.body.removeChild(iframe); } catch {} }, 30000);
-      } else { setError('Export failed — could not prepare download.'); }
-    } catch (e) { setError('Export failed: ' + e.message); }
+        toast.success(`Download started: ${filename}`);
+        return true;
+      } else { toast.error('Export failed — could not prepare download.'); return false; }
+    } catch (e) { toast.error('Export failed: ' + e.message); return false; }
   }, []);
 
-  const handleExportCSV = useCallback(() => {
-    if (!trainingResult && !shapGlobal && !limeResult && !predictionHistory?.length) return;
-    const csv = buildFullCSV();
-    triggerBackendDownload(csv, `analysis_data_${Date.now()}.csv`);
+  const handleExportCSV = useCallback(async () => {
+    if (!trainingResult && !shapGlobal && !limeResult && !predictionHistory?.length) { toast.error('Nothing to export — train a model first.'); return; }
+    setExportLoading('csv');
+    try {
+      const csv = buildFullCSV();
+      await triggerBackendDownload(csv, `analysis_data_${Date.now()}.csv`);
+    } catch (e) { toast.error('CSV export failed: ' + e.message); }
+    finally { setExportLoading(''); }
   }, [trainingResult, shapGlobal, limeResult, predictionHistory, buildFullCSV, triggerBackendDownload]);
 
-  const handleExportSheets = useCallback(() => {
-    if (!trainingResult && !shapGlobal && !limeResult && !predictionHistory?.length) return;
-    const csv = buildFullCSV();
-    triggerBackendDownload(csv, `analysis_for_google_sheets_${Date.now()}.csv`);
+  const handleExportSheets = useCallback(async () => {
+    if (!trainingResult && !shapGlobal && !limeResult && !predictionHistory?.length) { toast.error('Nothing to export — train a model first.'); return; }
+    setExportLoading('sheets');
+    try {
+      const csv = buildFullCSV();
+      await triggerBackendDownload(csv, `analysis_for_google_sheets_${Date.now()}.csv`);
+    } catch (e) { toast.error('Google Sheets export failed: ' + e.message); }
+    finally { setExportLoading(''); }
   }, [trainingResult, shapGlobal, limeResult, predictionHistory, buildFullCSV, triggerBackendDownload]);
 
   // Load shared snapshot from URL on mount
@@ -2282,14 +2340,27 @@ function AppMain({ authUser, onLogout }) {
     const explanation = METRIC_EXPLANATIONS[metricKey];
     const color = score !== undefined ? getScoreColor(score, explanation?.higherBetter !== false) : null;
     const interp = metricKey ? interpretMetric(metricKey, score !== undefined ? score : parseFloat(String(value))) : null;
+    const tipRef = React.useRef(null);
+    const trigRef = React.useRef(null);
+    React.useEffect(() => {
+      const el = tipRef.current; const tr = trigRef.current;
+      if (!el || !tr) return;
+      const handleEnter = () => { const rect = tr.getBoundingClientRect(); const vw = window.innerWidth;
+        el.style.left = ''; el.style.right = '';
+        if (rect.right + 280 > vw) { el.style.right = '0'; el.style.left = 'auto'; }
+        else { el.style.right = '0'; }
+      };
+      tr.addEventListener('mouseenter', handleEnter);
+      return () => tr.removeEventListener('mouseenter', handleEnter);
+    }, []);
     return (
       <div className={`rounded-xl p-4 border-2 transition-all ${color ? `${color.bg} ${color.border}` : 'bg-muted/50 border-transparent'}`} data-testid={`metric-${metricKey || label}`}>
         <div className="flex items-center justify-between mb-1">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</p>
           {explanation && (
-            <div className="group relative">
+            <div className="group relative" ref={trigRef}>
               <Info className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help hover:text-foreground transition-colors" />
-              <div className="invisible group-hover:visible opacity-0 group-hover:opacity-100 absolute z-50 bottom-full right-0 mb-2 w-72 p-3 rounded-lg bg-popover border shadow-lg text-xs text-popover-foreground transition-all duration-200 pointer-events-none">
+              <div ref={tipRef} className="invisible group-hover:visible opacity-0 group-hover:opacity-100 absolute z-[9999] bottom-full right-0 mb-2 w-72 p-3 rounded-lg bg-popover border shadow-lg text-xs text-popover-foreground transition-all duration-200 pointer-events-none">
                 <p className="font-semibold mb-1">{explanation.name}</p>
                 <p className="text-muted-foreground leading-relaxed">{explanation.description}</p>
                 {interp && <p className={`mt-2 pt-2 border-t leading-relaxed font-medium ${interp.color}`}>{interp.text}</p>}
@@ -2304,9 +2375,56 @@ function AppMain({ authUser, onLogout }) {
     );
   };
 
+  // ==================== DECISION TREE VIEWER ====================
+  const TreeNode = ({ node, featureNames, depth = 0, maxDepth = 5 }) => {
+    if (!node) return null;
+    const isLeaf = node.leaf;
+    if (depth > maxDepth) return <div className="text-xs text-muted-foreground italic px-2 py-1">...</div>;
+    const featName = !isLeaf && featureNames?.[node.feature] ? featureNames[node.feature] : `Feature ${node.feature}`;
+    return (
+      <div className="flex flex-col items-center" data-testid={`tree-node-depth-${depth}`}>
+        <div className={`rounded-lg border-2 px-3 py-2 text-xs text-center shadow-sm transition-all hover:shadow-md ${isLeaf ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700' : 'bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-700'}`} style={{ minWidth: 100 }}>
+          {isLeaf ? (
+            <><span className="block font-bold text-emerald-700 dark:text-emerald-400">Result</span><span className="font-mono font-bold">{typeof node.value === 'number' ? node.value.toFixed(2) : node.value}</span><span className="block text-muted-foreground">{node.n} samples</span></>
+          ) : (
+            <><span className="block font-semibold text-blue-700 dark:text-blue-400 truncate max-w-[120px]" title={featName}>{featName}</span><span className="font-mono">{'\u2264'} {node.threshold?.toFixed(2)}</span><span className="block text-muted-foreground">{node.n} samples</span></>
+          )}
+        </div>
+        {!isLeaf && (
+          <div className="flex items-start gap-4 mt-2 pt-2 relative">
+            <div className="absolute top-0 left-1/2 w-px h-2 bg-border" />
+            <div className="absolute top-2 left-[25%] right-[25%] h-px bg-border" />
+            <div className="flex flex-col items-center relative">
+              <div className="w-px h-2 bg-border" />
+              <span className="text-[10px] text-green-600 dark:text-green-400 font-semibold mb-1">Yes</span>
+              <TreeNode node={node.left} featureNames={featureNames} depth={depth + 1} maxDepth={maxDepth} />
+            </div>
+            <div className="flex flex-col items-center relative">
+              <div className="w-px h-2 bg-border" />
+              <span className="text-[10px] text-red-500 dark:text-red-400 font-semibold mb-1">No</span>
+              <TreeNode node={node.right} featureNames={featureNames} depth={depth + 1} maxDepth={maxDepth} />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const getDecisionTreeModel = useCallback(() => {
+    if (!treeModalAlgo) return null;
+    // Find model with matching algorithm that has a tree structure
+    const m = models.find(m => m.algorithm === treeModalAlgo && m.modelData?.tree);
+    if (m) return m;
+    // For random forest, show first individual tree
+    const rf = models.find(m => m.algorithm === treeModalAlgo && m.modelData?.trees?.length > 0);
+    if (rf) return { ...rf, modelData: { ...rf.modelData, tree: rf.modelData.trees[0] } };
+    return null;
+  }, [treeModalAlgo, models]);
+
   // ==================== RENDER ====================
   return (
     <div className="min-h-screen bg-background" data-testid="app-root">
+      <Toaster position="top-right" richColors closeButton />
       <motion.aside initial={{ x: -300 }} animate={{ x: 0 }} className="fixed left-0 top-0 z-40 h-screen w-64 border-r bg-sidebar" data-testid="app-sidebar">
         <div className="flex h-full flex-col gap-2">
           <div className="flex h-16 items-center border-b border-sidebar-border px-6"><div className="flex items-center gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Brain className="h-6 w-6" /></div><div><h1 className="text-lg font-bold text-sidebar-foreground">AutoML</h1><p className="text-xs text-sidebar-foreground/60">Universal Dashboard</p></div></div></div>
@@ -2329,9 +2447,9 @@ function AppMain({ authUser, onLogout }) {
           </div><div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowGuide(prev => !prev)} data-testid="guide-toggle-btn" className={showGuide ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-700' : ''}><BookOpen className="h-4 w-4 mr-2" />{showGuide ? 'Hide Guide' : 'Help Guide'}</Button>
             {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="outline" size="sm" onClick={() => handleSaveAnalysis()} data-testid="save-analysis-btn"><Save className="h-4 w-4 mr-2" />Save</Button>}
-            {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="outline" size="sm" onClick={handleShareAnalysis} data-testid="share-analysis-btn"><Share2 className="h-4 w-4 mr-2" />Share Analysis</Button>}
-            {(trainingResult || shapGlobal || limeResult || predictionHistory?.length > 0) && !viewOnlyMode && <><Button variant="outline" size="sm" onClick={handleExportSheets} data-testid="export-sheets-btn" title="Export data as CSV for Google Sheets"><Sheet className="h-4 w-4 mr-2" />Export to Google Sheets</Button>
-              <Button variant="outline" size="sm" onClick={handleExportCSV} data-testid="export-csv-btn"><Download className="h-4 w-4 mr-2" />Download CSV</Button></>}
+            {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="outline" size="sm" onClick={handleShareAnalysis} disabled={exportLoading === 'share'} data-testid="share-analysis-btn">{exportLoading === 'share' ? <><span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Sharing...</> : <><Share2 className="h-4 w-4 mr-2" />Share Analysis</>}</Button>}
+            {(trainingResult || shapGlobal || limeResult || predictionHistory?.length > 0) && !viewOnlyMode && <><Button variant="outline" size="sm" onClick={handleExportSheets} disabled={!!exportLoading} data-testid="export-sheets-btn" title="Export data as CSV for Google Sheets">{exportLoading === 'sheets' ? <><span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Exporting...</> : <><Sheet className="h-4 w-4 mr-2" />Export to Google Sheets</>}</Button>
+              <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={!!exportLoading} data-testid="export-csv-btn">{exportLoading === 'csv' ? <><span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Downloading...</> : <><Download className="h-4 w-4 mr-2" />Download CSV</>}</Button></>}
             {csvText && !viewOnlyMode && <Button variant="outline" size="sm" onClick={handleClearSession} data-testid="clear-session-btn"><Trash2 className="h-4 w-4 mr-2" />Clear Session</Button>}
             <Button variant="outline" size="icon" onClick={() => setDarkMode(prev => !prev)} data-testid="dark-mode-toggle">{darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</Button>
             {authUser && <div className="flex items-center gap-2 ml-2 pl-2 border-l">
@@ -2343,6 +2461,48 @@ function AppMain({ authUser, onLogout }) {
         </motion.header>
 
         <AnimatePresence>{error && <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="mx-8 mt-4" data-testid="error-banner"><Card className="border-destructive bg-destructive/10"><CardContent className="p-4"><p className="text-sm text-destructive font-medium flex items-center gap-2"><AlertCircle className="h-4 w-4" /> {error}</p></CardContent></Card></motion.div>}</AnimatePresence>
+
+        {/* ==================== DECISION TREE MODAL ==================== */}
+        <AnimatePresence>{treeModalOpen && (() => {
+          const treeModel = getDecisionTreeModel();
+          const treeData = treeModel?.modelData?.tree;
+          const featureNames = treeModel?.modelData?.featureNames || [];
+          return (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setTreeModalOpen(false)} data-testid="tree-modal-overlay">
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-background border-2 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()} data-testid="tree-modal">
+                <div className="flex items-center justify-between px-6 py-4 border-b">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-green-500/10 flex items-center justify-center"><GitBranch className="h-5 w-5 text-green-600" /></div>
+                    <div>
+                      <h3 className="font-bold text-lg">Decision Tree Visualization</h3>
+                      <p className="text-sm text-muted-foreground">{treeModel ? `${ALGO_NAMES[treeModel.algorithm] || treeModel.algorithm} — ${treeModel.targetColumn || 'Model'}` : 'No tree available'}</p>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => setTreeModalOpen(false)} data-testid="tree-modal-close"><X className="h-5 w-5" /></Button>
+                </div>
+                <div className="flex-1 overflow-auto p-6">
+                  {treeData ? (
+                    <div className="min-w-fit">
+                      <div className="mb-4 p-3 rounded-lg bg-muted/50 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground mb-1">How to read this tree:</p>
+                        <p>Each <span className="text-blue-600 dark:text-blue-400 font-semibold">blue box</span> is a decision point — the model checks if a feature value is below or equal to the threshold. <span className="text-green-600 dark:text-green-400 font-semibold">Yes</span> goes left, <span className="text-red-500 dark:text-red-400 font-semibold">No</span> goes right. <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Green boxes</span> are final predictions.</p>
+                      </div>
+                      <div className="flex justify-center">
+                        <TreeNode node={treeData} featureNames={featureNames} depth={0} maxDepth={4} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <GitBranch className="h-12 w-12 mx-auto mb-4 opacity-30" />
+                      <p className="font-medium">No decision tree data available</p>
+                      <p className="text-sm mt-1">Train a Decision Tree model first to see its visualization.</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </motion.div>
+          );
+        })()}</AnimatePresence>
 
         {/* ==================== GUIDE PANEL ==================== */}
         <AnimatePresence>{showGuide && (
@@ -2859,7 +3019,7 @@ function AppMain({ authUser, onLogout }) {
                   </>)}
 
                   {trainingResult.bestModel?.featureImportance?.length > 0 && <Card data-testid="feature-importance-chart"><CardHeader><CardTitle className="text-lg flex items-center gap-2"><TrendingUp className="h-4 w-4" />Which Features Matter Most?</CardTitle><CardDescription>Features ranked by their influence on predictions. Taller bars = more impact on the model's decisions.</CardDescription></CardHeader><CardContent>
-                    <ResponsiveContainer width="100%" height={300}><BarChart data={trainingResult.bestModel.featureImportance}><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="feature" angle={-45} textAnchor="end" height={100} tick={{fontSize: 11}} /><YAxis tickFormatter={v => `${(v * 100).toFixed(0)}%`} /><Tooltip formatter={(v) => `${(v * 100).toFixed(1)}%`} /><Bar dataKey="importance" radius={[6, 6, 0, 0]}>{trainingResult.bestModel.featureImportance.map((_, i) => <Cell key={i} fill={`hsl(${210 + i * 15}, 70%, ${45 + i * 3}%)`} />)}</Bar></BarChart></ResponsiveContainer></CardContent></Card>}
+                    <ResponsiveContainer width="100%" height={350}><BarChart data={trainingResult.bestModel.featureImportance} margin={{ bottom: 20 }}><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="feature" angle={-35} textAnchor="end" height={100} tick={{fontSize: 11}} interval={0} /><YAxis tickFormatter={v => `${(v * 100).toFixed(0)}%`} /><Tooltip formatter={(v) => `${(v * 100).toFixed(1)}%`} /><Bar dataKey="importance" radius={[6, 6, 0, 0]}>{trainingResult.bestModel.featureImportance.map((_, i) => <Cell key={i} fill={`hsl(${210 + i * 15}, 70%, ${45 + i * 3}%)`} />)}</Bar></BarChart></ResponsiveContainer></CardContent></Card>}
 
                   {/* Model Comparison Chart */}
                   {trainingResult.leaderboard?.length > 1 && <Card data-testid="model-comparison-chart"><CardHeader><CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="h-4 w-4" />Model Comparison</CardTitle><CardDescription>Side-by-side comparison of all algorithms. The best model is automatically selected for predictions.</CardDescription></CardHeader><CardContent>
@@ -2887,9 +3047,12 @@ function AppMain({ authUser, onLogout }) {
                     <CardContent><div className="space-y-2" data-testid="leaderboard">{trainingResult.leaderboard?.map((model, idx) => (
                       <div key={idx} className="flex items-center justify-between p-3 rounded-lg border" data-testid={`leaderboard-entry-${idx}`} style={idx === 0 ? { borderColor: ALGO_COLORS[model.algorithm], borderWidth: 2 } : {}}>
                         <div className="flex items-center gap-3"><Badge variant={idx === 0 ? 'default' : 'secondary'} style={idx === 0 ? { backgroundColor: ALGO_COLORS[model.algorithm] } : {}}>{idx + 1}</Badge><div><p className="font-medium">{ALGO_NAMES[model.algorithm] || model.algorithm}</p><p className="text-xs text-muted-foreground">{model.durationSec ? `${model.durationSec.toFixed(3)}s` : '-'}{idx === 0 && ' — Best Model'}</p></div></div>
-                        <div className="text-right font-mono text-sm" data-testid={`leaderboard-score-${idx}`}>
+                        <div className="flex items-center gap-3">
+                          {(model.algorithm === 'decision_tree' || model.algorithm === 'random_forest') && <Button variant="outline" size="sm" className="text-green-600 border-green-300 hover:bg-green-50 dark:border-green-700 dark:hover:bg-green-950/30" onClick={() => { setTreeModalAlgo(model.algorithm); setTreeModalOpen(true); }} data-testid={`view-tree-btn-${idx}`}><GitBranch className="h-3.5 w-3.5 mr-1.5" />View Tree</Button>}
+                          <div className="text-right font-mono text-sm" data-testid={`leaderboard-score-${idx}`}>
                           {(() => { const m = model.testMetrics; const s = m.accuracy !== undefined ? m.accuracy : (m.r2 !== undefined ? m.r2 : 0); const c = getScoreColor(s); return <div className={`font-semibold ${c.text}`}>{m.accuracy !== undefined ? <MetricTip metricKey="accuracy" value={m.accuracy}>{`${(m.accuracy * 100).toFixed(2)}% acc`}</MetricTip> : m.r2 !== undefined ? <MetricTip metricKey="r2" value={m.r2}>{`${(m.r2 * 100).toFixed(2)}% R\u00B2`}</MetricTip> : '-'}</div>; })()}
                           {model.cvScore !== null && model.cvScore !== undefined && <div className="text-xs text-emerald-600 font-semibold" data-testid={`cv-score-${idx}`}><MetricTip metricKey="cvScore" value={model.cvScore}>CV: {(model.cvScore * 100).toFixed(2)}%</MetricTip></div>}
+                          </div>
                         </div>
                       </div>
                     ))}</div></CardContent></Card>
@@ -3319,10 +3482,10 @@ function AppMain({ authUser, onLogout }) {
                     <CardDescription>This chart ranks features by their average absolute SHAP value across the entire dataset. Features at the top have the strongest overall influence on predictions. Higher values indicate features the model relies on most heavily.</CardDescription>
                   </CardHeader><CardContent>
                     <ResponsiveContainer width="100%" height={Math.max(200, shapGlobal.importance.length * 40)}>
-                      <BarChart layout="vertical" data={shapGlobal.importance} margin={{ left: 20 }}>
+                      <BarChart layout="vertical" data={shapGlobal.importance} margin={{ left: 30, right: 20 }}>
                         <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                         <XAxis type="number" tick={{ fontSize: 11 }} label={{ value: 'Mean |SHAP Value|', position: 'bottom', fontSize: 11 }} />
-                        <YAxis type="category" dataKey="feature" tick={{ fontSize: 11 }} width={120} />
+                        <YAxis type="category" dataKey="feature" tick={{ fontSize: 11 }} width={140} />
                         <Tooltip content={({ active, payload }) => active && payload?.[0] ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p className="font-semibold">{payload[0].payload.feature}</p><p>Mean |SHAP|: <strong className="text-violet-600">{payload[0].payload.importance.toFixed(4)}</strong></p><p className="text-muted-foreground mt-1">Rank #{shapGlobal.importance.indexOf(payload[0].payload) + 1} of {shapGlobal.importance.length}</p></div> : null} />
                         <Bar dataKey="importance" radius={[0, 6, 6, 0]} isAnimationActive={false}>
                           {shapGlobal.importance.map((_, i) => <Cell key={i} fill={`hsl(${270 - (i / shapGlobal.importance.length) * 60}, 75%, ${50 + i * 2}%)`} />)}
@@ -3331,16 +3494,33 @@ function AppMain({ authUser, onLogout }) {
                     </ResponsiveContainer>
                   </CardContent></Card></motion.div>}
 
+                  {/* SHAP Plain-English Explanation */}
+                  {shapGlobal && shapGlobal.importance?.length > 0 && <motion.div variants={fadeInUp}><Card data-testid="shap-explanation" className="border-violet-200/50 dark:border-violet-800/30 bg-gradient-to-r from-violet-50/50 to-purple-50/50 dark:from-violet-950/10 dark:to-purple-950/10 shadow-sm"><CardHeader>
+                    <CardTitle className="flex items-center gap-2"><Lightbulb className="h-5 w-5 text-amber-500" />What does this mean?</CardTitle>
+                  </CardHeader><CardContent>
+                    <div className="space-y-3 text-sm leading-relaxed">
+                      {(() => {
+                        const top3 = shapGlobal.importance.slice(0, 3);
+                        const target = targetColumn || 'the outcome';
+                        return (<>
+                          <p>The model relies most heavily on <strong className="text-violet-600 dark:text-violet-400">{top3[0]?.feature}</strong>{top3[1] ? <> and <strong className="text-violet-600 dark:text-violet-400">{top3[1]?.feature}</strong></> : null} to make its predictions about <strong>{target}</strong>.</p>
+                          {top3.length >= 3 && <p><strong className="text-violet-600 dark:text-violet-400">{top3[2]?.feature}</strong> also plays a notable role, though its influence is smaller compared to the top two drivers.</p>}
+                          <p className="text-muted-foreground">In simple terms: if you want to change the predicted {target}, focus on the top features — they have the most direct impact on the model's decision.</p>
+                        </>);
+                      })()}
+                    </div>
+                  </CardContent></Card></motion.div>}
+
                   {/* SHAP Summary Plot (positive/negative) */}
                   {shapSummary && <motion.div variants={fadeInUp}><Card data-testid="shap-summary-plot" className="border-pink-200/50 dark:border-pink-800/30 shadow-sm"><CardHeader>
                     <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5 text-pink-500" />SHAP Summary Plot</CardTitle>
                     <CardDescription>This plot shows the average direction of each feature's impact. Pink bars show the average positive push (increasing prediction), while cyan bars show the average negative pull (decreasing prediction). Together they reveal whether a feature typically pushes predictions up or down.</CardDescription>
                   </CardHeader><CardContent>
                     <ResponsiveContainer width="100%" height={Math.max(200, shapSummary.length * 40)}>
-                      <BarChart layout="vertical" data={shapSummary} margin={{ left: 20 }}>
+                      <BarChart layout="vertical" data={shapSummary} margin={{ left: 30, right: 20 }}>
                         <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                         <XAxis type="number" tick={{ fontSize: 11 }} label={{ value: 'Mean SHAP Value', position: 'bottom', fontSize: 11 }} />
-                        <YAxis type="category" dataKey="feature" tick={{ fontSize: 11 }} width={120} />
+                        <YAxis type="category" dataKey="feature" tick={{ fontSize: 11 }} width={140} />
                         <Tooltip content={({ active, payload }) => active && payload?.length ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p className="font-semibold">{payload[0]?.payload?.feature}</p><p className="text-pink-500">Positive push: +{payload[0]?.payload?.positive?.toFixed(4)}</p><p className="text-cyan-500">Negative pull: {payload[0]?.payload?.negative?.toFixed(4)}</p></div> : null} />
                         <ReferenceLine x={0} stroke="#94a3b8" strokeDasharray="4 4" />
                         <Bar dataKey="positive" stackId="a" fill="#ec4899" radius={[0, 4, 4, 0]} name="Positive push" isAnimationActive={false} />
@@ -3420,6 +3600,24 @@ function AppMain({ authUser, onLogout }) {
                       <span className="text-muted-foreground"><MetricTip metricKey="baseValue">Base value:</MetricTip> <strong>{shapLocal.basePred.toFixed(4)}</strong></span>
                       <span>Prediction: <strong className="text-primary text-base">{shapLocal.instancePred.toFixed(4)}</strong></span>
                     </div>
+                  </CardContent></Card></motion.div>}
+
+                  {/* SHAP Local Plain-English Explanation */}
+                  {shapLocal && <motion.div variants={fadeInUp}><Card data-testid="shap-local-explanation" className="border-pink-200/50 dark:border-pink-800/30 bg-gradient-to-r from-pink-50/50 to-rose-50/50 dark:from-pink-950/10 dark:to-rose-950/10 shadow-sm"><CardContent className="py-4">
+                    {(() => {
+                      const sorted = shapLocal.featureNames.map((f, i) => ({ feature: f, shap: shapLocal.shapValues[i], value: shapLocal.instance?.[i] })).sort((a, b) => Math.abs(b.shap) - Math.abs(a.shap));
+                      const topPos = sorted.filter(s => s.shap > 0).slice(0, 2);
+                      const topNeg = sorted.filter(s => s.shap < 0).slice(0, 2);
+                      const target = targetColumn || 'the outcome';
+                      return (
+                        <div className="text-sm leading-relaxed space-y-2" data-testid="shap-local-why">
+                          <p className="font-semibold flex items-center gap-2"><Lightbulb className="h-4 w-4 text-amber-500" />Why did the model predict <strong className="text-primary">{shapLocal.instancePred?.toFixed(3)}</strong> for this record?</p>
+                          {topPos.length > 0 && <p>The prediction was <span className="text-pink-600 dark:text-pink-400 font-semibold">pushed higher</span> mainly because <strong>{topPos[0].feature}</strong>{topPos[0].value != null ? ` = ${topPos[0].value.toFixed(2)}` : ''} (+{topPos[0].shap.toFixed(3)}){topPos[1] ? <> and <strong>{topPos[1].feature}</strong>{topPos[1].value != null ? ` = ${topPos[1].value.toFixed(2)}` : ''} (+{topPos[1].shap.toFixed(3)})</> : ''}.</p>}
+                          {topNeg.length > 0 && <p>It was <span className="text-cyan-600 dark:text-cyan-400 font-semibold">pulled lower</span> by <strong>{topNeg[0].feature}</strong>{topNeg[0].value != null ? ` = ${topNeg[0].value.toFixed(2)}` : ''} ({topNeg[0].shap.toFixed(3)}){topNeg[1] ? <> and <strong>{topNeg[1].feature}</strong>{topNeg[1].value != null ? ` = ${topNeg[1].value.toFixed(2)}` : ''} ({topNeg[1].shap.toFixed(3)})</> : ''}.</p>}
+                          <p className="text-muted-foreground">The base prediction was {shapLocal.basePred?.toFixed(3)}. The features above shifted it to the final value of {shapLocal.instancePred?.toFixed(3)}.</p>
+                        </div>
+                      );
+                    })()}
                   </CardContent></Card></motion.div>}
 
                   {/* Waterfall Plot */}
@@ -3583,6 +3781,25 @@ function AppMain({ authUser, onLogout }) {
                         })}</tbody>
                       </table>
                     </div>
+                  </CardContent></Card></motion.div>}
+
+                  {/* LIME Plain-English Explanation */}
+                  {limeResult && <motion.div variants={fadeInUp}><Card data-testid="lime-explanation" className="border-emerald-200/50 dark:border-emerald-800/30 bg-gradient-to-r from-emerald-50/50 to-teal-50/50 dark:from-emerald-950/10 dark:to-teal-950/10 shadow-sm"><CardContent className="py-4">
+                    {(() => {
+                      const sorted = limeResult.contributions.slice(0, 10).sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
+                      const topPos = sorted.filter(c => c.contribution > 0).slice(0, 2);
+                      const topNeg = sorted.filter(c => c.contribution < 0).slice(0, 2);
+                      const target = targetColumn || 'the outcome';
+                      return (
+                        <div className="text-sm leading-relaxed space-y-2" data-testid="lime-why">
+                          <p className="font-semibold flex items-center gap-2"><Lightbulb className="h-4 w-4 text-amber-500" />Why this prediction? (LIME explanation)</p>
+                          <p>For this specific record, the model predicted <strong className="text-emerald-600">{limeResult.prediction?.toFixed(3)}</strong> for <strong>{target}</strong>.</p>
+                          {topPos.length > 0 && <p>The biggest factors <span className="text-emerald-600 font-semibold">supporting</span> this prediction: <strong>{topPos[0].feature}</strong> (+{topPos[0].contribution.toFixed(3)}){topPos[1] ? <> and <strong>{topPos[1].feature}</strong> (+{topPos[1].contribution.toFixed(3)})</> : ''}.</p>}
+                          {topNeg.length > 0 && <p>Factors <span className="text-rose-500 font-semibold">working against</span> the prediction: <strong>{topNeg[0].feature}</strong> ({topNeg[0].contribution.toFixed(3)}){topNeg[1] ? <> and <strong>{topNeg[1].feature}</strong> ({topNeg[1].contribution.toFixed(3)})</> : ''}.</p>}
+                          <p className="text-muted-foreground">LIME creates a simple approximation of the model's behavior around this data point, making complex model decisions easy to understand.</p>
+                        </div>
+                      );
+                    })()}
                   </CardContent></Card></motion.div>}
 
                   {/* LIME Feature Contribution Bar Chart */}
