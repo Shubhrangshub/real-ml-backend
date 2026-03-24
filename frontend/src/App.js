@@ -1292,8 +1292,7 @@ function AppMain({ authUser, onLogout }) {
     const target = targetColumn || 'unsupervised';
     const modelKeys = (trainingResult?.leaderboard || []).map(m => m.algorithm).sort().join(',')
       || (unsupervisedResult?.algorithm || 'none');
-    const bestScore = trainingResult?.bestModel?.testMetrics ? Object.values(trainingResult.bestModel.testMetrics).map(v => typeof v === 'number' ? v.toFixed(4) : '').join(',') : '';
-    return `${dsName}|${target}|${modelKeys}|${evalMode}|${bestScore}`;
+    return `${dsName}|${target}|${modelKeys}|${evalMode}`;
   }, [dataProfile, targetColumn, trainingResult, unsupervisedResult, evalMode]);
 
   const saveInProgressRef = useRef(false);
@@ -2507,6 +2506,12 @@ function AppMain({ authUser, onLogout }) {
                         <p className="font-medium text-foreground mb-1">How to read this tree:</p>
                         <p>Each <span className="text-blue-600 dark:text-blue-400 font-semibold">blue box</span> is a decision point — the model checks if a feature value is below or equal to the threshold. <span className="text-green-600 dark:text-green-400 font-semibold">Yes</span> goes left, <span className="text-red-500 dark:text-red-400 font-semibold">No</span> goes right. <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Green boxes</span> are final predictions.</p>
                       </div>
+                      {treeData.leaf && !treeData.left && !treeData.right && (
+                        <div className="mb-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 text-xs">
+                          <p className="font-medium text-amber-700 dark:text-amber-400 mb-1">Simple tree detected</p>
+                          <p className="text-amber-600 dark:text-amber-500">This model resolved to a single prediction — likely because one class dominates the data, or the tree was pruned aggressively. This can happen with imbalanced datasets. Try increasing tree depth or balancing the dataset for a more complex tree.</p>
+                        </div>
+                      )}
                       <div className="flex justify-center">
                         <TreeNode node={treeData} featureNames={featureNames} depth={0} maxDepth={4} />
                       </div>
