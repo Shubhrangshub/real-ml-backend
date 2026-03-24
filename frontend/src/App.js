@@ -81,7 +81,7 @@ const MetricTip = ({ metricKey, children, className = '', value }) => {
     <span className={`group/tip relative inline-flex items-center gap-1 cursor-help ${className}`} data-testid={`metric-tip-${metricKey}`}>
       {children}
       <Info className="h-3 w-3 text-muted-foreground/50 group-hover/tip:text-foreground transition-colors shrink-0" />
-      <span className="invisible group-hover/tip:visible opacity-0 group-hover/tip:opacity-100 absolute z-[60] bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2.5 rounded-lg bg-popover border shadow-lg text-xs text-popover-foreground transition-all duration-150 pointer-events-none">
+      <span className="invisible group-hover/tip:visible opacity-0 group-hover/tip:opacity-100 absolute z-[9999] top-full left-0 mt-1.5 w-64 p-2.5 rounded-lg bg-popover border shadow-xl text-xs text-popover-foreground transition-all duration-150 pointer-events-none" style={{position:'absolute'}}>
         <span className="font-semibold block mb-0.5">{info.name}</span>
         <span className="text-muted-foreground leading-relaxed block">{info.description}</span>
         {interp && <span className={`block mt-1.5 pt-1.5 border-t leading-relaxed font-medium ${interp.color}`}>{interp.text}</span>}
@@ -97,7 +97,7 @@ const HelpTip = ({ text, children, className = '' }) => (
     <span className="cursor-help" data-testid="help-tip-icon">
       <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/40 group-hover/help:text-blue-500 transition-colors shrink-0" />
     </span>
-    <span className="invisible group-hover/help:visible opacity-0 group-hover/help:opacity-100 absolute z-[60] bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 rounded-lg bg-popover border shadow-lg text-xs text-popover-foreground transition-all duration-150 pointer-events-none leading-relaxed">
+    <span className="invisible group-hover/help:visible opacity-0 group-hover/help:opacity-100 absolute z-[9999] top-full left-0 mt-1.5 w-64 p-3 rounded-lg bg-popover border shadow-xl text-xs text-popover-foreground transition-all duration-150 pointer-events-none leading-relaxed" style={{position:'absolute'}}>
       {text}
     </span>
   </span>
