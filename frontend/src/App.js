@@ -1679,6 +1679,75 @@ function AppMain({ authUser, onLogout }) {
     return { topN, top2, top5, directions, optimalRanges, correlation, pairScatter, actionItems, target };
   }, [shapGlobal, shapSummary, shapBeeswarm, dataProfile, targetColumn, getXaiModel]);
 
+  // ==================== BUSINESS INTERPRETATION ====================
+  const businessInterpretation = useMemo(() => {
+    if (!trainingResult || trainingResult.status !== 'success') return null;
+    const lb = trainingResult.leaderboard || [];
+    if (!lb.length) return null;
+    const best = lb[0];
+    const worst = lb.length > 1 ? lb[lb.length - 1] : null;
+    const pt = trainingResult.problemType;
+    const isReg = pt === 'regression';
+    const bestScore = isReg ? (best?.testMetrics?.r2 || 0) : (best?.testMetrics?.accuracy || 0);
+    const worstScore = worst ? (isReg ? (worst?.testMetrics?.r2 || 0) : (worst?.testMetrics?.accuracy || 0)) : null;
+    const target = targetColumn || 'target';
+    const domain = datasetSummary?.domain || 'your business';
+    const domainLower = domain.toLowerCase();
+    const rowCount = dataProfile?.rowCount || 0;
+
+    // Key features from SHAP if available
+    const topFeats = featureInsights?.top2?.map(f => f.feature) || [];
+    const topDir = featureInsights?.optimalRanges || {};
+
+    // Build interpretation lines
+    const lines = [];
+
+    // 1) Key insight
+    if (isReg) {
+      const pct = (bestScore * 100).toFixed(0);
+      lines.push(bestScore > 0.7
+        ? `Your data shows clear, predictable patterns in ${target} — the model can explain ${pct}% of the variation, meaning most of what drives ${target} is captured in your data.`
+        : `The ${target} values show some unpredictable behavior — only ${pct}% of the variation is explained, suggesting external factors or noise play a role.`);
+    } else {
+      const pct = (bestScore * 100).toFixed(0);
+      lines.push(bestScore > 0.85
+        ? `The analysis reveals strong, distinguishable patterns in your ${domainLower} data — the model correctly identifies ${target} outcomes ${pct}% of the time.`
+        : bestScore > 0.65
+        ? `There are moderate patterns in your ${domainLower} data, with ${pct}% of ${target} outcomes predicted correctly. Some cases remain ambiguous.`
+        : `Predicting ${target} is challenging with the current data — only ${pct}% accuracy, indicating the factors captured don't fully explain the outcome.`);
+    }
+
+    // 2) What's performing well
+    const bestName = best?.algorithm?.replace(/_/g, ' ') || 'the top model';
+    lines.push(`${bestName.charAt(0).toUpperCase() + bestName.slice(1)} performs best for this task, making it the most reliable approach for predicting ${target} in ${domainLower}.`);
+
+    // 3) What's not performing well
+    if (worst && worstScore !== null && worstScore < bestScore - 0.05) {
+      const worstName = worst?.algorithm?.replace(/_/g, ' ') || 'the weakest model';
+      lines.push(`${worstName.charAt(0).toUpperCase() + worstName.slice(1)} struggles with this data — likely because it can't capture the non-linear relationships between your variables.`);
+    } else if (lb.length === 1) {
+      lines.push(`Only one approach was tested. Training additional models could reveal whether a different method better captures the data patterns.`);
+    } else {
+      lines.push(`All tested approaches perform similarly, suggesting the data patterns are straightforward and well-captured regardless of method.`);
+    }
+
+    // 4) Why + 5) Actions
+    if (topFeats.length >= 2) {
+      const f1 = topFeats[0], f2 = topFeats[1];
+      const d1 = topDir[f1]?.recommendation;
+      const d2 = topDir[f2]?.recommendation;
+      lines.push(`The biggest drivers are "${f1}" and "${f2}" — together they account for most of the variation in ${target}.`);
+      const action1 = d1 === 'higher' ? `invest in increasing ${f1}` : `work on reducing ${f1}`;
+      const action2 = d2 === 'higher' ? `prioritize growing ${f2}` : `focus on lowering ${f2}`;
+      lines.push(`To improve outcomes: ${action1}, and ${action2}. These two levers will have the most direct impact on your ${domainLower} results.`);
+    } else {
+      lines.push(`With ${rowCount} records analyzed, the patterns are ${bestScore > 0.7 ? 'reliable' : 'emerging but not definitive'} — ${bestScore > 0.7 ? 'you can confidently act on these findings' : 'consider collecting more data or additional variables to strengthen insights'}.`);
+      lines.push(`Run SHAP analysis in the Explainability tab to identify exactly which factors drive ${target} and get specific, actionable recommendations.`);
+    }
+
+    return lines;
+  }, [trainingResult, targetColumn, datasetSummary, dataProfile, featureInsights]);
+
   // ==================== DATA HANDLERS ====================
   const handleCsvTextChange = useCallback((text, isCleanAction) => {
     setCsvText(text); setTrainingResult(null); setClusterResult(null); setAnomalyResult(null);
@@ -2380,6 +2449,15 @@ function AppMain({ authUser, onLogout }) {
                     <div><p className="text-xs text-muted-foreground"><MetricTip metricKey="accuracy" value={stats.highestScore}>Highest Accuracy</MetricTip></p><p className="font-semibold text-sm" data-testid="insight-highest">{(stats.highestScore * 100).toFixed(1)}%</p></div>
                   </CardContent></Card>
                 </motion.div>
+
+                {/* Business Interpretation */}
+                {businessInterpretation && <motion.div variants={fadeInUp}><Card className="border-2 border-violet-500/30" data-testid="business-interpretation-card">
+                  <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2"><Lightbulb className="h-5 w-5 text-violet-500" />Business Interpretation</CardTitle>
+                    <CardDescription>Plain-English summary of what your data means</CardDescription></CardHeader>
+                  <CardContent><div className="space-y-2" data-testid="business-interpretation-text">
+                    {businessInterpretation.map((line, i) => <p key={i} className="text-sm leading-relaxed text-muted-foreground">{line}</p>)}
+                  </div></CardContent>
+                </Card></motion.div>}
 
                 {/* Dataset Health + Model Leaderboard */}
                 <div className="grid gap-6 lg:grid-cols-2">
