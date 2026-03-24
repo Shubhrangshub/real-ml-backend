@@ -1052,6 +1052,7 @@ function AppMain({ authUser, onLogout }) {
   const [isTraining, setIsTraining] = useState(false);
   const [trainingResult, setTrainingResult] = useState(null);
   const isRestoringRef = useRef(false);
+  const lastSavedFingerprintRef = useRef(null);
   const [models, setModels] = useState([]);
   const [predictionFormData, setPredictionFormData] = useState({});
   const [predictionResult, setPredictionResult] = useState(null);
@@ -1254,8 +1255,21 @@ function AppMain({ authUser, onLogout }) {
     setHistoryLoading(false);
   }, []);
 
-  const handleSaveAnalysis = useCallback(async (customName) => {
+  const computeFingerprint = useCallback(() => {
+    const dsName = dataProfile?.fileName || String(dataProfile?.rowCount || 0) + 'x' + String(dataProfile?.columnCount || 0);
+    const target = targetColumn || 'unsupervised';
+    const modelKeys = (trainingResult?.leaderboard || []).map(m => m.algorithm).sort().join(',')
+      || (unsupervisedResult?.algorithm || 'none');
+    return `${dsName}|${target}|${modelKeys}`;
+  }, [dataProfile, targetColumn, trainingResult, unsupervisedResult]);
+
+  const handleSaveAnalysis = useCallback(async (customName, forceNew) => {
     if (!trainingResult && !unsupervisedResult) { setError('Nothing to save — train a model first.'); return; }
+    const fingerprint = computeFingerprint();
+
+    // Skip if exact same analysis was already saved (unless forced by Share or manual Save)
+    if (!forceNew && !customName && fingerprint === lastSavedFingerprintRef.current) return;
+
     const name = customName || `${targetColumn || 'Unsupervised'} — ${new Date().toLocaleString()}`;
     const bestModel = trainingResult?.leaderboard?.[0];
     try {
@@ -1268,6 +1282,7 @@ function AppMain({ authUser, onLogout }) {
         col_count: dataProfile?.columns?.length || 0,
         models_summary: (trainingResult?.leaderboard || []).map(m => ({ algorithm: m.algorithm, score: m.score })),
         key_metrics: bestModel?.metrics || {},
+        fingerprint: forceNew ? null : fingerprint,
         state: {
           csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan,
           trainingResult, predictionResult, predictionHistory, selectedModelIdx,
@@ -1279,7 +1294,10 @@ function AppMain({ authUser, onLogout }) {
       };
       const res = await fetch(`${API_URL}/api/snapshots`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('automl_token') || ''}` }, body: JSON.stringify(body) });
       const data = await res.json();
-      if (data.snapshot_id) { setError(''); fetchHistory(); return data.snapshot_id; }
+      if (data.snapshot_id) {
+        lastSavedFingerprintRef.current = fingerprint;
+        setError(''); fetchHistory(); return data.snapshot_id;
+      }
       else { setError('Save failed: ' + (data.detail || 'Unknown error')); }
     } catch (e) { setError('Save failed: ' + e.message); }
     return null;
@@ -1288,7 +1306,7 @@ function AppMain({ authUser, onLogout }) {
     unsupervisedResult, clusterResult, anomalyResult, batchResults,
     shapGlobal, shapBeeswarm, shapLocal, shapDependence,
     limeResult, limeProbs, clusterShap, clusterBeeswarm,
-    shapSummary, featureVsPred, clusterComparison, models, dataProfile, fetchHistory]);
+    shapSummary, featureVsPred, clusterComparison, models, dataProfile, fetchHistory, computeFingerprint]);
 
   const handleLoadSnapshot = useCallback(async (snapshotId) => {
     try {
@@ -1339,7 +1357,7 @@ function AppMain({ authUser, onLogout }) {
 
   const handleShareAnalysis = useCallback(async () => {
     try {
-      let sid = await handleSaveAnalysis();
+      let sid = await handleSaveAnalysis(null, true);
       if (sid) {
         const url = `${window.location.origin}${window.location.pathname}?snapshot=${sid}`;
         setShareUrl(url);

@@ -105,6 +105,7 @@ class SnapshotSaveRequest(BaseModel):
     col_count: Optional[int] = 0
     models_summary: Optional[List[Dict[str, Any]]] = []
     key_metrics: Optional[Dict[str, Any]] = {}
+    fingerprint: Optional[str] = None
     state: Dict[str, Any]
 
 class SignupRequest(BaseModel):
@@ -1021,14 +1022,32 @@ async def get_columns(file_url: Optional[str] = None):
 
 @app.post("/api/snapshots")
 async def save_snapshot(req: SnapshotSaveRequest, request: Request):
-    """Save an analysis snapshot for history and sharing."""
+    """Save or update an analysis snapshot. Deduplicates by fingerprint."""
     if db is None:
         raise HTTPException(status_code=500, detail="Database not available")
     user = get_current_user(request)
+    user_id = user["user_id"] if user else None
+
+    # Deduplicate: if same user + fingerprint exists, update instead of insert
+    if req.fingerprint and user_id:
+        existing = snapshots_collection.find_one(
+            {"user_id": user_id, "fingerprint": req.fingerprint}, {"_id": 0, "snapshot_id": 1}
+        )
+        if existing:
+            snapshots_collection.update_one(
+                {"snapshot_id": existing["snapshot_id"]},
+                {"$set": {
+                    "name": req.name, "models_summary": req.models_summary,
+                    "key_metrics": req.key_metrics, "state": req.state,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }}
+            )
+            return {"status": "success", "snapshot_id": existing["snapshot_id"], "action": "updated"}
+
     snapshot_id = str(uuid.uuid4())[:12]
     doc = {
         "snapshot_id": snapshot_id,
-        "user_id": user["user_id"] if user else None,
+        "user_id": user_id,
         "name": req.name,
         "dataset_name": req.dataset_name,
         "target_column": req.target_column,
@@ -1037,6 +1056,7 @@ async def save_snapshot(req: SnapshotSaveRequest, request: Request):
         "col_count": req.col_count,
         "models_summary": req.models_summary,
         "key_metrics": req.key_metrics,
+        "fingerprint": req.fingerprint,
         "state": req.state,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -1044,7 +1064,7 @@ async def save_snapshot(req: SnapshotSaveRequest, request: Request):
         snapshots_collection.insert_one(doc)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Save failed: {str(e)}")
-    return {"status": "success", "snapshot_id": snapshot_id}
+    return {"status": "success", "snapshot_id": snapshot_id, "action": "created"}
 
 @app.get("/api/snapshots")
 async def list_snapshots(request: Request):

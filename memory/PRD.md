@@ -109,6 +109,14 @@ Build a 100% client-side Universal AI Dashboard (AutoML Master) in React. All ML
 - Iteration 16: 24/24 (100% — Help System)
 - Iteration 15: 14/14 (100% — XAI)
 
+- [x] **Deduplicated Save System**:
+  - Fingerprint-based deduplication: dataset_name + target_column + models_used
+  - Same analysis retrained → updates existing entry instead of creating duplicate
+  - Different analysis (new target, new algorithm) → creates new entry
+  - Share Analysis always creates fresh snapshot (forceNew)
+  - Backend upsert: matches user_id + fingerprint, updates state/timestamp if found
+  - lastSavedFingerprintRef prevents unnecessary API calls for identical analyses
+
 ## Backlog
 - [ ] P0: Refactor App.js into modular components (~3900+ lines)
 - [ ] P1: "What-If" Analyzer
