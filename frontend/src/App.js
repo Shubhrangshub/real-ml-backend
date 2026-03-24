@@ -1292,8 +1292,9 @@ function AppMain({ authUser, onLogout }) {
     const target = targetColumn || 'unsupervised';
     const modelKeys = (trainingResult?.leaderboard || []).map(m => m.algorithm).sort().join(',')
       || (unsupervisedResult?.algorithm || 'none');
-    return `${dsName}|${target}|${modelKeys}`;
-  }, [dataProfile, targetColumn, trainingResult, unsupervisedResult]);
+    const bestScore = trainingResult?.bestModel?.testMetrics ? Object.values(trainingResult.bestModel.testMetrics).map(v => typeof v === 'number' ? v.toFixed(4) : '').join(',') : '';
+    return `${dsName}|${target}|${modelKeys}|${evalMode}|${bestScore}`;
+  }, [dataProfile, targetColumn, trainingResult, unsupervisedResult, evalMode]);
 
   const saveInProgressRef = useRef(false);
   const handleSaveAnalysis = useCallback(async (customName, forceNew) => {
@@ -1945,13 +1946,32 @@ function AppMain({ authUser, onLogout }) {
           modelData.y_train = kept.map(i => modelData.y_train[i]);
         }
 
-        setModels(prev => [...prev, {
-          modelId: best.modelId, algorithm: best.algorithm, problemType,
-          metrics: best.testMetrics, trainMetrics: best.trainMetrics,
-          featureImportance: best.featureImportance,
-          createdAt: new Date().toISOString(), durationSec: best.durationSec,
-          evalMode, targetColumn, modelData
-        }]);
+        setModels(prev => {
+          const newModels = [...prev, {
+            modelId: best.modelId, algorithm: best.algorithm, problemType,
+            metrics: best.testMetrics, trainMetrics: best.trainMetrics,
+            featureImportance: best.featureImportance,
+            createdAt: new Date().toISOString(), durationSec: best.durationSec,
+            evalMode, targetColumn, modelData
+          }];
+          // Also store tree-based models separately for visualization (if not already best)
+          for (const tm of trainModels) {
+            if ((tm.algo === 'decision_tree' || tm.algo === 'random_forest') && tm.algo !== best.algorithm) {
+              const lbEntry = leaderboard.find(l => l.algorithm === tm.algo);
+              if (lbEntry) {
+                newModels.push({
+                  modelId: lbEntry.modelId, algorithm: tm.algo, problemType,
+                  metrics: lbEntry.testMetrics, trainMetrics: lbEntry.trainMetrics,
+                  featureImportance: lbEntry.featureImportance,
+                  createdAt: new Date().toISOString(), durationSec: lbEntry.durationSec,
+                  evalMode, targetColumn,
+                  modelData: { featureNames, numericCols, categoricalCols, encodingMap, targetEncoding, ...tm.modelObj }
+                });
+              }
+            }
+          }
+          return newModels;
+        });
 
         setTrainingResult({
           status: 'success', problemType, bestModel: best, leaderboard, evalMode,
