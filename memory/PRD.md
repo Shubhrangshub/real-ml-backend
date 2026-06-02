@@ -25,15 +25,16 @@ Full-stack AutoML application (React + FastAPI + MongoDB) that enables users to 
 - [x] Dark/Light mode
 - [x] Shareable analysis snapshots
 - [x] History with auto-save
+- [x] Decision Tree inline SVG visualization (flowchart with blue decision nodes, green prediction leaves)
+- [x] SHAP + LIME explanations with plain-English summaries
+- [x] Export system (CSV, Share link, Google Sheets) with toast notifications
+- [x] History deduplication (fingerprint-based)
+- [x] Viewport-aware tooltips (SmartTooltip)
 
-## 7-Point Validation Fixes (Completed - March 24, 2026)
-- [x] **P0: Export System** - Download CSV, Share Analysis, Export to Google Sheets all working with toast feedback
-- [x] **P1: Decision Tree Visualization** - View Tree button on leaderboard, modal with interactive flowchart
-- [x] **P1: UI Floating/Clipping** - SmartTooltip component with viewport-aware positioning
-- [x] **P1: Visualization Quality** - Improved chart heights, margins, Y-axis widths, label spacing
-- [x] **P1: SHAP + LIME Explanations** - Plain-English panels explaining "What does this mean?" and "Why this prediction?"
-- [x] **P1: History Deduplication** - Fingerprint-based dedup (dsName|target|models|evalMode), debounced auto-save, saveInProgressRef
-- [x] **P1: Overall Stability** - Try/catch in all handlers, null guards, loading states on export buttons
+## Recent Changes (Session 2)
+- [x] Fixed signup "Connection error" - AuthPage.js now shows actual error messages
+- [x] Added inline SVG Decision Tree visualization as a chart card in results section
+- [x] Tree appears automatically after training Decision Tree or Random Forest models
 
 ## Key API Endpoints
 - POST /api/auth/signup, /api/auth/login, /api/auth/logout

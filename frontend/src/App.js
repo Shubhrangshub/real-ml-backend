@@ -3046,6 +3046,94 @@ function AppMain({ authUser, onLogout }) {
                   {trainingResult.bestModel?.featureImportance?.length > 0 && <Card data-testid="feature-importance-chart"><CardHeader><CardTitle className="text-lg flex items-center gap-2"><TrendingUp className="h-4 w-4" />Which Features Matter Most?</CardTitle><CardDescription>Features ranked by their influence on predictions. Taller bars = more impact on the model's decisions.</CardDescription></CardHeader><CardContent>
                     <ResponsiveContainer width="100%" height={350}><BarChart data={trainingResult.bestModel.featureImportance} margin={{ bottom: 20 }}><CartesianGrid strokeDasharray="3 3" opacity={0.3} /><XAxis dataKey="feature" angle={-35} textAnchor="end" height={100} tick={{fontSize: 11}} interval={0} /><YAxis tickFormatter={v => `${(v * 100).toFixed(0)}%`} /><Tooltip formatter={(v) => `${(v * 100).toFixed(1)}%`} /><Bar dataKey="importance" radius={[6, 6, 0, 0]}>{trainingResult.bestModel.featureImportance.map((_, i) => <Cell key={i} fill={`hsl(${210 + i * 15}, 70%, ${45 + i * 3}%)`} />)}</Bar></BarChart></ResponsiveContainer></CardContent></Card>}
 
+                  {/* Decision Tree Visualization (inline chart) */}
+                  {(() => {
+                    const dtModel = models.find(m => m.algorithm === 'decision_tree' && m.modelData?.tree);
+                    const rfModel = !dtModel ? models.find(m => m.algorithm === 'random_forest' && m.modelData?.trees?.length > 0) : null;
+                    const treeSource = dtModel || rfModel;
+                    const treeRoot = dtModel?.modelData?.tree || rfModel?.modelData?.trees?.[0];
+                    const tNames = treeSource?.modelData?.featureNames || [];
+                    if (!treeRoot || treeRoot.leaf) return null;
+
+                    // Layout the tree: compute positions for each node
+                    const nodePositions = [];
+                    const NODE_W = 140, NODE_H = 54, H_GAP = 16, V_GAP = 60;
+                    const MAX_DEPTH = 4;
+                    let nextX = 0;
+
+                    function layoutTree(node, depth) {
+                      if (!node || depth > MAX_DEPTH) return null;
+                      if (node.leaf) {
+                        const x = nextX; nextX += NODE_W + H_GAP;
+                        const pos = { x, y: depth * (NODE_H + V_GAP), w: NODE_W, h: NODE_H, node, depth };
+                        nodePositions.push(pos);
+                        return pos;
+                      }
+                      const leftPos = layoutTree(node.left, depth + 1);
+                      const rightPos = layoutTree(node.right, depth + 1);
+                      const x = leftPos && rightPos ? (leftPos.x + rightPos.x) / 2
+                               : leftPos ? leftPos.x : rightPos ? rightPos.x : nextX;
+                      if (!leftPos && !rightPos) nextX += NODE_W + H_GAP;
+                      const pos = { x, y: depth * (NODE_H + V_GAP), w: NODE_W, h: NODE_H, node, depth, leftChild: leftPos, rightChild: rightPos };
+                      nodePositions.push(pos);
+                      return pos;
+                    }
+
+                    const rootPos = layoutTree(treeRoot, 0);
+                    const svgW = Math.max(nextX + 20, 400);
+                    const maxY = nodePositions.reduce((m, p) => Math.max(m, p.y), 0);
+                    const svgH = maxY + NODE_H + 40;
+
+                    function renderSVGNode(pos) {
+                      if (!pos) return null;
+                      const { x, y, w, h, node: nd, leftChild, rightChild } = pos;
+                      const isLeaf = nd.leaf;
+                      const fName = !isLeaf && tNames[nd.feature] ? tNames[nd.feature] : (!isLeaf ? `F${nd.feature}` : '');
+                      const truncName = fName.length > 14 ? fName.slice(0, 13) + '...' : fName;
+                      const cx = x + w / 2, cy = y + h / 2;
+
+                      return (
+                        <g key={`${x}-${y}-${nd.n}`}>
+                          {/* Connecting lines to children */}
+                          {leftChild && <><line x1={cx} y1={y + h} x2={leftChild.x + leftChild.w / 2} y2={leftChild.y} stroke="var(--border)" strokeWidth="2" /><text x={(cx + leftChild.x + leftChild.w / 2) / 2 - 12} y={(y + h + leftChild.y) / 2} fontSize="9" fill="#22c55e" fontWeight="bold">Yes</text></>}
+                          {rightChild && <><line x1={cx} y1={y + h} x2={rightChild.x + rightChild.w / 2} y2={rightChild.y} stroke="var(--border)" strokeWidth="2" /><text x={(cx + rightChild.x + rightChild.w / 2) / 2 + 4} y={(y + h + rightChild.y) / 2} fontSize="9" fill="#ef4444" fontWeight="bold">No</text></>}
+                          {/* Node box */}
+                          <rect x={x} y={y} width={w} height={h} rx={8} ry={8}
+                            fill={isLeaf ? 'var(--color-emerald-50, #ecfdf5)' : 'var(--color-blue-50, #eff6ff)'}
+                            stroke={isLeaf ? '#6ee7b7' : '#93c5fd'} strokeWidth="2" />
+                          {isLeaf ? (<>
+                            <text x={cx} y={y + 18} textAnchor="middle" fontSize="10" fontWeight="bold" fill="#059669">Predict</text>
+                            <text x={cx} y={y + 33} textAnchor="middle" fontSize="12" fontWeight="bold" fill="#047857" fontFamily="monospace">{typeof nd.value === 'number' ? nd.value.toFixed(2) : nd.value}</text>
+                            <text x={cx} y={y + 47} textAnchor="middle" fontSize="9" fill="#6b7280">{nd.n} samples</text>
+                          </>) : (<>
+                            <text x={cx} y={y + 16} textAnchor="middle" fontSize="10" fontWeight="600" fill="#2563eb"><title>{fName}</title>{truncName}</text>
+                            <text x={cx} y={y + 32} textAnchor="middle" fontSize="11" fontWeight="bold" fill="#1e40af" fontFamily="monospace">{'\u2264'} {nd.threshold?.toFixed(2)}</text>
+                            <text x={cx} y={y + 47} textAnchor="middle" fontSize="9" fill="#6b7280">{nd.n} samples</text>
+                          </>)}
+                          {/* Render children recursively */}
+                          {renderSVGNode(leftChild)}
+                          {renderSVGNode(rightChild)}
+                        </g>
+                      );
+                    }
+
+                    return (
+                      <Card data-testid="decision-tree-chart">
+                        <CardHeader>
+                          <CardTitle className="text-lg flex items-center gap-2"><GitBranch className="h-4 w-4 text-green-600" />Decision Tree Structure</CardTitle>
+                          <CardDescription>Visual flowchart showing how the {treeSource?.algorithm === 'random_forest' ? 'first tree in the Random Forest' : 'Decision Tree'} makes decisions. Blue nodes are split points, green nodes are predictions.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="overflow-auto rounded-lg border bg-muted/20 p-4" style={{ maxHeight: 500 }}>
+                            <svg width={svgW} height={svgH} viewBox={`0 0 ${svgW} ${svgH}`} className="mx-auto" style={{ minWidth: svgW }}>
+                              {renderSVGNode(rootPos)}
+                            </svg>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
+
                   {/* Model Comparison Chart */}
                   {trainingResult.leaderboard?.length > 1 && <Card data-testid="model-comparison-chart"><CardHeader><CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="h-4 w-4" />Model Comparison</CardTitle><CardDescription>Side-by-side comparison of all algorithms. The best model is automatically selected for predictions.</CardDescription></CardHeader><CardContent>
                     <ResponsiveContainer width="100%" height={300}><BarChart data={trainingResult.leaderboard.filter(m => m.algorithm !== 'baseline').map(m => ({
