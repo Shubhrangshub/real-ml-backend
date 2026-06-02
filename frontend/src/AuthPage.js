@@ -26,10 +26,26 @@ export default function AuthPage({ onAuth }) {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.detail || 'Authentication failed'); setLoading(false); return; }
+      if (!res.ok) {
+        // Handle Pydantic validation errors (array of objects)
+        const detail = data.detail;
+        if (Array.isArray(detail)) {
+          setError(detail.map(d => d.msg || d.message || JSON.stringify(d)).join('. '));
+        } else {
+          setError(typeof detail === 'string' ? detail : 'Authentication failed. Please check your details.');
+        }
+        setLoading(false); return;
+      }
       if (data.token) localStorage.setItem('automl_token', data.token);
       if (data.user) onAuth(data.user);
-    } catch (err) { setError('Connection error. Please try again.'); }
+    } catch (err) {
+      console.error('Auth error:', err);
+      if (err.name === 'TypeError' && err.message.includes('Failed to fetch')) {
+        setError('Unable to connect to server. Please check your internet connection and try again.');
+      } else {
+        setError(err.message || 'Something went wrong. Please try again.');
+      }
+    }
     setLoading(false);
   };
 
