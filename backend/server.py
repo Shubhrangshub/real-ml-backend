@@ -144,6 +144,13 @@ class LoginRequest(BaseModel):
 class GoogleSessionRequest(BaseModel):
     session_id: str
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
 # ==================== AUTH HELPERS ====================
 
 def get_current_user(request: Request) -> Optional[Dict]:
@@ -285,6 +292,59 @@ async def logout(request: Request, response: FastAPIResponse):
         sessions_collection.delete_many({"session_token": token})
     response.delete_cookie("session_token", path="/", secure=True, samesite="none")
     return {"status": "success"}
+
+@app.post("/api/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    """Generate a password reset token. Returns the token directly (no email service configured)."""
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    import secrets
+    user = users_collection.find_one({"email": req.email}, {"_id": 0})
+    if not user:
+        # Don't reveal whether email exists — return success either way
+        return {"status": "success", "message": "If that email is registered, a reset token has been generated.", "token": None}
+    if user.get("auth_provider") == "google" and not user.get("password_hash"):
+        return {"status": "error", "message": "This account uses Google Sign-In. Please log in with Google.", "token": None}
+    # Invalidate any existing tokens for this email
+    reset_tokens_collection = db["password_reset_tokens"]
+    reset_tokens_collection.delete_many({"email": req.email})
+    # Generate new token
+    token = secrets.token_urlsafe(32)
+    reset_tokens_collection.insert_one({
+        "email": req.email,
+        "token": token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+        "used": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    # In production, this token would be emailed. For now, return it directly.
+    return {"status": "success", "message": "Reset token generated.", "token": token}
+
+@app.post("/api/auth/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    """Reset password using a valid reset token."""
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    reset_tokens_collection = db["password_reset_tokens"]
+    record = reset_tokens_collection.find_one({"token": req.token, "used": False})
+    if not record:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    # Check expiry
+    expires_at = record.get("expires_at")
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at and expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Reset token has expired. Please request a new one.")
+    # Update password
+    new_hash = bcrypt.hashpw(req.new_password.encode(), bcrypt.gensalt()).decode()
+    users_collection.update_one({"email": record["email"]}, {"$set": {"password_hash": new_hash}})
+    # Mark token as used
+    reset_tokens_collection.update_one({"token": req.token}, {"$set": {"used": True}})
+    return {"status": "success", "message": "Password has been reset successfully. You can now sign in."}
 
 # ==================== HELPER FUNCTIONS ====================
 

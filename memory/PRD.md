@@ -26,6 +26,7 @@ Full-stack AutoML application (React + FastAPI + MongoDB) that enables users to 
 - [x] Export system (CSV, Share link, Google Sheets) with toast feedback
 - [x] History with fingerprint-based deduplication
 - [x] Dark/Light mode
+- [x] Forgot Password / Reset Password flow
 - [x] Viewport-aware tooltips (SmartTooltip)
 
 ## Code Review Fixes Applied
@@ -51,6 +52,7 @@ Full-stack AutoML application (React + FastAPI + MongoDB) that enables users to 
 
 ## Key API Endpoints
 - POST /api/auth/signup, /api/auth/login, /api/auth/logout, /api/auth/google
+- POST /api/auth/forgot-password, /api/auth/reset-password
 - GET /api/auth/me
 - POST /api/train, /api/predict
 - POST /api/snapshots, GET /api/snapshots, GET /api/snapshots/{id}, DELETE /api/snapshots/{id}
@@ -59,6 +61,7 @@ Full-stack AutoML application (React + FastAPI + MongoDB) that enables users to 
 
 ## Test Credentials
 - Email: test@automl.com / Password: Test1234!
+- See /app/memory/test_credentials.md for full list
 
 ## Backlog
 
