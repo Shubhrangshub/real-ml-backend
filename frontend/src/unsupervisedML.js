@@ -530,7 +530,7 @@ export function runUnsupervisedPipeline(rows, numericCols) {
     try { const h = runHierarchical(X, bestK);
       algorithms.push({ name: 'Hierarchical', key: 'hierarchical', labels: h.labels, centroids: h.centroids, k: h.k,
         metrics: { silhouette: silhouetteScore(X, h.labels), daviesBouldin: daviesBouldinIndex(X, h.labels), calinskiHarabasz: calinskiHarabaszScore(X, h.labels) },
-        runtime: (performance.now() - t1) / 1000 }); } catch { /* skip */ }
+        runtime: (performance.now() - t1) / 1000 }); } catch (e) { console.warn('Hierarchical clustering skipped:', e.message); }
   }
 
   // DBSCAN
@@ -539,21 +539,21 @@ export function runUnsupervisedPipeline(rows, numericCols) {
     if (db.k > 1) { algorithms.push({ name: 'DBSCAN', key: 'dbscan', labels: db.labels, centroids: db.centroids, k: db.k, noiseCount: db.noiseCount,
       metrics: { silhouette: silhouetteScore(X, db.labels), daviesBouldin: daviesBouldinIndex(X, db.labels), calinskiHarabasz: calinskiHarabaszScore(X, db.labels) },
       runtime: (performance.now() - t1) / 1000 }); }
-  } catch { /* skip */ }
+  } catch (e) { console.warn('DBSCAN skipped:', e.message); }
 
   // GMM
   t1 = performance.now();
   try { const gm = runGMM(X, bestK);
     algorithms.push({ name: 'Gaussian Mixture', key: 'gmm', labels: gm.labels, centroids: gm.centroids, k: bestK,
       metrics: { silhouette: silhouetteScore(X, gm.labels), daviesBouldin: daviesBouldinIndex(X, gm.labels), calinskiHarabasz: calinskiHarabaszScore(X, gm.labels) },
-      runtime: (performance.now() - t1) / 1000 }); } catch { /* skip */ }
+      runtime: (performance.now() - t1) / 1000 }); } catch (e) { console.warn('GMM skipped:', e.message); }
 
   algorithms.sort((a, b) => (b.metrics.silhouette || 0) - (a.metrics.silhouette || 0));
   const best = algorithms[0];
 
   let iforest = null, lof = null;
-  try { iforest = runIsolationForest(X); } catch { /* skip */ }
-  try { lof = runLOF(X, Math.min(20, n - 1)); } catch { /* skip */ }
+  try { iforest = runIsolationForest(X); } catch (e) { console.warn('IsolationForest skipped:', e.message); }
+  try { lof = runLOF(X, Math.min(20, n - 1)); } catch (e) { console.warn('LOF skipped:', e.message); }
 
   const interpretation = best ? interpretClusters(raw, best.labels, featureNames) : null;
   const pcaPoints = pcaResult.projected.map((pt, i) => ({ x: pt[0], y: pt[1] || 0, cluster: best?.labels[i] ?? 0, index: i }));

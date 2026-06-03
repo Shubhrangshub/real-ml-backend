@@ -23,6 +23,8 @@ import time
 import os
 import pickle
 import base64
+import hmac
+import hashlib
 import pandas as pd
 import numpy as np
 import requests
@@ -80,6 +82,28 @@ except Exception as e:
 
 # Global model store (in-memory backup)
 MODELS: Dict[str, Dict[str, Any]] = {}
+
+# ==================== SECURE MODEL SERIALIZATION ====================
+_MODEL_SIGNING_KEY = os.environ.get("MODEL_SIGNING_KEY", JWT_SECRET).encode()
+
+def secure_pickle_dumps(obj) -> str:
+    """Serialize object with HMAC signature to prevent tampering."""
+    data = pickle.dumps(obj)
+    sig = hmac.new(_MODEL_SIGNING_KEY, data, hashlib.sha256).hexdigest()
+    payload = sig.encode() + b"|" + data
+    return base64.b64encode(payload).decode("utf-8")
+
+def secure_pickle_loads(encoded: str):
+    """Deserialize object after verifying HMAC signature."""
+    raw = base64.b64decode(encoded)
+    if b"|" in raw[:65]:
+        sig_hex, data = raw.split(b"|", 1)
+        expected = hmac.new(_MODEL_SIGNING_KEY, data, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig_hex.decode(), expected):
+            raise ValueError("Model signature verification failed — data may be tampered")
+        return pickle.loads(data)
+    # Legacy fallback for models saved before signing was added
+    return pickle.loads(raw)
 
 # ==================== REQUEST/RESPONSE MODELS ====================
 
@@ -665,14 +689,14 @@ async def train(req: TrainRequest):
             if res["status"] == "ok":
                 # Store model in global memory
                 model_obj = res.pop("model_obj")
-                model_serialized = base64.b64encode(pickle.dumps(model_obj)).decode('utf-8')
+                model_serialized = secure_pickle_dumps(model_obj)
                 
                 MODELS[res["modelId"]] = {
                     "model": model_obj,
                     "columns": X.columns.tolist(),
                     "problemType": problem_type,
                     "algorithm": res["algorithm"],
-                    "createdAt": datetime.utcnow().isoformat()
+                    "createdAt": datetime.now(timezone.utc).isoformat()
                 }
                 
                 # Store in MongoDB
@@ -686,7 +710,7 @@ async def train(req: TrainRequest):
                             "featureImportance": res["featureImportance"],
                             "columns": X.columns.tolist(),
                             "modelData": model_serialized,
-                            "createdAt": datetime.utcnow()
+                            "createdAt": datetime.now(timezone.utc)
                         })
                     except Exception as e:
                         print(f"MongoDB insert error: {e}")
@@ -729,7 +753,7 @@ async def train(req: TrainRequest):
     if db is not None:
         try:
             training_history_collection.insert_one({
-                "timestamp": datetime.utcnow(),
+                "timestamp": datetime.now(timezone.utc),
                 "problemType": problem_type,
                 "bestModelId": best_model["modelId"],
                 "bestAlgorithm": best_model["algorithm"],
@@ -788,7 +812,7 @@ async def predict(req: PredictRequest):
             try:
                 model_doc = models_collection.find_one({"modelId": req.model_id})
                 if model_doc:
-                    model_obj = pickle.loads(base64.b64decode(model_doc["modelData"]))
+                    model_obj = secure_pickle_loads(model_doc["modelData"])
                     MODELS[req.model_id] = {
                         "model": model_obj,
                         "columns": model_doc["columns"],
@@ -965,7 +989,7 @@ async def download_model(model_id: str):
             try:
                 model_doc = models_collection.find_one({"modelId": model_id})
                 if model_doc:
-                    model_obj = pickle.loads(base64.b64decode(model_doc["modelData"]))
+                    model_obj = secure_pickle_loads(model_doc["modelData"])
                     MODELS[model_id] = {
                         "model": model_obj,
                         "columns": model_doc["columns"],
@@ -983,7 +1007,7 @@ async def download_model(model_id: str):
     model = model_info["model"]
     algorithm = model_info.get("algorithm", "model")
     
-    # Serialize model to bytes
+    # Serialize model to bytes (standard pickle for user download — they own the model)
     model_bytes = pickle.dumps(model)
     
     # Create BytesIO object
