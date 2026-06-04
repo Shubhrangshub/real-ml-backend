@@ -45,22 +45,23 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 ### Model Leaderboard (Completed Feb 2026)
 - [x] Auto-save trained models to leaderboard after training
 - [x] Dedicated sidebar tab with LeaderboardView
-- [x] Stats row (Total Models, Best Score, Average Score, Algorithms Tried, Total Training Time)
-- [x] Best Score Over Time timeline chart
-- [x] Algorithm Performance Trend chart
-- [x] Model Rankings table with sorting (score/date/time) and filtering (algorithm/type)
-- [x] Algorithm Distribution bar chart
-- [x] Delete single entry & Clear All functionality
+- [x] Stats row, timeline chart, algo trend chart, ranked table with sorting/filtering
 - [x] Dashboard compact widget (top 5 models, "View All" navigation)
 - [x] Backend CRUD APIs: GET/POST/DELETE /api/leaderboard
 
+### Dataset Switch State Reset (Fixed Feb 2026)
+- [x] Full state reset when loading a new dataset (models, SHAP/LIME, predictions, target column, etc.)
+- [x] Auto-save current analysis to History before switching datasets
+- [x] Cleaning actions preserved (don't reset analysis)
+- [x] History restore works correctly for old analyses
+
 ## Modular Architecture (Refactored Feb 2026)
-App.js reduced from 4598 to ~1692 lines (63% reduction)
+App.js reduced from 4598 to ~1780 lines (61% reduction)
 
 ### File Structure
 ```
 src/
-├── App.js                          (1762 lines - state + routing)
+├── App.js                          (~1780 lines - state + routing)
 ├── AuthPage.js                     (auth + forgot password)
 ├── constants.js                    (ALGO_NAMES, GUIDE_STEPS, etc.)
 ├── context/
@@ -72,15 +73,15 @@ src/
 ├── components/
 │   ├── SmartTooltip.js             (SmartTooltip, MetricTip, HelpTip)
 │   └── views/
-│       ├── DashboardView.js        (218 lines)
-│       ├── AnalysisView.js         (492 lines)
-│       ├── PredictView.js          (356 lines)
-│       ├── ExplainabilityView.js   (903 lines)
-│       ├── DataExplorerView.js     (111 lines)
-│       ├── CompareModelsView.js    (Compare Models with radar/metrics)
-│       ├── LeaderboardView.js      (454 lines - new)
-│       ├── HistoryView.js          (70 lines)
-│       └── SmallViews.js           (Clusters/Anomalies/Models)
+│       ├── DashboardView.js
+│       ├── AnalysisView.js
+│       ├── PredictView.js
+│       ├── ExplainabilityView.js
+│       ├── DataExplorerView.js
+│       ├── CompareModelsView.js
+│       ├── LeaderboardView.js
+│       ├── HistoryView.js
+│       └── SmallViews.js
 ```
 
 ## API Endpoints
