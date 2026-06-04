@@ -34,6 +34,7 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 - [x] JWT session-based auth (localStorage tokens)
 - [x] Google OAuth integration
 - [x] Forgot Password / Reset Password flow
+- [x] Compare Models view (radar chart, metric table, feature importance, confusion matrix, winner recommendation)
 - [x] Dark/Light mode
 - [x] Analysis history (save/load/share/delete snapshots)
 - [x] Model import/export (download/upload JSON)
@@ -64,6 +65,7 @@ src/
 │       ├── PredictView.js          (356 lines)
 │       ├── ExplainabilityView.js   (903 lines)
 │       ├── DataExplorerView.js     (111 lines)
+│       ├── CompareModelsView.js     (Compare Models with radar/metrics)
 │       ├── HistoryView.js          (70 lines)
 │       └── SmallViews.js           (Clusters/Anomalies/Models)
 ```
