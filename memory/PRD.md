@@ -21,7 +21,6 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 - [x] Single & batch predictions
 - [x] Unsupervised learning (K-Means, Hierarchical, DBSCAN, GMM)
 - [x] Anomaly detection (Z-Score, IQR)
-- [x] Clustering (K-Means)
 
 ### Explainability
 - [x] SHAP (Global, Local, Beeswarm, Dependence plots)
@@ -39,49 +38,39 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 - [x] Analysis history (save/load/share/delete snapshots)
 - [x] Model import/export (download/upload JSON)
 - [x] Secure model serialization (Pickle HMAC)
-- [x] Meaningful auth error messages
-- [x] History deduplication
 
 ### Model Leaderboard (Completed Feb 2026)
 - [x] Auto-save trained models to leaderboard after training
 - [x] Dedicated sidebar tab with LeaderboardView
 - [x] Stats row, timeline chart, algo trend chart, ranked table with sorting/filtering
-- [x] Dashboard compact widget (top 5 models, "View All" navigation)
+- [x] Dashboard compact widget (top 5 models)
 - [x] Backend CRUD APIs: GET/POST/DELETE /api/leaderboard
 
-### Dataset Switch State Reset (Fixed Feb 2026)
-- [x] Full state reset when loading a new dataset (models, SHAP/LIME, predictions, target column, etc.)
-- [x] Auto-save current analysis to History before switching datasets
-- [x] Cleaning actions preserved (don't reset analysis)
-- [x] History restore works correctly for old analyses
+### Dataset Context & Analysis Management (Fixed Feb 2026)
+- [x] Full state reset when loading a new dataset
+- [x] Auto-save current analysis to History before switching datasets (with toast notification)
+- [x] Dataset name badge in header showing current dataset (sample name or filename)
+- [x] Dataset name displayed in History entries with Database icon
+- [x] Better auto-save naming: "Dataset — Target — Date"
+- [x] Dataset name persists in session and restores from History snapshots
+- [x] Cleaning actions don't reset analysis state
 
-## Modular Architecture (Refactored Feb 2026)
-App.js reduced from 4598 to ~1780 lines (61% reduction)
-
-### File Structure
+## File Structure
 ```
 src/
-├── App.js                          (~1780 lines - state + routing)
+├── App.js                          (~1800 lines - state + routing)
 ├── AuthPage.js                     (auth + forgot password)
 ├── constants.js                    (ALGO_NAMES, GUIDE_STEPS, etc.)
-├── context/
-│   └── AppContext.js               (React Context for shared state)
+├── context/AppContext.js           (React Context for shared state)
 ├── utils/
-│   ├── helpers.js                  (getScoreColor, interpretMetric, etc.)
-│   ├── mlEngine.js                 (all ML algorithms, prediction, metrics)
-│   └── datasetUtils.js             (CSV parsing, profiling, scanning, cleaning)
+│   ├── helpers.js, mlEngine.js, datasetUtils.js
 ├── components/
-│   ├── SmartTooltip.js             (SmartTooltip, MetricTip, HelpTip)
+│   ├── SmartTooltip.js
 │   └── views/
-│       ├── DashboardView.js
-│       ├── AnalysisView.js
-│       ├── PredictView.js
-│       ├── ExplainabilityView.js
-│       ├── DataExplorerView.js
-│       ├── CompareModelsView.js
-│       ├── LeaderboardView.js
-│       ├── HistoryView.js
-│       └── SmallViews.js
+│       ├── DashboardView.js, AnalysisView.js, PredictView.js
+│       ├── ExplainabilityView.js, DataExplorerView.js
+│       ├── CompareModelsView.js, LeaderboardView.js
+│       ├── HistoryView.js, SmallViews.js
 ```
 
 ## API Endpoints
@@ -89,17 +78,16 @@ src/
 - POST /api/auth/forgot-password, /api/auth/reset-password
 - GET /api/auth/me
 - POST /api/train, /api/predict
-- GET /api/snapshots, POST /api/snapshots, DELETE /api/snapshots/{id}
-- POST /api/snapshots/{id}/share
+- GET/POST/DELETE /api/snapshots, POST /api/snapshots/{id}/share
 - GET /api/download-model/{model_id}
-- GET /api/leaderboard, POST /api/leaderboard, DELETE /api/leaderboard/{model_id}, DELETE /api/leaderboard
+- GET/POST/DELETE /api/leaderboard
 
 ## DB Schema
 - users: {email, password_hash, name, picture, auth_provider}
 - user_sessions: {session_token, user_id, expires_at}
-- analysis_snapshots: {snapshot_id, user_id, data, fingerprint, createdAt}
+- analysis_snapshots: {snapshot_id, user_id, data, fingerprint, createdAt, dataset_name}
 - password_reset_tokens: {email, token, expires_at, used, created_at}
-- leaderboard_entries: {user_id, model_id, algorithm, problem_type, dataset_name, target_column, metrics, feature_importance, duration_sec, eval_mode, num_features, num_samples, created_at}
+- leaderboard_entries: {user_id, model_id, algorithm, problem_type, dataset_name, metrics, ...}
 
 ## Test Credentials
 - Email: test@automl.com / Password: Test1234!
@@ -107,7 +95,6 @@ src/
 
 ## Known Issues
 - Token stored in localStorage (httpOnly cookies cause Kubernetes proxy fetch hangs)
-- Minor React warning: validateDOMNesting (Badge component, cosmetic)
 - Some unused variable warnings in App.js (cosmetic, from refactor)
 
 ## Backlog
