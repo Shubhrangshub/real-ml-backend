@@ -28,6 +28,7 @@ import { runUnsupervisedPipeline, predictCluster } from './unsupervisedML';
 import './App.css';
 import ExplainabilityView from './components/views/ExplainabilityView';
 import CompareModelsView from './components/views/CompareModelsView';
+import LeaderboardView from './components/views/LeaderboardView';
 import DashboardView from './components/views/DashboardView';
 import AnalysisView from './components/views/AnalysisView';
 import PredictView from './components/views/PredictView';
@@ -176,6 +177,8 @@ function AppMain({ authUser, onLogout }) {
   const xaiCacheRef = useRef({});
   const [showGuide, setShowGuide] = useState(false);
   const [historyList, setHistoryList] = useState([]);
+  const [leaderboardEntries, setLeaderboardEntries] = useState([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [viewOnlyMode, setViewOnlyMode] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
@@ -337,6 +340,46 @@ function AppMain({ authUser, onLogout }) {
       setHistoryList(data.snapshots || []);
     } catch { setHistoryList([]); }
     setHistoryLoading(false);
+  }, []);
+
+  const fetchLeaderboard = useCallback(async () => {
+    setLeaderboardLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/leaderboard`, { headers: { 'Authorization': `Bearer ${localStorage.getItem('automl_token') || ''}` } });
+      const data = await res.json();
+      setLeaderboardEntries(data.entries || []);
+    } catch { setLeaderboardEntries([]); }
+    setLeaderboardLoading(false);
+  }, []);
+
+  const saveToLeaderboard = useCallback(async (modelEntry) => {
+    try {
+      await fetch(`${API_URL}/api/leaderboard`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('automl_token') || ''}` },
+        body: JSON.stringify(modelEntry),
+      });
+    } catch (e) { console.warn('Leaderboard save failed:', e); }
+  }, []);
+
+  const deleteLeaderboardEntry = useCallback(async (modelId) => {
+    try {
+      await fetch(`${API_URL}/api/leaderboard/${modelId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('automl_token') || ''}` },
+      });
+      setLeaderboardEntries(prev => prev.filter(e => e.model_id !== modelId));
+    } catch (e) { console.warn('Leaderboard delete failed:', e); }
+  }, []);
+
+  const clearLeaderboard = useCallback(async () => {
+    try {
+      await fetch(`${API_URL}/api/leaderboard`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('automl_token') || ''}` },
+      });
+      setLeaderboardEntries([]);
+    } catch (e) { console.warn('Leaderboard clear failed:', e); }
   }, []);
 
   const computeFingerprint = useCallback(() => {
@@ -591,6 +634,7 @@ function AppMain({ authUser, onLogout }) {
 
   // Fetch history when switching to history view
   useEffect(() => { if (activeView === 'history') fetchHistory(); }, [activeView, fetchHistory]);
+  useEffect(() => { if (activeView === 'leaderboard' || activeView === 'dashboard') fetchLeaderboard(); }, [activeView, fetchLeaderboard]);
 
   // ==================== SAMPLE DATASETS ====================
   const sampleDatasets = [
@@ -1031,6 +1075,24 @@ function AppMain({ authUser, onLogout }) {
           dataInfo: { numSamples: rows.length, numFeatures: featureNames.length, targetColumn, columns: featureNames, removedLeakageColumns: leakageCols, textColumns: textCols },
           predictionsVsActual, residualStats
         });
+
+        // Auto-save all trained models to leaderboard
+        const dsName = dataProfile?.fileName || csvText?.substring(0, 30) || 'Unknown Dataset';
+        for (const entry of leaderboard) {
+          saveToLeaderboard({
+            model_id: entry.modelId,
+            algorithm: entry.algorithm,
+            problem_type: problemType,
+            dataset_name: dsName,
+            target_column: targetColumn,
+            metrics: entry.testMetrics || {},
+            feature_importance: entry.featureImportance || [],
+            duration_sec: entry.durationSec || 0,
+            eval_mode: evalMode,
+            num_features: featureNames.length,
+            num_samples: rows.length,
+          });
+        }
       } catch (err) { setError(err.message || 'Training failed'); }
       finally { setIsTraining(false); }
     }, 50);
@@ -1492,6 +1554,8 @@ function AppMain({ authUser, onLogout }) {
     xaiDepFeature, setXaiDepFeature, shapGlobal, shapBeeswarm, shapLocal, shapDependence,
     limeResult, limeProbs, clusterShap, clusterBeeswarm, shapSummary, featureVsPred,
     clusterComparison, showGuide, setShowGuide, historyList, historyLoading, viewOnlyMode,
+    leaderboardEntries, leaderboardLoading, fetchLeaderboard,
+    deleteLeaderboardEntry, clearLeaderboard,
     setViewOnlyMode, shareUrl, setShareUrl, shareCopyStatus, setShareCopyStatus,
     treeModalOpen, setTreeModalOpen, treeModalAlgo, setTreeModalAlgo, exportLoading,
     // Computed
@@ -1523,7 +1587,7 @@ function AppMain({ authUser, onLogout }) {
         <div className="flex h-full flex-col gap-2">
           <div className="flex h-16 items-center border-b border-sidebar-border px-6"><div className="flex items-center gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Brain className="h-6 w-6" /></div><div><h1 className="text-lg font-bold text-sidebar-foreground">AutoML</h1><p className="text-xs text-sidebar-foreground/60">Universal Dashboard</p></div></div></div>
           <nav className="flex-1 space-y-1 px-3 py-4" data-testid="sidebar-nav">
-            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'compare', label: 'Compare', icon: GitBranch }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }, { id: 'history', label: 'History', icon: History }].map((item) => (
+            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'compare', label: 'Compare', icon: GitBranch }, { id: 'leaderboard', label: 'Leaderboard', icon: Trophy }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }, { id: 'history', label: 'History', icon: History }].map((item) => (
               <Button key={item.id} variant={activeView === item.id ? 'secondary' : 'ghost'} className="w-full justify-start gap-3" onClick={() => setActiveView(item.id)} data-testid={`nav-${item.id}`}><item.icon className="h-4 w-4" />{item.label}</Button>
             ))}
           </nav>
@@ -1535,7 +1599,7 @@ function AppMain({ authUser, onLogout }) {
         <motion.header initial={{ y: -100 }} animate={{ y: 0 }} className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="flex h-16 items-center justify-between px-8"><div>
             <h2 className="text-2xl font-bold tracking-tight" data-testid="page-title">
-              {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'history' && 'Analysis History'}
+              {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'leaderboard' && 'Model Leaderboard'}{activeView === 'history' && 'Analysis History'}
             </h2>
             <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations and model performance'}{activeView === 'analysis' && 'Upload data, select a target variable, and train ML models'}{activeView === 'predict' && 'Make predictions, view results, and explore visualizations'}{activeView === 'anomalies' && 'Detect outliers and unusual patterns in your data'}{activeView === 'models' && 'Manage, export, and import your trained models'}{activeView === 'explore' && 'Explore data distributions, correlations, and patterns'}{activeView === 'explainability' && 'Understand why the model made its predictions using SHAP and LIME'}{activeView === 'history' && 'View, restore, and share your saved analysis sessions'}</p>
           </div><div className="flex items-center gap-2">
@@ -1670,6 +1734,9 @@ function AppMain({ authUser, onLogout }) {
 
           {/* ==================== COMPARE MODELS ==================== */}
           {activeView === 'compare' && <CompareModelsView />}
+
+          {/* ==================== LEADERBOARD ==================== */}
+          {activeView === 'leaderboard' && <LeaderboardView />}
 
           {/* ==================== DATA EXPLORER ==================== */}
           {activeView === 'explore' && <DataExplorerView />}

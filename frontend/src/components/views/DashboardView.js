@@ -16,8 +16,18 @@ import { useApp } from '../../context/AppContext';
 export default function DashboardView() {
   const {
     models, stats, dataProfile, datasetScan, showGuide, setShowGuide,
-    setActiveView, businessInterpretation, topModels, StatCard
+    setActiveView, businessInterpretation, topModels, StatCard,
+    leaderboardEntries
   } = useApp();
+
+  // Top 5 from leaderboard
+  const topLeaderboard = [...leaderboardEntries]
+    .sort((a, b) => {
+      const sa = a.problem_type === 'classification' ? (a.metrics?.f1 || a.metrics?.accuracy || 0) : (a.metrics?.r2 || 0);
+      const sb = b.problem_type === 'classification' ? (b.metrics?.f1 || b.metrics?.accuracy || 0) : (b.metrics?.r2 || 0);
+      return sb - sa;
+    })
+    .slice(0, 5);
 
   return (
   <motion.div key="dashboard" variants={staggerContainer} initial="initial" animate="animate" exit="exit" className="space-y-6" data-testid="dashboard-view">
@@ -163,6 +173,46 @@ export default function DashboardView() {
         </table></div>
       </CardContent></Card></motion.div>
     </>)}
+
+    {/* ==================== LEADERBOARD WIDGET ==================== */}
+    {topLeaderboard.length > 0 && (
+      <motion.div variants={fadeInUp}>
+        <Card data-testid="dashboard-leaderboard-widget">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base"><Trophy className="h-4 w-4 text-amber-500" />All-Time Leaderboard</CardTitle>
+                <CardDescription className="text-xs">{leaderboardEntries.length} models across sessions</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setActiveView('leaderboard')} className="text-xs" data-testid="view-full-leaderboard">
+                View All <ArrowUpRight className="h-3 w-3 ml-1" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-2">
+              {topLeaderboard.map((entry, i) => {
+                const score = entry.problem_type === 'classification' ? (entry.metrics?.f1 || entry.metrics?.accuracy || 0) : (entry.metrics?.r2 || 0);
+                return (
+                  <div key={entry.model_id + i} className={`flex items-center gap-3 p-2 rounded-lg ${i === 0 ? 'bg-amber-50/80 dark:bg-amber-950/20' : 'bg-muted/30'}`} data-testid={`lb-widget-${i}`}>
+                    <span className={`text-sm font-bold w-6 text-center ${i === 0 ? 'text-amber-500' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-amber-700' : 'text-muted-foreground'}`}>
+                      {i === 0 ? <Trophy className="h-4 w-4 mx-auto" /> : `#${i + 1}`}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{ALGO_NAMES[entry.algorithm] || entry.algorithm}</p>
+                      <p className="text-xs text-muted-foreground truncate">{entry.dataset_name || 'Unknown'}</p>
+                    </div>
+                    <Badge variant={i === 0 ? 'default' : 'secondary'} className="text-xs shrink-0">
+                      {(score * 100).toFixed(1)}%
+                    </Badge>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+    )}
   </motion.div>
   );
 }

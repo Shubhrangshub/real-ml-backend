@@ -76,6 +76,7 @@ try:
     snapshots_collection = db["snapshots"]
     users_collection = db["users"]
     sessions_collection = db["user_sessions"]
+    leaderboard_collection = db["leaderboard_entries"]
 except Exception as e:
     print(f"MongoDB connection warning: {e}")
     db = None
@@ -150,6 +151,19 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+
+class LeaderboardEntry(BaseModel):
+    model_id: str
+    algorithm: str
+    problem_type: str
+    dataset_name: Optional[str] = None
+    target_column: Optional[str] = None
+    metrics: dict
+    feature_importance: Optional[list] = []
+    duration_sec: Optional[float] = None
+    eval_mode: Optional[str] = None
+    num_features: Optional[int] = None
+    num_samples: Optional[int] = None
 
 # ==================== AUTH HELPERS ====================
 
@@ -345,6 +359,72 @@ async def reset_password(req: ResetPasswordRequest):
     # Mark token as used
     reset_tokens_collection.update_one({"token": req.token}, {"$set": {"used": True}})
     return {"status": "success", "message": "Password has been reset successfully. You can now sign in."}
+
+# ==================== LEADERBOARD ENDPOINTS ====================
+
+@app.post("/api/leaderboard")
+async def save_leaderboard_entry(entry: LeaderboardEntry, request: Request):
+    """Auto-save a trained model to the leaderboard."""
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    doc = {
+        "user_id": user.get("email"),
+        "model_id": entry.model_id,
+        "algorithm": entry.algorithm,
+        "problem_type": entry.problem_type,
+        "dataset_name": entry.dataset_name,
+        "target_column": entry.target_column,
+        "metrics": entry.metrics,
+        "feature_importance": entry.feature_importance or [],
+        "duration_sec": entry.duration_sec,
+        "eval_mode": entry.eval_mode,
+        "num_features": entry.num_features,
+        "num_samples": entry.num_samples,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    leaderboard_collection.insert_one(doc)
+    return {"status": "success", "message": "Model saved to leaderboard"}
+
+@app.get("/api/leaderboard")
+async def get_leaderboard(request: Request):
+    """Get all leaderboard entries for the current user."""
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    entries = list(leaderboard_collection.find(
+        {"user_id": user.get("email")},
+        {"_id": 0}
+    ).sort("created_at", -1))
+    return {"status": "success", "entries": entries}
+
+@app.delete("/api/leaderboard/{model_id}")
+async def delete_leaderboard_entry(model_id: str, request: Request):
+    """Delete a leaderboard entry."""
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    result = leaderboard_collection.delete_one({"model_id": model_id, "user_id": user.get("email")})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"status": "success"}
+
+@app.delete("/api/leaderboard")
+async def clear_leaderboard(request: Request):
+    """Clear all leaderboard entries for current user."""
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not available")
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    leaderboard_collection.delete_many({"user_id": user.get("email")})
+    return {"status": "success"}
 
 # ==================== HELPER FUNCTIONS ====================
 
