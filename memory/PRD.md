@@ -42,13 +42,25 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 - [x] Meaningful auth error messages
 - [x] History deduplication
 
+### Model Leaderboard (Completed Feb 2026)
+- [x] Auto-save trained models to leaderboard after training
+- [x] Dedicated sidebar tab with LeaderboardView
+- [x] Stats row (Total Models, Best Score, Average Score, Algorithms Tried, Total Training Time)
+- [x] Best Score Over Time timeline chart
+- [x] Algorithm Performance Trend chart
+- [x] Model Rankings table with sorting (score/date/time) and filtering (algorithm/type)
+- [x] Algorithm Distribution bar chart
+- [x] Delete single entry & Clear All functionality
+- [x] Dashboard compact widget (top 5 models, "View All" navigation)
+- [x] Backend CRUD APIs: GET/POST/DELETE /api/leaderboard
+
 ## Modular Architecture (Refactored Feb 2026)
-App.js reduced from 4598 → 1692 lines (63% reduction)
+App.js reduced from 4598 to ~1692 lines (63% reduction)
 
 ### File Structure
 ```
 src/
-├── App.js                          (1692 lines - state + routing)
+├── App.js                          (1762 lines - state + routing)
 ├── AuthPage.js                     (auth + forgot password)
 ├── constants.js                    (ALGO_NAMES, GUIDE_STEPS, etc.)
 ├── context/
@@ -60,12 +72,13 @@ src/
 ├── components/
 │   ├── SmartTooltip.js             (SmartTooltip, MetricTip, HelpTip)
 │   └── views/
-│       ├── DashboardView.js        (168 lines)
+│       ├── DashboardView.js        (218 lines)
 │       ├── AnalysisView.js         (492 lines)
 │       ├── PredictView.js          (356 lines)
 │       ├── ExplainabilityView.js   (903 lines)
 │       ├── DataExplorerView.js     (111 lines)
-│       ├── CompareModelsView.js     (Compare Models with radar/metrics)
+│       ├── CompareModelsView.js    (Compare Models with radar/metrics)
+│       ├── LeaderboardView.js      (454 lines - new)
 │       ├── HistoryView.js          (70 lines)
 │       └── SmallViews.js           (Clusters/Anomalies/Models)
 ```
@@ -78,12 +91,14 @@ src/
 - GET /api/snapshots, POST /api/snapshots, DELETE /api/snapshots/{id}
 - POST /api/snapshots/{id}/share
 - GET /api/download-model/{model_id}
+- GET /api/leaderboard, POST /api/leaderboard, DELETE /api/leaderboard/{model_id}, DELETE /api/leaderboard
 
 ## DB Schema
 - users: {email, password_hash, name, picture, auth_provider}
 - user_sessions: {session_token, user_id, expires_at}
 - analysis_snapshots: {snapshot_id, user_id, data, fingerprint, createdAt}
 - password_reset_tokens: {email, token, expires_at, used, created_at}
+- leaderboard_entries: {user_id, model_id, algorithm, problem_type, dataset_name, target_column, metrics, feature_importance, duration_sec, eval_mode, num_features, num_samples, created_at}
 
 ## Test Credentials
 - Email: test@automl.com / Password: Test1234!
@@ -91,9 +106,12 @@ src/
 
 ## Known Issues
 - Token stored in localStorage (httpOnly cookies cause Kubernetes proxy fetch hangs)
-- Unused variable warnings in extracted view components (cosmetic)
+- Minor React warning: validateDOMNesting (Badge component, cosmetic)
+- Some unused variable warnings in App.js (cosmetic, from refactor)
 
 ## Backlog
+- [ ] P1: React Hook dependency issues & expensive JSX optimization
+- [ ] P1: Array index as key in React lists (58 instances)
 - [ ] P1: Real-time Collaborative Sessions
 - [ ] P1: Model Deployment API
 - [ ] P1: Automated Report Generation (PDF/HTML)
@@ -101,6 +119,4 @@ src/
 - [ ] P2: Advanced hyperparameter tuning UI
 - [ ] P2: "What-If" Analyzer
 - [ ] P2: Interactive Tutorial Mode
-- [ ] P2: Metric Comparison Radar Chart
-- [ ] P2: Performance Benchmark Mode
 - [ ] P3: Dataset preprocessing pipeline UI
