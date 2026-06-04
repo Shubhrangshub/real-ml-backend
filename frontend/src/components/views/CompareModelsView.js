@@ -2,20 +2,18 @@ import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   GitBranch, Trophy, Zap, Brain, Target, TrendingUp, BarChart3,
-  CheckCircle2, XCircle, AlertCircle, ChevronRight, ArrowUpRight, Shield,
+  CheckCircle2, AlertCircle, Shield,
   Activity, Clock, Layers
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, Cell
+  ResponsiveContainer
 } from 'recharts';
-import { staggerContainer, fadeInUp, ALGO_NAMES, ALGO_COLORS } from '../../constants';
-import { getScoreColor } from '../../utils/helpers';
+import { staggerContainer, fadeInUp, ALGO_NAMES } from '../../constants';
 import { useApp } from '../../context/AppContext';
 
 const MODEL_COLORS = [

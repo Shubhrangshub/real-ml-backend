@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Database, Zap, TrendingUp, Target, Activity, Brain, Trophy, BookOpen, Lightbulb, ArrowUpRight, Clock, BarChart3, Shield, Sparkles, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { Database, Zap, TrendingUp, Activity, Brain, Trophy, BookOpen, Lightbulb, ArrowUpRight, Clock, Shield, Sparkles, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,8 +8,7 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, Cell, PieChart, Pie
 } from 'recharts';
-import { staggerContainer, fadeInUp, ALGO_NAMES, ALGO_COLORS, GUIDE_STEPS } from '../../constants';
-import { getScoreColor } from '../../utils/helpers';
+import { staggerContainer, fadeInUp, ALGO_NAMES, ALGO_COLORS } from '../../constants';
 import { MetricTip } from '../SmartTooltip';
 import { useApp } from '../../context/AppContext';
 

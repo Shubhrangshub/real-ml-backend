@@ -44,7 +44,7 @@ import {
 } from './constants';
 import AppContext from './context/AppContext';
 import { getScoreColor, interpretMetric, arrayMin, arrayMax, arrayMinMax, generateId } from './utils/helpers';
-import { MetricTip, HelpTip } from './components/SmartTooltip';
+import { MetricTip } from './components/SmartTooltip';
 import {
   parseCSV, profileDataset, generateDatasetSummary, suggestTask,
   scanDataset, cleanRemoveDuplicates, cleanFillMissing,
@@ -817,12 +817,10 @@ function AppMain({ authUser, onLogout }) {
     // Business insights text
     const actionItems = [];
     if (top2[0]) {
-      const d = directions[top2[0].feature] || {};
-      const o = optimalRanges[top2[0].feature] || {};
-      actionItems.push(`Focus on "${top2[0].feature}" — it has the strongest influence on ${target}. ${o.recommendation === 'higher' ? 'Increasing' : 'Decreasing'} this feature tends to improve outcomes.`);
+      const o1 = optimalRanges[top2[0].feature] || {};
+      actionItems.push(`Focus on "${top2[0].feature}" — it has the strongest influence on ${target}. ${o1.recommendation === 'higher' ? 'Increasing' : 'Decreasing'} this feature tends to improve outcomes.`);
     }
     if (top2[1]) {
-      const d = directions[top2[1].feature] || {};
       const o = optimalRanges[top2[1].feature] || {};
       actionItems.push(`Optimize "${top2[1].feature}" as the second most impactful factor. ${o.recommendation === 'higher' ? 'Higher' : 'Lower'} values of this feature are associated with better ${target} outcomes.`);
     }
@@ -1547,7 +1545,7 @@ function AppMain({ authUser, onLogout }) {
     anomalyThreshold, setAnomalyThreshold, anomalyResult, unsupervisedResult,
     isRunningUnsupervised, clusterPredFormData, setClusterPredFormData, clusterPredResult,
     predictTab, setPredictTab, predictionHistory, selectedModelIdx, setSelectedModelIdx,
-    unsupervisedResult, setUnsupervisedResult,
+    setUnsupervisedResult,
     corrVarX, setCorrVarX, corrVarY, setCorrVarY, darkMode, setDarkMode,
     batchCsvText, setBatchCsvText, batchResults, batchProcessing,
     histogramCol, setHistogramCol, xaiTab, setXaiTab, xaiLoading, xaiRow, setXaiRow,

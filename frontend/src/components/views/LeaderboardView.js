@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Trophy, Brain, TrendingUp, Clock, Trash2, Target, Activity,
-  Zap, ChevronRight, ArrowUpRight, AlertCircle, BarChart3, Shield, Layers
+  Trophy, Brain, TrendingUp, Clock, Trash2, Activity,
+  Zap, BarChart3, Layers
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, Cell, AreaChart, Area
 } from 'recharts';
-import { staggerContainer, fadeInUp, ALGO_NAMES, ALGO_COLORS } from '../../constants';
+import { staggerContainer, fadeInUp, ALGO_NAMES } from '../../constants';
 import { getScoreColor } from '../../utils/helpers';
 import { useApp } from '../../context/AppContext';
 
@@ -24,7 +24,7 @@ const ALGO_CHART_COLORS = {
 
 export default function LeaderboardView() {
   const {
-    leaderboardEntries, leaderboardLoading, fetchLeaderboard,
+    leaderboardEntries, leaderboardLoading,
     deleteLeaderboardEntry, clearLeaderboard, setActiveView
   } = useApp();
 
