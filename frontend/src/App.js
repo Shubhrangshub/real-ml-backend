@@ -175,6 +175,8 @@ function AppMain({ authUser, onLogout }) {
   const [featureVsPred, setFeatureVsPred] = useState(null);
   const [clusterComparison, setClusterComparison] = useState(null);
   const xaiCacheRef = useRef({});
+  const trainingResultRef = useRef(null);
+  const unsupervisedResultRef = useRef(null);
   const [showGuide, setShowGuide] = useState(false);
   const [historyList, setHistoryList] = useState([]);
   const [leaderboardEntries, setLeaderboardEntries] = useState([]);
@@ -210,6 +212,10 @@ function AppMain({ authUser, onLogout }) {
     document.documentElement.classList.toggle('dark', darkMode);
     try { localStorage.setItem('automl_dark_mode', darkMode); } catch {}
   }, [darkMode]);
+
+  // Keep refs in sync for use in callbacks without stale closures
+  useEffect(() => { trainingResultRef.current = trainingResult; }, [trainingResult]);
+  useEffect(() => { unsupervisedResultRef.current = unsupervisedResult; }, [unsupervisedResult]);
 
   // ==================== SESSION PERSISTENCE ====================
   const SESSION_KEY = 'automl_session';
@@ -391,6 +397,7 @@ function AppMain({ authUser, onLogout }) {
   }, [dataProfile, targetColumn, trainingResult, unsupervisedResult, evalMode]);
 
   const saveInProgressRef = useRef(false);
+  const handleSaveAnalysisRef = useRef(null);
   const handleSaveAnalysis = useCallback(async (customName, forceNew) => {
     if (!trainingResult && !unsupervisedResult) { setError('Nothing to save — train a model first.'); return; }
     if (saveInProgressRef.current) return; // prevent concurrent saves
@@ -440,6 +447,7 @@ function AppMain({ authUser, onLogout }) {
     shapGlobal, shapBeeswarm, shapLocal, shapDependence,
     limeResult, limeProbs, clusterShap, clusterBeeswarm,
     shapSummary, featureVsPred, clusterComparison, models, dataProfile, fetchHistory, computeFingerprint]);
+  handleSaveAnalysisRef.current = handleSaveAnalysis;
 
   const handleLoadSnapshot = useCallback(async (snapshotId) => {
     try {
@@ -902,8 +910,29 @@ function AppMain({ authUser, onLogout }) {
 
   // ==================== DATA HANDLERS ====================
   const handleCsvTextChange = useCallback((text, isCleanAction) => {
+    // When loading a NEW dataset (not a cleaning action), auto-save current analysis and reset all state
+    if (!isCleanAction) {
+      // Auto-save current analysis to History before switching
+      if (trainingResultRef.current || unsupervisedResultRef.current) {
+        try { handleSaveAnalysisRef.current?.(); } catch {}
+      }
+      // Reset all analysis-derived state for the new dataset
+      setTargetColumn(''); setAlgorithm('auto');
+      setModels([]); setPredictionFormData({}); setPredictionResult(null);
+      setPredictionHistory([]); setSelectedModelIdx(-1);
+      setUnsupervisedResult(null); setClusterPredFormData({}); setClusterPredResult(null);
+      setBatchCsvText(''); setBatchResults(null);
+      setShapGlobal(null); setShapBeeswarm(null); setShapLocal(null); setShapDependence(null);
+      setLimeResult(null); setLimeProbs(null);
+      setClusterShap(null); setClusterBeeswarm(null); setShapSummary(null);
+      setFeatureVsPred(null); setClusterComparison(null);
+      setCorrVarX(''); setCorrVarY(''); setHistogramCol('');
+      setXaiTab('shap'); setXaiRow(0); setXaiDepFeature(0);
+      xaiCacheRef.current = {};
+      lastSavedFingerprintRef.current = null;
+      setCleaningLog([]); setPrecleanScan(null);
+    }
     setCsvText(text); setTrainingResult(null); setClusterResult(null); setAnomalyResult(null);
-    if (!isCleanAction) { setCleaningLog([]); setPrecleanScan(null); }
     if (text.trim()) { const p = profileDataset(text); setDataProfile(p); setColumns(p?.headers || []); }
     else { setDataProfile(null); setColumns([]); }
   }, []);
