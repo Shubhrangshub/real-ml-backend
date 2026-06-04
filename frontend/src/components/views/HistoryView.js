@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { History, Play, Share2, Trash2, Save, ArrowUpRight, Clock } from 'lucide-react';
+import { History, Play, Share2, Trash2, Save, ArrowUpRight, Clock, Database } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { staggerContainer, fadeInUp, ALGO_NAMES } from '../../constants';
@@ -44,6 +44,7 @@ export default function HistoryView() {
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${snap.problem_type === 'classification' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : snap.problem_type === 'regression' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'}`}>{snap.problem_type || 'unknown'}</span>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                    {snap.dataset_name && <span className="font-medium text-foreground/80 flex items-center gap-1"><Database className="h-3 w-3" />{snap.dataset_name}</span>}
                     <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(snap.created_at).toLocaleString()}</span>
                     <span>{snap.row_count} rows, {snap.col_count} cols</span>
                     {snap.target_column && <span>Target: <strong>{snap.target_column}</strong></span>}

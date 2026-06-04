@@ -237,6 +237,7 @@ function AppMain({ authUser, onLogout }) {
         if (s.csvText) {
           setCsvText(s.csvText);
           const p = profileDataset(s.csvText);
+          if (p && s.datasetFileName) p.fileName = s.datasetFileName;
           setDataProfile(p);
           setColumns(p?.headers || []);
         }
@@ -298,6 +299,7 @@ function AppMain({ authUser, onLogout }) {
       try {
         localStorage.setItem(SESSION_KEY, JSON.stringify({
           csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan,
+          datasetFileName: dataProfile?.fileName || null,
           trainingResult, predictionResult, predictionHistory, selectedModelIdx,
           unsupervisedResult, clusterResult, anomalyResult, batchResults,
           shapGlobal, shapBeeswarm, shapLocal, shapDependence,
@@ -309,7 +311,7 @@ function AppMain({ authUser, onLogout }) {
       } catch (e) { console.error('Session save failed:', e); }
     }, 500);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [sessionLoaded, csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan,
+  }, [sessionLoaded, csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan, dataProfile,
     trainingResult, predictionResult, predictionHistory, selectedModelIdx,
     unsupervisedResult, clusterResult, anomalyResult, batchResults,
     shapGlobal, shapBeeswarm, shapLocal, shapDependence,
@@ -407,7 +409,7 @@ function AppMain({ authUser, onLogout }) {
     if (!forceNew && !customName && fingerprint === lastSavedFingerprintRef.current) return;
 
     saveInProgressRef.current = true;
-    const name = customName || `${targetColumn || 'Unsupervised'} — ${new Date().toLocaleString()}`;
+    const name = customName || `${dataProfile?.fileName ? dataProfile.fileName + ' — ' : ''}${targetColumn || 'Unsupervised'} — ${new Date().toLocaleString()}`;
     const bestModel = trainingResult?.leaderboard?.[0];
     try {
       const body = {
@@ -909,12 +911,13 @@ function AppMain({ authUser, onLogout }) {
   }, [trainingResult, targetColumn, datasetSummary, dataProfile, featureInsights]);
 
   // ==================== DATA HANDLERS ====================
-  const handleCsvTextChange = useCallback((text, isCleanAction) => {
+  const handleCsvTextChange = useCallback((text, isCleanAction, fileName) => {
     // When loading a NEW dataset (not a cleaning action), auto-save current analysis and reset all state
     if (!isCleanAction) {
       // Auto-save current analysis to History before switching
       if (trainingResultRef.current || unsupervisedResultRef.current) {
         try { handleSaveAnalysisRef.current?.(); } catch {}
+        toast.info('Previous analysis saved to History');
       }
       // Reset all analysis-derived state for the new dataset
       setTargetColumn(''); setAlgorithm('auto');
@@ -933,19 +936,23 @@ function AppMain({ authUser, onLogout }) {
       setCleaningLog([]); setPrecleanScan(null);
     }
     setCsvText(text); setTrainingResult(null); setClusterResult(null); setAnomalyResult(null);
-    if (text.trim()) { const p = profileDataset(text); setDataProfile(p); setColumns(p?.headers || []); }
+    if (text.trim()) {
+      const p = profileDataset(text);
+      if (p && fileName) p.fileName = fileName;
+      setDataProfile(p); setColumns(p?.headers || []);
+    }
     else { setDataProfile(null); setColumns([]); }
   }, []);
   const loadSampleDataset = useCallback(async (sample) => {
-    if (sample.data) { handleCsvTextChange(sample.data); }
+    if (sample.data) { handleCsvTextChange(sample.data, false, sample.name); }
     else if (sample.file) {
-      try { const res = await fetch(sample.file); if (!res.ok) throw new Error('Failed to load'); handleCsvTextChange(await res.text()); }
+      try { const res = await fetch(sample.file); if (!res.ok) throw new Error('Failed to load'); handleCsvTextChange(await res.text(), false, sample.name); }
       catch (e) { setError('Failed to load sample dataset: ' + e.message); }
     }
   }, [handleCsvTextChange]);
-  const handleFileUpload = (event) => { const file = event.target.files[0]; if (file) { const reader = new FileReader(); reader.onload = (e) => handleCsvTextChange(e.target.result); reader.readAsText(file); } };
+  const handleFileUpload = (event) => { const file = event.target.files[0]; if (file) { const reader = new FileReader(); reader.onload = (e) => handleCsvTextChange(e.target.result, false, file.name); reader.readAsText(file); } };
   const handleDrag = (e) => { e.preventDefault(); e.stopPropagation(); setDragActive(e.type === 'dragenter' || e.type === 'dragover'); };
-  const handleDrop = (e) => { e.preventDefault(); e.stopPropagation(); setDragActive(false); if (e.dataTransfer.files?.[0]) { const reader = new FileReader(); reader.onload = (ev) => handleCsvTextChange(ev.target.result); reader.readAsText(e.dataTransfer.files[0]); } };
+  const handleDrop = (e) => { e.preventDefault(); e.stopPropagation(); setDragActive(false); const f = e.dataTransfer.files?.[0]; if (f) { const reader = new FileReader(); reader.onload = (ev) => handleCsvTextChange(ev.target.result, false, f.name); reader.readAsText(f); } };
 
   const handleClean = (action) => {
     if (!csvText) return;
@@ -1628,7 +1635,7 @@ function AppMain({ authUser, onLogout }) {
             <h2 className="text-2xl font-bold tracking-tight" data-testid="page-title">
               {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'leaderboard' && 'Model Leaderboard'}{activeView === 'history' && 'Analysis History'}
             </h2>
-            <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations and model performance'}{activeView === 'analysis' && 'Upload data, select a target variable, and train ML models'}{activeView === 'predict' && 'Make predictions, view results, and explore visualizations'}{activeView === 'anomalies' && 'Detect outliers and unusual patterns in your data'}{activeView === 'models' && 'Manage, export, and import your trained models'}{activeView === 'explore' && 'Explore data distributions, correlations, and patterns'}{activeView === 'explainability' && 'Understand why the model made its predictions using SHAP and LIME'}{activeView === 'history' && 'View, restore, and share your saved analysis sessions'}</p>
+            <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations and model performance'}{activeView === 'analysis' && 'Upload data, select a target variable, and train ML models'}{activeView === 'predict' && 'Make predictions, view results, and explore visualizations'}{activeView === 'anomalies' && 'Detect outliers and unusual patterns in your data'}{activeView === 'models' && 'Manage, export, and import your trained models'}{activeView === 'explore' && 'Explore data distributions, correlations, and patterns'}{activeView === 'explainability' && 'Understand why the model made its predictions using SHAP and LIME'}{activeView === 'history' && 'View, restore, and share your saved analysis sessions'}{dataProfile?.fileName && <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium" data-testid="current-dataset-badge"><Database className="h-3 w-3" />{dataProfile.fileName}</span>}</p>
           </div><div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowGuide(prev => !prev)} data-testid="guide-toggle-btn" className={showGuide ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-700' : ''}><BookOpen className="h-4 w-4 mr-2" />{showGuide ? 'Hide Guide' : 'Help Guide'}</Button>
             {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="outline" size="sm" onClick={() => handleSaveAnalysis()} data-testid="save-analysis-btn"><Save className="h-4 w-4 mr-2" />Save</Button>}
