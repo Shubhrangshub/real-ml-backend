@@ -27,6 +27,7 @@ import { kmeans } from 'ml-kmeans';
 import { runUnsupervisedPipeline, predictCluster } from './unsupervisedML';
 import './App.css';
 import ExplainabilityView from './components/views/ExplainabilityView';
+import CompareModelsView from './components/views/CompareModelsView';
 import DashboardView from './components/views/DashboardView';
 import AnalysisView from './components/views/AnalysisView';
 import PredictView from './components/views/PredictView';
@@ -1522,7 +1523,7 @@ function AppMain({ authUser, onLogout }) {
         <div className="flex h-full flex-col gap-2">
           <div className="flex h-16 items-center border-b border-sidebar-border px-6"><div className="flex items-center gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Brain className="h-6 w-6" /></div><div><h1 className="text-lg font-bold text-sidebar-foreground">AutoML</h1><p className="text-xs text-sidebar-foreground/60">Universal Dashboard</p></div></div></div>
           <nav className="flex-1 space-y-1 px-3 py-4" data-testid="sidebar-nav">
-            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }, { id: 'history', label: 'History', icon: History }].map((item) => (
+            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'compare', label: 'Compare', icon: GitBranch }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }, { id: 'history', label: 'History', icon: History }].map((item) => (
               <Button key={item.id} variant={activeView === item.id ? 'secondary' : 'ghost'} className="w-full justify-start gap-3" onClick={() => setActiveView(item.id)} data-testid={`nav-${item.id}`}><item.icon className="h-4 w-4" />{item.label}</Button>
             ))}
           </nav>
@@ -1534,7 +1535,7 @@ function AppMain({ authUser, onLogout }) {
         <motion.header initial={{ y: -100 }} animate={{ y: 0 }} className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="flex h-16 items-center justify-between px-8"><div>
             <h2 className="text-2xl font-bold tracking-tight" data-testid="page-title">
-              {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'history' && 'Analysis History'}
+              {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'history' && 'Analysis History'}
             </h2>
             <p className="text-sm text-muted-foreground">{activeView === 'dashboard' && 'Monitor your ML operations and model performance'}{activeView === 'analysis' && 'Upload data, select a target variable, and train ML models'}{activeView === 'predict' && 'Make predictions, view results, and explore visualizations'}{activeView === 'anomalies' && 'Detect outliers and unusual patterns in your data'}{activeView === 'models' && 'Manage, export, and import your trained models'}{activeView === 'explore' && 'Explore data distributions, correlations, and patterns'}{activeView === 'explainability' && 'Understand why the model made its predictions using SHAP and LIME'}{activeView === 'history' && 'View, restore, and share your saved analysis sessions'}</p>
           </div><div className="flex items-center gap-2">
@@ -1666,6 +1667,9 @@ function AppMain({ authUser, onLogout }) {
 
           {/* ==================== EXPLAINABILITY ==================== */}
           {activeView === 'explainability' && <ExplainabilityView />}
+
+          {/* ==================== COMPARE MODELS ==================== */}
+          {activeView === 'compare' && <CompareModelsView />}
 
           {/* ==================== DATA EXPLORER ==================== */}
           {activeView === 'explore' && <DataExplorerView />}
