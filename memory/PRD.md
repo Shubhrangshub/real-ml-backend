@@ -1,84 +1,104 @@
 # AutoML Master - Product Requirements Document
 
-## Original Problem Statement
-Full-stack AutoML application (React + FastAPI + MongoDB) that enables users to upload CSV datasets, train machine learning models, visualize results, and generate explanations.
+## Overview
+AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabling dataset upload, model training, explainable AI (SHAP/LIME), and predictions — all running client-side in the browser.
 
 ## Architecture
-- **Frontend:** React SPA (`/app/frontend/src/App.js`) with Shadcn UI, Framer Motion, Recharts, Sonner toasts
-- **Backend:** FastAPI (`/app/backend/server.py`) with MongoDB
-- **Database:** MongoDB (users, snapshots, models, training_history, user_sessions)
-- **ML:** 100% client-side JavaScript + scikit-learn on backend for server-trained models
-- **Auth:** Email/password JWT + Google OAuth
+- **Frontend**: React, TailwindCSS, Framer Motion, Recharts, Context API
+- **Backend**: FastAPI (Python), bcrypt auth, session tokens
+- **Database**: MongoDB (automl_db)
 
-## Core Features (Implemented)
-- [x] User auth (signup/login/Google OAuth)
-- [x] CSV file upload and data profiling
-- [x] Automated model training (Auto + individual algorithms)
-- [x] Model leaderboard with ranking
-- [x] Feature importance charts
-- [x] Inline SVG Decision Tree visualization (flowchart)
-- [x] Regression visualizations (Actual vs Predicted, Residual Analysis)
-- [x] Cross-validation support
-- [x] Single + Batch prediction
-- [x] Model download (pickle)
-- [x] Unsupervised learning (K-Means, DBSCAN)
-- [x] SHAP + LIME explainability with plain-English summaries
-- [x] Export system (CSV, Share link, Google Sheets) with toast feedback
-- [x] History with fingerprint-based deduplication
-- [x] Dark/Light mode
+## Implemented Features
+
+### Core ML
+- [x] CSV upload & sample datasets (Loan Approval, House Prices, Insurance Costs, Customer Churn, Customer Segmentation)
+- [x] Dataset profiling & auto-summary
+- [x] Dataset scanner (quality score, missing values, outliers, duplicates)
+- [x] Data cleaning (fill missing, remove duplicates, remove outliers, drop constants, normalize)
+- [x] Auto algorithm selection
+- [x] 10+ ML algorithms (Linear/Ridge/Logistic Regression, Decision Tree, Random Forest, Gradient Boosting, KNN, SVM, Naive Bayes, Baseline)
+- [x] K-fold cross-validation
+- [x] Single & batch predictions
+- [x] Unsupervised learning (K-Means, Hierarchical, DBSCAN, GMM)
+- [x] Anomaly detection (Z-Score, IQR)
+- [x] Clustering (K-Means)
+
+### Explainability
+- [x] SHAP (Global, Local, Beeswarm, Dependence plots)
+- [x] LIME explanations
+- [x] Feature importance
+- [x] Business interpretation text
+- [x] Decision Tree inline visualization
+
+### Auth & UX
+- [x] JWT session-based auth (localStorage tokens)
+- [x] Google OAuth integration
 - [x] Forgot Password / Reset Password flow
-- [x] Viewport-aware tooltips (SmartTooltip)
+- [x] Dark/Light mode
+- [x] Analysis history (save/load/share/delete snapshots)
+- [x] Model import/export (download/upload JSON)
+- [x] Secure model serialization (Pickle HMAC)
+- [x] Meaningful auth error messages
+- [x] History deduplication
 
-## Code Review Fixes Applied
-- [x] **Pickle Security (Critical)**: HMAC-signed serialization (`secure_pickle_dumps`/`secure_pickle_loads`) using SHA-256 — prevents tampering/RCE. Legacy unsigned models still load via fallback.
-- [x] **datetime.utcnow() Deprecation**: Replaced 3 instances with `datetime.now(timezone.utc)`
-- [x] **Signup Error Handling**: AuthPage.js shows actual errors instead of generic "Connection error"
-- [x] **Empty Catch Blocks**: 5 instances in unsupervisedML.js now log `console.warn` with error details
+## Modular Architecture (Refactored Feb 2026)
+App.js reduced from 4598 → 1692 lines (63% reduction)
 
-## Code Review Items Deferred (Need Refactor Phase)
-- [ ] Break App.js (~4500 lines) into modular components
-- [ ] Split server.py into routes/models/logic modules
-- [ ] Extract custom hooks (useModelTraining, usePredictions, useDataset)
-- [ ] Fix 39 React hook dependency warnings (requires component split first)
-- [ ] Replace array index keys with stable IDs (52 instances, mostly Recharts)
-- [ ] Wrap 17 expensive JSX computations in useMemo
-- [ ] localStorage → httpOnly cookies migration (blocked by K8s proxy architecture — `credentials: 'include'` causes fetch hangs through ingress proxy)
+### File Structure
+```
+src/
+├── App.js                          (1692 lines - state + routing)
+├── AuthPage.js                     (auth + forgot password)
+├── constants.js                    (ALGO_NAMES, GUIDE_STEPS, etc.)
+├── context/
+│   └── AppContext.js               (React Context for shared state)
+├── utils/
+│   ├── helpers.js                  (getScoreColor, interpretMetric, etc.)
+│   ├── mlEngine.js                 (all ML algorithms, prediction, metrics)
+│   └── datasetUtils.js             (CSV parsing, profiling, scanning, cleaning)
+├── components/
+│   ├── SmartTooltip.js             (SmartTooltip, MetricTip, HelpTip)
+│   └── views/
+│       ├── DashboardView.js        (168 lines)
+│       ├── AnalysisView.js         (492 lines)
+│       ├── PredictView.js          (356 lines)
+│       ├── ExplainabilityView.js   (903 lines)
+│       ├── DataExplorerView.js     (111 lines)
+│       ├── HistoryView.js          (70 lines)
+│       └── SmallViews.js           (Clusters/Anomalies/Models)
+```
 
-## Code Review False Positives
-- `gdata` (line 243): Always defined via `gdata = r.json()` on line 215
-- `df` (line 753): Always defined via `pd.read_csv()` on line 534
-- `is None` comparisons (16 instances): Correct PEP 8 Python
-- Pickle lines 104, 106: Inside `secure_pickle_loads()` AFTER HMAC verification — security gate is the signature check
-
-## Key API Endpoints
+## API Endpoints
 - POST /api/auth/signup, /api/auth/login, /api/auth/logout, /api/auth/google
 - POST /api/auth/forgot-password, /api/auth/reset-password
 - GET /api/auth/me
 - POST /api/train, /api/predict
-- POST /api/snapshots, GET /api/snapshots, GET /api/snapshots/{id}, DELETE /api/snapshots/{id}
-- POST /api/export/prepare, GET /api/export/download/{token}
-- GET /api/models, DELETE /api/models/{id}, GET /api/download-model/{id}
+- GET /api/snapshots, POST /api/snapshots, DELETE /api/snapshots/{id}
+- POST /api/snapshots/{id}/share
+- GET /api/download-model/{model_id}
+
+## DB Schema
+- users: {email, password_hash, name, picture, auth_provider}
+- user_sessions: {session_token, user_id, expires_at}
+- analysis_snapshots: {snapshot_id, user_id, data, fingerprint, createdAt}
+- password_reset_tokens: {email, token, expires_at, used, created_at}
 
 ## Test Credentials
 - Email: test@automl.com / Password: Test1234!
 - See /app/memory/test_credentials.md for full list
 
+## Known Issues
+- Token stored in localStorage (httpOnly cookies cause Kubernetes proxy fetch hangs)
+- Unused variable warnings in extracted view components (cosmetic)
+
 ## Backlog
-
-### P1 - Upcoming
-- [ ] Refactor App.js into modular components
-- [ ] Refactor server.py into route modules
-- [ ] Real-time Collaborative Sessions
-- [ ] Model Deployment API
-
-### P2 - Future
-- [ ] Automated Report Generation (PDF/HTML)
-- [ ] Advanced hyperparameter tuning UI
-- [ ] Interactive Tutorial Mode
-- [ ] "What-If" Analyzer
-- [ ] Counterfactual Explanations
-
-### P3 - Low Priority
-- [ ] Dataset preprocessing pipeline UI
-- [ ] Metric Comparison Radar Chart
-- [ ] Performance Benchmark Mode
+- [ ] P1: Real-time Collaborative Sessions
+- [ ] P1: Model Deployment API
+- [ ] P1: Automated Report Generation (PDF/HTML)
+- [ ] P2: Backend server.py refactoring (high complexity functions)
+- [ ] P2: Advanced hyperparameter tuning UI
+- [ ] P2: "What-If" Analyzer
+- [ ] P2: Interactive Tutorial Mode
+- [ ] P2: Metric Comparison Radar Chart
+- [ ] P2: Performance Benchmark Mode
+- [ ] P3: Dataset preprocessing pipeline UI
