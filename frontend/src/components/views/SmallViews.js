@@ -70,15 +70,47 @@ export function ModelsView() {
     models, setActiveView, handleDeleteModel, handleDownloadModel, handleImportModel
   } = useApp();
 
+  const algoColors = {
+    linear_regression: 'from-blue-500 to-cyan-500',
+    ridge: 'from-sky-500 to-blue-500',
+    logistic_regression: 'from-violet-500 to-purple-500',
+    decision_tree: 'from-emerald-500 to-green-500',
+    random_forest: 'from-green-500 to-teal-500',
+    gradient_boosting: 'from-amber-500 to-orange-500',
+    knn: 'from-rose-500 to-pink-500',
+    svm: 'from-red-500 to-rose-500',
+    naive_bayes: 'from-fuchsia-500 to-violet-500',
+    baseline: 'from-slate-400 to-slate-500',
+  };
+
   return (
     <motion.div key="models" variants={fadeInUp} initial="initial" animate="animate" exit="exit" data-testid="models-view">
-      <Card><CardHeader><div className="flex items-center justify-between"><div><CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" />Model Library</CardTitle></div><div className="flex items-center gap-2">
+      <Card><CardHeader><div className="flex items-center justify-between"><div><CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5 text-violet-500" />Model Library</CardTitle></div><div className="flex items-center gap-2">
         <div className="relative"><input type="file" accept=".json" onChange={handleImportModel} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" data-testid="import-model-input" /><Button variant="outline" size="sm" data-testid="import-model-btn"><Upload className="h-4 w-4 mr-2" />Import Model</Button></div>
-        <Badge variant="secondary" className="text-lg px-4 py-2" data-testid="models-count-badge">{models.length} Models</Badge>
+        <Badge className="text-sm px-3 py-1.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white border-0" data-testid="models-count-badge">{models.length} Models</Badge>
       </div></div></CardHeader>
         <CardContent>{models.length === 0 ? <div className="text-center py-12" data-testid="empty-models"><Database className="h-16 w-16 text-muted-foreground/50 mx-auto mb-4" /><h3 className="text-lg font-medium mb-2">No Models Yet</h3><Button onClick={() => setActiveView('analysis')} size="lg"><Zap className="h-4 w-4 mr-2" />Train Your First Model</Button></div>
-        : <div className="rounded-md border"><table className="w-full" data-testid="models-table"><thead><tr className="border-b bg-muted/50"><th className="p-4 text-left text-sm font-medium">Model ID</th><th className="p-4 text-left text-sm font-medium">Algorithm</th><th className="p-4 text-left text-sm font-medium">Type</th><th className="p-4 text-left text-sm font-medium">Created</th><th className="p-4 text-left text-sm font-medium">Actions</th></tr></thead>
-          <tbody>{models.map((model, idx) => <motion.tr key={model.modelId} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.05 }} className="border-b last:border-0 hover:bg-accent/50 transition-colors" data-testid={`model-row-${idx}`}><td className="p-4"><div className="flex items-center gap-2"><div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center"><Brain className="h-4 w-4 text-primary" /></div><code className="text-xs font-mono">{model.modelId.substring(0, 12)}...</code></div></td><td className="p-4"><Badge variant="outline">{ALGO_NAMES[model.algorithm] || model.algorithm}</Badge></td><td className="p-4 text-sm">{model.problemType}</td><td className="p-4 text-sm text-muted-foreground">{new Date(model.createdAt).toLocaleDateString()}</td><td className="p-4"><div className="flex gap-2"><Button variant="ghost" size="sm" onClick={() => setActiveView('predict')} data-testid={`use-model-${idx}`}><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="sm" onClick={() => handleDownloadModel(model.modelId)} className="text-primary" data-testid={`download-model-${idx}`}><Download className="h-4 w-4" /></Button><Button variant="ghost" size="sm" onClick={() => handleDeleteModel(model.modelId)} data-testid={`delete-model-${idx}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td></motion.tr>)}</tbody></table></div>
+        : <div className="space-y-2">{models.map((model, idx) => {
+          const gradient = algoColors[model.algorithm] || 'from-slate-400 to-slate-500';
+          return <motion.div key={model.modelId} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }} className="group flex items-center gap-4 p-3 rounded-xl border hover:shadow-md transition-all duration-200 hover:bg-accent/30" data-testid={`model-row-${idx}`}>
+            <div className={`h-10 w-10 rounded-lg bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0 shadow-sm`}><Brain className="h-5 w-5 text-white" /></div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm">{ALGO_NAMES[model.algorithm] || model.algorithm}</span>
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0">{model.problemType}</Badge>
+              </div>
+              <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                <code className="font-mono">{model.modelId.substring(0, 12)}...</code>
+                <span>{new Date(model.createdAt).toLocaleDateString()}</span>
+              </div>
+            </div>
+            <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setActiveView('predict')} data-testid={`use-model-${idx}`} title="Use for prediction"><Eye className="h-4 w-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30" onClick={() => handleDownloadModel(model.modelId)} data-testid={`download-model-${idx}`} title="Download"><Download className="h-4 w-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => handleDeleteModel(model.modelId)} data-testid={`delete-model-${idx}`} title="Delete"><Trash2 className="h-4 w-4" /></Button>
+            </div>
+          </motion.div>;
+        })}</div>
         }</CardContent></Card>
     </motion.div>
   );

@@ -1631,25 +1631,35 @@ function AppMain({ authUser, onLogout }) {
 
       <div className="pl-64">
         <motion.header initial={{ y: -100 }} animate={{ y: 0 }} className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-          <div className="flex h-16 items-center justify-between px-8"><div>
-            <h2 className="text-2xl font-bold tracking-tight" data-testid="page-title">
-              {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'leaderboard' && 'Model Leaderboard'}{activeView === 'history' && 'Analysis History'}
-            </h2>
-            <div className="text-sm text-muted-foreground flex items-center flex-wrap gap-1">{activeView === 'dashboard' && 'Monitor your ML operations and model performance'}{activeView === 'analysis' && 'Upload data, select a target variable, and train ML models'}{activeView === 'predict' && 'Make predictions, view results, and explore visualizations'}{activeView === 'anomalies' && 'Detect outliers and unusual patterns in your data'}{activeView === 'models' && 'Manage, export, and import your trained models'}{activeView === 'explore' && 'Explore data distributions, correlations, and patterns'}{activeView === 'explainability' && 'Understand why the model made its predictions using SHAP and LIME'}{activeView === 'history' && 'View, restore, and share your saved analysis sessions'}{dataProfile?.fileName && <span className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium" data-testid="current-dataset-badge"><Database className="h-3 w-3" />{dataProfile.fileName}</span>}</div>
-          </div><div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowGuide(prev => !prev)} data-testid="guide-toggle-btn" className={showGuide ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-300 dark:border-blue-700' : ''}><BookOpen className="h-4 w-4 mr-2" />{showGuide ? 'Hide Guide' : 'Help Guide'}</Button>
-            {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="outline" size="sm" onClick={() => handleSaveAnalysis()} data-testid="save-analysis-btn"><Save className="h-4 w-4 mr-2" />Save</Button>}
-            {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="outline" size="sm" onClick={handleShareAnalysis} disabled={exportLoading === 'share'} data-testid="share-analysis-btn">{exportLoading === 'share' ? <><span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Sharing...</> : <><Share2 className="h-4 w-4 mr-2" />Share Analysis</>}</Button>}
-            {(trainingResult || shapGlobal || limeResult || predictionHistory?.length > 0) && !viewOnlyMode && <><Button variant="outline" size="sm" onClick={handleExportSheets} disabled={!!exportLoading} data-testid="export-sheets-btn" title="Export data as CSV for Google Sheets">{exportLoading === 'sheets' ? <><span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Exporting...</> : <><Sheet className="h-4 w-4 mr-2" />Export to Google Sheets</>}</Button>
-              <Button variant="outline" size="sm" onClick={handleExportCSV} disabled={!!exportLoading} data-testid="export-csv-btn">{exportLoading === 'csv' ? <><span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Downloading...</> : <><Download className="h-4 w-4 mr-2" />Download CSV</>}</Button></>}
-            {csvText && !viewOnlyMode && <Button variant="outline" size="sm" onClick={handleClearSession} data-testid="clear-session-btn"><Trash2 className="h-4 w-4 mr-2" />Clear Session</Button>}
-            <Button variant="outline" size="icon" onClick={() => setDarkMode(prev => !prev)} data-testid="dark-mode-toggle">{darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</Button>
-            {authUser && <div className="flex items-center gap-2 ml-2 pl-2 border-l">
-              {authUser.picture ? <img src={authUser.picture} alt="" className="h-7 w-7 rounded-full" referrerPolicy="no-referrer" /> : <div className="h-7 w-7 rounded-full bg-violet-500 flex items-center justify-center text-white text-xs font-bold">{(authUser.name || authUser.email)?.[0]?.toUpperCase()}</div>}
-              <span className="text-sm font-medium hidden md:inline max-w-[120px] truncate" data-testid="user-name">{authUser.name || authUser.email}</span>
-              <Button variant="ghost" size="icon" onClick={onLogout} title="Sign out" data-testid="logout-btn"><LogOut className="h-4 w-4" /></Button>
-            </div>}
-          </div></div>
+          <div className="flex items-center justify-between px-6 py-2.5 gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2.5">
+                  <h2 className="text-lg font-bold tracking-tight whitespace-nowrap" data-testid="page-title">
+                    {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'leaderboard' && 'Model Leaderboard'}{activeView === 'history' && 'Analysis History'}
+                  </h2>
+                  {dataProfile?.fileName && <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-violet-500/15 to-fuchsia-500/15 text-violet-700 dark:text-violet-300 text-xs font-semibold border border-violet-200 dark:border-violet-800" data-testid="current-dataset-badge"><Database className="h-3 w-3" />{dataProfile.fileName}</span>}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button variant="ghost" size="sm" onClick={() => setShowGuide(prev => !prev)} data-testid="guide-toggle-btn" className={`h-8 px-2.5 text-xs ${showGuide ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300' : ''}`}><BookOpen className="h-3.5 w-3.5 mr-1.5" />Guide</Button>
+              {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="ghost" size="sm" onClick={() => handleSaveAnalysis()} data-testid="save-analysis-btn" className="h-8 px-2.5 text-xs"><Save className="h-3.5 w-3.5 mr-1.5" />Save</Button>}
+              {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="ghost" size="sm" onClick={handleShareAnalysis} disabled={exportLoading === 'share'} data-testid="share-analysis-btn" className="h-8 px-2.5 text-xs">{exportLoading === 'share' ? <><span className="h-3.5 w-3.5 mr-1.5 animate-spin rounded-full border-2 border-current border-t-transparent" />...</> : <><Share2 className="h-3.5 w-3.5 mr-1.5" />Share</>}</Button>}
+              {(trainingResult || shapGlobal || limeResult || predictionHistory?.length > 0) && !viewOnlyMode && <>
+                <Button variant="ghost" size="sm" onClick={handleExportSheets} disabled={!!exportLoading} data-testid="export-sheets-btn" title="Export to Google Sheets" className="h-8 px-2.5 text-xs">{exportLoading === 'sheets' ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <><Sheet className="h-3.5 w-3.5 mr-1.5" />Sheets</>}</Button>
+                <Button variant="ghost" size="sm" onClick={handleExportCSV} disabled={!!exportLoading} data-testid="export-csv-btn" className="h-8 px-2.5 text-xs">{exportLoading === 'csv' ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <><Download className="h-3.5 w-3.5 mr-1.5" />CSV</>}</Button>
+              </>}
+              {csvText && !viewOnlyMode && <Button variant="ghost" size="sm" onClick={handleClearSession} data-testid="clear-session-btn" className="h-8 px-2.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5 mr-1.5" />Clear</Button>}
+              <div className="w-px h-6 bg-border mx-1" />
+              <Button variant="ghost" size="icon" onClick={() => setDarkMode(prev => !prev)} data-testid="dark-mode-toggle" className="h-8 w-8"><span className="sr-only">Toggle theme</span>{darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</Button>
+              {authUser && <div className="flex items-center gap-2 ml-1 pl-2 border-l border-border">
+                {authUser.picture ? <img src={authUser.picture} alt="" className="h-8 w-8 rounded-full ring-2 ring-violet-200 dark:ring-violet-800" referrerPolicy="no-referrer" /> : <div className="h-8 w-8 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-white text-sm font-bold ring-2 ring-violet-200 dark:ring-violet-800">{(authUser.name || authUser.email)?.[0]?.toUpperCase()}</div>}
+                <span className="text-sm font-medium hidden lg:inline max-w-[140px] truncate" data-testid="user-name">{authUser.name || authUser.email}</span>
+                <Button variant="ghost" size="icon" onClick={onLogout} title="Sign out" data-testid="logout-btn" className="h-8 w-8 text-muted-foreground hover:text-destructive"><LogOut className="h-3.5 w-3.5" /></Button>
+              </div>}
+            </div>
+          </div>
         </motion.header>
 
         <AnimatePresence>{error && <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="mx-8 mt-4" data-testid="error-banner"><Card className="border-destructive bg-destructive/10"><CardContent className="p-4"><p className="text-sm text-destructive font-medium flex items-center gap-2"><AlertCircle className="h-4 w-4" /> {error}</p></CardContent></Card></motion.div>}</AnimatePresence>
