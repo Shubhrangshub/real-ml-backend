@@ -11,72 +11,51 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 ## Implemented Features
 
 ### Core ML
-- [x] CSV upload & sample datasets (Loan Approval, House Prices, Insurance Costs, Customer Churn, Customer Segmentation)
+- [x] CSV upload & 5 sample datasets
 - [x] Dataset profiling, scanner, cleaning
-- [x] Auto algorithm selection, 10+ ML algorithms, K-fold cross-validation
-- [x] Single & batch predictions
-- [x] Unsupervised learning, anomaly detection, clustering
+- [x] 10+ ML algorithms, auto selection, K-fold cross-validation
+- [x] Single & batch predictions, unsupervised learning, anomaly detection
 
 ### Explainability
-- [x] SHAP (Global, Local, Beeswarm, Dependence), LIME, feature importance
-- [x] Business interpretation text, Decision Tree inline visualization
+- [x] SHAP, LIME, feature importance, business interpretation, Decision Tree viz
 
 ### Auth & UX
 - [x] JWT session auth, Google OAuth, Forgot/Reset Password
-- [x] Compare Models (radar chart, metrics, confusion matrix, winner)
-- [x] Dark/Light mode, History (save/load/share), Model import/export
-- [x] Secure model serialization (Pickle HMAC)
+- [x] Compare Models, Dark/Light mode, History, Model import/export
+- [x] Secure serialization (Pickle HMAC)
 
 ### Model Leaderboard (Feb 2026)
-- [x] Auto-save to leaderboard, sidebar tab, dashboard widget
-- [x] Stats, charts, ranked table, sorting/filtering, CRUD APIs
+- [x] Auto-save to leaderboard, sidebar tab, dashboard widget, CRUD APIs
 
-### Dataset Context & Analysis Management (Feb 2026)
-- [x] Full state reset on new dataset, auto-save to History with toast
-- [x] Dataset name badge in header, dataset name in History entries
-- [x] Better naming ("Dataset — Target — Date"), session/restore persistence
+### Dataset Context Management (Feb 2026)
+- [x] Full state reset on new dataset, auto-save with toast, dataset name badge
 
 ### UI Polish (Feb 2026)
-- [x] Compact header: single-line title + badge + compact ghost buttons
-- [x] Colorful sample dataset cards (unique colors/icons per dataset)
-- [x] Modern Model Library: card-based with gradient algo icons
-- [x] Gradient "N Models" badge, polished user avatar with ring
-- [x] Removed subtitle text overflow/wrapping issues
+- [x] Compact header, colorful sample cards, modern Model Library
 
-## File Structure
-```
-src/
-├── App.js (~1800 lines), AuthPage.js, constants.js
-├── context/AppContext.js
-├── utils/helpers.js, mlEngine.js, datasetUtils.js
-├── components/SmartTooltip.js
-├── components/views/
-│   ├── DashboardView.js, AnalysisView.js, PredictView.js
-│   ├── ExplainabilityView.js, DataExplorerView.js
-│   ├── CompareModelsView.js, LeaderboardView.js
-│   ├── HistoryView.js, SmallViews.js
-```
+### Admin Dashboard (Feb 2026)
+- [x] Admin tab in sidebar (conditional on is_admin flag)
+- [x] **Analytics**: Total users, active sessions, saved analyses, leaderboard models, logins, trains, recent signups, auth provider breakdown
+- [x] **User Management**: List all users with search, toggle admin, disable/enable, reset password, delete user (with all data), confirmation modals
+- [x] **Activity Log**: Tracks login, signup, train, save_analysis, admin actions with filters
+- [x] **System Controls**: Clear all leaderboard entries, clear all snapshots (with confirmation)
+- [x] Admin seeded: shubhrangshub@gmail.com
+- [x] Non-admin users cannot see or access admin features (403 protection)
 
-## API Endpoints
-- Auth: signup, login, logout, google, forgot-password, reset-password, me
-- ML: train, predict, snapshots CRUD, download-model
-- Leaderboard: GET/POST/DELETE /api/leaderboard
+## DB Collections
+- users, user_sessions, analysis_snapshots, password_reset_tokens
+- leaderboard_entries, activity_log
 
-## Test Credentials
-- Email: test@automl.com / Password: Test1234!
-
-## Known Issues
-- Token in localStorage (httpOnly cookies cause proxy hangs)
-- Some unused variable warnings in App.js (cosmetic)
+## Admin Access
+- Default admin: shubhrangshub@gmail.com
+- Admin can designate other admins via Users tab
 
 ## Backlog
-- [ ] P1: React Hook dependency issues & expensive JSX optimization
-- [ ] P1: Array index as key in React lists (58 instances)
+- [ ] P1: React Hook dependency issues & array key optimization
 - [ ] P1: Real-time Collaborative Sessions
 - [ ] P1: Model Deployment API
 - [ ] P1: Automated Report Generation (PDF/HTML)
 - [ ] P2: Backend server.py refactoring
 - [ ] P2: Advanced hyperparameter tuning UI
-- [ ] P2: "What-If" Analyzer
-- [ ] P2: Interactive Tutorial Mode
+- [ ] P2: "What-If" Analyzer, Interactive Tutorial Mode
 - [ ] P3: Dataset preprocessing pipeline UI
