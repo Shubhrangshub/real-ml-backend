@@ -16,16 +16,23 @@ function getToken() {
   return localStorage.getItem('automl_token') || '';
 }
 
-async function adminFetch(path, options = {}) {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: { 'Authorization': `Bearer ${getToken()}`, 'Content-Type': 'application/json', ...options.headers },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(err.detail || 'Request failed');
+async function adminFetch(path, options = {}, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(`${API_URL}${path}`, {
+        ...options,
+        headers: { 'Authorization': `Bearer ${getToken()}`, 'Content-Type': 'application/json', ...options.headers },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Request failed' }));
+        throw new Error(err.detail || 'Request failed');
+      }
+      return res.json();
+    } catch (e) {
+      if (i === retries) throw e;
+      await new Promise(r => setTimeout(r, 800 * (i + 1)));
+    }
   }
-  return res.json();
 }
 
 // ========================= ANALYTICS TAB =========================
@@ -320,29 +327,33 @@ export default function AdminView() {
   const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const fetchAnalytics = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
-    try { const d = await adminFetch('/api/admin/analytics'); setAnalytics(d); } catch (e) { toast.error(e.message); }
+    const results = await Promise.allSettled([
+      adminFetch('/api/admin/analytics'),
+      adminFetch('/api/admin/users'),
+      adminFetch('/api/admin/activity?limit=100'),
+    ]);
+    if (results[0].status === 'fulfilled') setAnalytics(results[0].value);
+    else toast.error('Failed to load analytics');
+    if (results[1].status === 'fulfilled') setUsers(results[1].value.users || []);
+    else toast.error('Failed to load users');
+    if (results[2].status === 'fulfilled') setActivities(results[2].value.activities || []);
+    else toast.error('Failed to load activity');
     setLoading(false);
   }, []);
 
   const fetchUsers = useCallback(async () => {
-    setLoading(true);
     try { const d = await adminFetch('/api/admin/users'); setUsers(d.users || []); } catch (e) { toast.error(e.message); }
-    setLoading(false);
   }, []);
 
   const fetchActivity = useCallback(async () => {
-    setLoading(true);
     try { const d = await adminFetch('/api/admin/activity?limit=100'); setActivities(d.activities || []); } catch (e) { toast.error(e.message); }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
-    fetchAnalytics();
-    fetchUsers();
-    fetchActivity();
-  }, [fetchAnalytics, fetchUsers, fetchActivity]);
+    fetchAll();
+  }, [fetchAll]);
 
   const tabs = [
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },

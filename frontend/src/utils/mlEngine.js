@@ -79,11 +79,11 @@ function computeXtXAndXty(Xa, y, pa, n) {
 
 // ==================== REGRESSION MODELS ====================
 
-function trainLinearRegression(X, y) {
+function trainLinearRegression(X, y, lambda = 0.001) {
   const n = X.length, p = X[0].length, pa = p + 1;
   const Xa = X.map(row => [1, ...row]);
   const { XtX, Xty } = computeXtXAndXty(Xa, y, pa, n);
-  for (let i = 0; i < pa; i++) XtX[i][i] += 0.001;
+  for (let i = 0; i < pa; i++) XtX[i][i] += lambda;
   return { type: 'linear_regression', coefficients: solveLinearSystem(XtX, Xty) };
 }
 
@@ -495,7 +495,7 @@ export function buildModelForAlgo(algo, X_train, y_train, problemType) {
 
 /** Build model with custom hyperparameters (used by tuning) */
 export function buildModelWithParams(algo, X_train, y_train, problemType, params = {}) {
-  if (algo === 'linear_regression') return trainLinearRegression(X_train, y_train);
+  if (algo === 'linear_regression') return trainLinearRegression(X_train, y_train, params.lambda ?? 0.001);
   if (algo === 'ridge_regression') return trainRidgeRegression(X_train, y_train, params.lambda ?? 1.0);
   if (algo === 'logistic_regression') return trainLogisticRegression(X_train, y_train, params.learningRate ?? 0.01, params.epochs ?? 200, params.lambda ?? 0.01);
   if (algo === 'decision_tree') {
@@ -513,6 +513,9 @@ export function buildModelWithParams(algo, X_train, y_train, problemType, params
 
 /** Hyperparameter definitions per algorithm */
 export const HYPERPARAMETER_DEFS = {
+  linear_regression: [
+    { key: 'lambda', label: 'Regularization (L2)', type: 'range', min: 0.0001, max: 10, step: 0.01, default: 0.001 },
+  ],
   decision_tree: [
     { key: 'maxDepth', label: 'Max Depth', type: 'range', min: 2, max: 25, step: 1, default: 10 },
     { key: 'minSamples', label: 'Min Samples Split', type: 'range', min: 2, max: 30, step: 1, default: 2 },

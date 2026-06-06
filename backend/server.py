@@ -82,6 +82,11 @@ try:
     leaderboard_collection = db["leaderboard_entries"]
     activity_collection = db["activity_log"]
     deployed_models_collection = db["deployed_models"]
+    # Create indexes for performance
+    leaderboard_collection.create_index([("user_id", 1), ("created_at", -1)])
+    sessions_collection.create_index([("user_id", 1)])
+    snapshots_collection.create_index([("user_id", 1), ("saved_at", -1)])
+    activity_collection.create_index([("timestamp", -1)])
     # Seed admin flag for designated admin accounts
     ADMIN_EMAILS = ["shubhrangshub@gmail.com"]
     for ae in ADMIN_EMAILS:
