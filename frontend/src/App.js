@@ -7,7 +7,7 @@ import {
   Download, AlertCircle, Layers, ShieldAlert, Table2, SplitSquareVertical, Info,
   Clock, Trophy, CheckCircle2, XCircle, Shield, Moon, Sun, FileUp, BarChart2,
   BookOpen, Lightbulb, Save, History, Share2, Copy, ExternalLink, Lock, Sheet, LogOut,
-  GitBranch, X
+  GitBranch, X, Rocket, Sliders
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import {
@@ -30,6 +30,9 @@ import ExplainabilityView from './components/views/ExplainabilityView';
 import CompareModelsView from './components/views/CompareModelsView';
 import LeaderboardView from './components/views/LeaderboardView';
 import AdminView from './components/views/AdminView';
+import DeployView from './components/views/DeployView';
+import WhatIfView from './components/views/WhatIfView';
+import PublicPredictPage from './components/PublicPredictPage';
 import OnboardingGuide from './components/OnboardingGuide';
 import DashboardView from './components/views/DashboardView';
 import AnalysisView from './components/views/AnalysisView';
@@ -653,11 +656,11 @@ function AppMain({ authUser, onLogout }) {
 
   // ==================== SAMPLE DATASETS ====================
   const sampleDatasets = [
-    { name: 'Loan Approval', description: 'Binary classification (20 rows)', data: `age,income,credit_score,loan_amount,approved\n25,45000,650,10000,0\n35,75000,720,25000,1\n45,95000,780,50000,1\n28,52000,680,15000,0\n52,120000,800,75000,1\n23,38000,620,8000,0\n38,82000,740,30000,1\n42,88000,760,40000,1\n30,62000,700,20000,1\n48,105000,790,60000,1\n22,32000,600,5000,0\n55,130000,810,80000,1\n29,48000,660,12000,0\n40,90000,750,35000,1\n33,70000,710,22000,1\n27,44000,640,11000,0\n50,110000,795,65000,1\n36,78000,730,28000,1\n24,40000,630,9000,0\n44,98000,770,45000,1` },
-    { name: 'House Prices', description: 'Regression (15 rows)', data: `size,bedrooms,age,location_score,price\n1200,2,5,7,250000\n1800,3,10,8,380000\n2500,4,3,9,520000\n1000,1,15,6,180000\n2200,3,7,8,450000\n1500,2,8,7,300000\n3000,5,2,9,620000\n1100,1,20,5,170000\n1900,3,5,8,400000\n2800,4,1,10,580000\n1600,2,12,7,310000\n2100,3,6,8,430000\n1350,2,9,6,270000\n2600,4,4,9,540000\n1750,3,11,7,350000` },
-    { name: 'Insurance Costs', description: 'Financial regression (20 rows)', data: `age,sex,bmi,children,smoker,region,charges\n19,female,27.9,0,yes,southwest,16884.92\n18,male,33.77,1,no,southeast,1725.55\n28,male,33.0,3,no,southeast,4449.46\n33,male,22.705,0,no,northwest,21984.47\n32,male,28.88,0,no,northwest,3866.86\n31,female,25.74,0,no,southeast,3756.62\n46,female,33.44,1,no,southeast,8240.59\n37,female,27.74,3,no,northwest,7281.51\n37,male,29.83,2,no,northeast,6406.41\n60,female,25.84,0,no,northwest,28923.14\n25,male,26.22,0,no,northeast,2721.32\n62,female,26.29,0,yes,southeast,27808.73\n23,male,34.4,0,no,southwest,1826.84\n56,female,39.82,0,no,southeast,11090.72\n27,male,42.13,0,yes,southeast,39611.76\n19,male,24.6,1,no,southwest,1837.24\n52,female,30.78,1,no,northeast,10797.34\n23,female,23.845,0,no,northeast,2395.17\n56,male,40.3,0,no,southwest,10602.39\n30,male,35.3,0,yes,southwest,36837.47` },
-    { name: 'Customer Churn', description: 'Classification — 1,000 rows, 15 features', file: '/datasets/customer_churn.csv' },
-    { name: 'Customer Segmentation', description: 'Unsupervised — 800 rows, 13 features', file: '/datasets/customer_segmentation.csv' },
+    { name: 'Loan Approval', description: 'Classification — 1,200 rows, 12 features', file: '/api/sample_data/loan_approval.csv' },
+    { name: 'House Prices', description: 'Regression — 1,000 rows, 12 features', file: '/api/sample_data/house_prices.csv' },
+    { name: 'Insurance Costs', description: 'Regression — 1,100 rows, 9 features', file: '/api/sample_data/insurance.csv' },
+    { name: 'Customer Churn', description: 'Classification — 1,500 rows, 11 features', file: '/api/sample_data/customer_churn.csv' },
+    { name: 'Customer Segmentation', description: 'Unsupervised — 1,000 rows, 10 features', file: '/api/sample_data/customer_segmentation.csv' },
   ];
 
   // ==================== COMPUTED STATS ====================
@@ -951,7 +954,7 @@ function AppMain({ authUser, onLogout }) {
   const loadSampleDataset = useCallback(async (sample) => {
     if (sample.data) { handleCsvTextChange(sample.data, false, sample.name); }
     else if (sample.file) {
-      try { const res = await fetch(sample.file); if (!res.ok) throw new Error('Failed to load'); handleCsvTextChange(await res.text(), false, sample.name); }
+      try { const res = await fetch(`${API_URL}${sample.file}`); if (!res.ok) throw new Error('Failed to load'); handleCsvTextChange(await res.text(), false, sample.name); }
       catch (e) { setError('Failed to load sample dataset: ' + e.message); }
     }
   }, [handleCsvTextChange]);
@@ -1636,7 +1639,7 @@ function AppMain({ authUser, onLogout }) {
         <div className="flex h-full flex-col gap-2">
           <div className="flex h-16 items-center border-b border-sidebar-border px-6"><div className="flex items-center gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Brain className="h-6 w-6" /></div><div><h1 className="text-lg font-bold text-sidebar-foreground">AutoML</h1><p className="text-xs text-sidebar-foreground/60">Universal Dashboard</p></div></div></div>
           <nav className="flex-1 space-y-1 px-3 py-4" data-testid="sidebar-nav">
-            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'compare', label: 'Compare', icon: GitBranch }, { id: 'leaderboard', label: 'Leaderboard', icon: Trophy }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }, { id: 'history', label: 'History', icon: History }, ...(authUser?.is_admin ? [{ id: 'admin', label: 'Admin', icon: Shield }] : [])].map((item) => (
+            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'compare', label: 'Compare', icon: GitBranch }, { id: 'whatif', label: 'What-If', icon: Sliders }, { id: 'leaderboard', label: 'Leaderboard', icon: Trophy }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }, { id: 'deploy', label: 'Deploy', icon: Rocket }, { id: 'history', label: 'History', icon: History }, ...(authUser?.is_admin ? [{ id: 'admin', label: 'Admin', icon: Shield }] : [])].map((item) => (
               <Button key={item.id} variant={activeView === item.id ? 'secondary' : 'ghost'} className="w-full justify-start gap-3" onClick={() => setActiveView(item.id)} data-testid={`nav-${item.id}`}><item.icon className="h-4 w-4" />{item.label}</Button>
             ))}
           </nav>
@@ -1651,7 +1654,7 @@ function AppMain({ authUser, onLogout }) {
               <div className="min-w-0">
                 <div className="flex items-center gap-2.5">
                   <h2 className="text-lg font-bold tracking-tight whitespace-nowrap" data-testid="page-title">
-                    {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'leaderboard' && 'Model Leaderboard'}{activeView === 'history' && 'Analysis History'}{activeView === 'admin' && 'Admin Dashboard'}
+                    {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'leaderboard' && 'Model Leaderboard'}{activeView === 'history' && 'Analysis History'}{activeView === 'admin' && 'Admin Dashboard'}{activeView === 'deploy' && 'Model Deployment'}{activeView === 'whatif' && 'What-If Analyzer'}
                   </h2>
                   {dataProfile?.fileName && <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-violet-500/15 to-fuchsia-500/15 text-violet-700 dark:text-violet-300 text-xs font-semibold border border-violet-200 dark:border-violet-800" data-testid="current-dataset-badge"><Database className="h-3 w-3" />{dataProfile.fileName}</span>}
                 </div>
@@ -1790,6 +1793,12 @@ function AppMain({ authUser, onLogout }) {
           {/* ==================== ADMIN ==================== */}
           {activeView === 'admin' && authUser?.is_admin && <AdminView />}
 
+          {/* ==================== DEPLOY ==================== */}
+          {activeView === 'deploy' && <DeployView />}
+
+          {/* ==================== WHAT-IF ==================== */}
+          {activeView === 'whatif' && <WhatIfView />}
+
         </AnimatePresence></main>
       </div>
     </div>
@@ -1797,4 +1806,11 @@ function AppMain({ authUser, onLogout }) {
   );
 }
 
-export default App;
+export default function AppWrapper() {
+  const path = window.location.pathname;
+  const match = path.match(/^\/predict\/([a-zA-Z0-9-]+)/);
+  if (match) {
+    return <PublicPredictPage deployId={match[1]} onBack={() => { window.location.href = '/'; }} />;
+  }
+  return <App />;
+}

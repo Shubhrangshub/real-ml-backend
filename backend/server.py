@@ -63,6 +63,9 @@ app.add_middleware(
     allow_credentials=True,
 )
 
+from fastapi.staticfiles import StaticFiles
+app.mount("/api/sample_data", StaticFiles(directory="/app/sample_data"), name="sample_data")
+
 JWT_SECRET = os.environ.get("JWT_SECRET", uuid.uuid4().hex)
 
 # MongoDB Setup
@@ -78,6 +81,7 @@ try:
     sessions_collection = db["user_sessions"]
     leaderboard_collection = db["leaderboard_entries"]
     activity_collection = db["activity_log"]
+    deployed_models_collection = db["deployed_models"]
     # Seed admin flag for designated admin accounts
     ADMIN_EMAILS = ["shubhrangshub@gmail.com"]
     for ae in ADMIN_EMAILS:
@@ -1350,6 +1354,142 @@ async def download_export(token: str):
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{data["filename"]}"'}
     )
+
+# ==================== MODEL DEPLOYMENT ENDPOINTS ====================
+
+class DeployRequest(BaseModel):
+    model_id: str
+    model_data: Dict
+    name: str = ""
+    description: str = ""
+
+@app.post("/api/deploy")
+async def deploy_model(req: DeployRequest, request: Request):
+    """Deploy a trained model and get a public prediction URL."""
+    user = require_auth(request)
+    deploy_id = str(uuid.uuid4())[:12]
+    doc = {
+        "deploy_id": deploy_id,
+        "user_id": user["user_id"],
+        "owner_email": user["email"],
+        "model_id": req.model_id,
+        "name": req.name or f"Model {deploy_id}",
+        "description": req.description,
+        "model_data": req.model_data,
+        "enabled": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "prediction_count": 0,
+    }
+    deployed_models_collection.insert_one(doc)
+    log_activity(user["user_id"], user["email"], "deploy_model", f"Deployed '{doc['name']}' ({deploy_id})")
+    return {"status": "success", "deploy_id": deploy_id}
+
+@app.get("/api/deploy")
+async def list_deployments(request: Request):
+    """List all deployments for the current user."""
+    user = require_auth(request)
+    deployments = list(deployed_models_collection.find(
+        {"user_id": user["user_id"]}, {"_id": 0, "model_data": 0}
+    ).sort("created_at", -1))
+    return {"deployments": deployments}
+
+@app.patch("/api/deploy/{deploy_id}")
+async def toggle_deployment(deploy_id: str, request: Request):
+    """Enable/disable a deployed model."""
+    user = require_auth(request)
+    body = await request.json()
+    result = deployed_models_collection.update_one(
+        {"deploy_id": deploy_id, "user_id": user["user_id"]},
+        {"$set": {"enabled": bool(body.get("enabled", True))}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    return {"status": "success"}
+
+@app.delete("/api/deploy/{deploy_id}")
+async def delete_deployment(deploy_id: str, request: Request):
+    """Delete a deployed model."""
+    user = require_auth(request)
+    result = deployed_models_collection.delete_one({"deploy_id": deploy_id, "user_id": user["user_id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    log_activity(user["user_id"], user["email"], "undeploy_model", f"Removed deployment {deploy_id}")
+    return {"status": "success"}
+
+@app.get("/api/public/model/{deploy_id}")
+async def get_public_model_info(deploy_id: str):
+    """Get public info about a deployed model (no auth required)."""
+    doc = deployed_models_collection.find_one({"deploy_id": deploy_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Model not found")
+    if not doc.get("enabled"):
+        raise HTTPException(status_code=403, detail="This model has been disabled by its owner")
+    md = doc.get("model_data", {})
+    return {
+        "deploy_id": deploy_id,
+        "name": doc.get("name"),
+        "description": doc.get("description"),
+        "owner": doc.get("owner_email", "").split("@")[0] + "@...",
+        "algorithm": md.get("algorithm"),
+        "problem_type": md.get("problemType"),
+        "features": md.get("features", []),
+        "target": md.get("targetColumn"),
+        "metrics": md.get("metrics", {}),
+        "created_at": doc.get("created_at"),
+        "prediction_count": doc.get("prediction_count", 0),
+    }
+
+@app.post("/api/public/predict/{deploy_id}")
+async def public_predict(deploy_id: str, request: Request):
+    """Make a prediction using a deployed model (no auth required)."""
+    doc = deployed_models_collection.find_one({"deploy_id": deploy_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Model not found")
+    if not doc.get("enabled"):
+        raise HTTPException(status_code=403, detail="This model has been disabled by its owner")
+    body = await request.json()
+    input_data = body.get("features", {})
+    md = doc.get("model_data", {})
+
+    # Run prediction using the stored model
+    try:
+        import pickle, base64
+        model_bytes = base64.b64decode(md.get("model_bytes", ""))
+        model = pickle.loads(model_bytes)
+        features = md.get("features", [])
+        encoders = md.get("encoders", {})
+
+        # Prepare input
+        row = []
+        for feat in features:
+            val = input_data.get(feat, 0)
+            if feat in encoders:
+                mapping = encoders[feat]
+                val = mapping.get(str(val), 0)
+            try:
+                val = float(val)
+            except (ValueError, TypeError):
+                val = 0
+            row.append(val)
+
+        import numpy as np
+        X = np.array([row])
+        prediction = model.predict(X)[0]
+        result = {"prediction": float(prediction) if not isinstance(prediction, str) else prediction}
+
+        # For classification, try to get probabilities
+        if md.get("problemType") == "classification" and hasattr(model, "predict_proba"):
+            try:
+                proba = model.predict_proba(X)[0]
+                classes = model.classes_.tolist() if hasattr(model, 'classes_') else list(range(len(proba)))
+                result["probabilities"] = {str(c): round(float(p), 4) for c, p in zip(classes, proba)}
+            except Exception:
+                pass
+
+        deployed_models_collection.update_one({"deploy_id": deploy_id}, {"$inc": {"prediction_count": 1}})
+        return {"status": "success", **result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 # ==================== ADMIN ENDPOINTS ====================
 

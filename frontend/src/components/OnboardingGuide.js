@@ -70,6 +70,20 @@ const TOUR_STEPS = [
     position: 'right',
     view: null,
   },
+  {
+    target: '[data-testid="nav-whatif"]',
+    title: 'What-If Analyzer',
+    desc: 'Tweak feature values side-by-side and instantly see how predictions change. Great for scenario planning!',
+    position: 'right',
+    view: null,
+  },
+  {
+    target: '[data-testid="nav-deploy"]',
+    title: 'Deploy Your Model',
+    desc: 'Deploy any trained model and get a public link. Anyone can make predictions without logging in — plus a REST API for developers.',
+    position: 'right',
+    view: null,
+  },
 ];
 
 const MILESTONES = [
