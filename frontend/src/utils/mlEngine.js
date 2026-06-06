@@ -98,8 +98,24 @@ function trainRidgeRegression(X, y, lambda = 1.0) {
 
 // ==================== CLASSIFICATION MODELS ====================
 
-function trainLogisticRegression(X, y) {
-  return { type: 'logistic_regression', coefficients: trainLinearRegression(X, y).coefficients };
+function trainLogisticRegression(X, y, learningRate = 0.01, epochs = 200, lambda = 0.01) {
+  const n = X.length, p = X[0].length;
+  const w = new Array(p + 1).fill(0); // weights + bias at index 0
+  const sigmoid = z => 1 / (1 + Math.exp(-Math.max(-500, Math.min(500, z))));
+  for (let e = 0; e < epochs; e++) {
+    const grad = new Array(p + 1).fill(0);
+    for (let i = 0; i < n; i++) {
+      let z = w[0]; // bias
+      for (let j = 0; j < p; j++) z += w[j + 1] * X[i][j];
+      const pred = sigmoid(z);
+      const err = pred - y[i];
+      grad[0] += err;
+      for (let j = 0; j < p; j++) grad[j + 1] += err * X[i][j];
+    }
+    w[0] -= learningRate * grad[0] / n;
+    for (let j = 1; j <= p; j++) w[j] -= learningRate * (grad[j] / n + lambda * w[j]);
+  }
+  return { type: 'logistic_regression', coefficients: w };
 }
 
 // ==================== DECISION TREE ====================
@@ -267,7 +283,7 @@ function trainSVM(X, y, C = 1.0, lr = 0.01, epochs = 200) {
 
 // ==================== NAIVE BAYES ====================
 
-function trainNaiveBayes(X, y) {
+function trainNaiveBayes(X, y, smoothing = 1e-9) {
   const classes = [...new Set(y)].sort((a, b) => a - b);
   const n = X.length, p = X[0].length;
   const classStats = {};
@@ -277,7 +293,7 @@ function trainNaiveBayes(X, y) {
     idx.forEach(i => { for (let j = 0; j < p; j++) means[j] += X[i][j]; });
     for (let j = 0; j < p; j++) means[j] /= idx.length;
     idx.forEach(i => { for (let j = 0; j < p; j++) variances[j] += (X[i][j] - means[j]) ** 2; });
-    for (let j = 0; j < p; j++) variances[j] = variances[j] / idx.length + 1e-9;
+    for (let j = 0; j < p; j++) variances[j] = variances[j] / idx.length + smoothing;
     classStats[cls] = { prior: idx.length / n, means, variances };
   });
   return { type: 'naive_bayes', classStats, classes };
@@ -481,7 +497,7 @@ export function buildModelForAlgo(algo, X_train, y_train, problemType) {
 export function buildModelWithParams(algo, X_train, y_train, problemType, params = {}) {
   if (algo === 'linear_regression') return trainLinearRegression(X_train, y_train);
   if (algo === 'ridge_regression') return trainRidgeRegression(X_train, y_train, params.lambda ?? 1.0);
-  if (algo === 'logistic_regression') return trainLogisticRegression(X_train, y_train);
+  if (algo === 'logistic_regression') return trainLogisticRegression(X_train, y_train, params.learningRate ?? 0.01, params.epochs ?? 200, params.lambda ?? 0.01);
   if (algo === 'decision_tree') {
     return { type: 'decision_tree', tree: buildDecisionTree(X_train, y_train, params.maxDepth ?? 10, params.minSamples ?? 2, problemType === 'classification') };
   }
@@ -491,7 +507,7 @@ export function buildModelWithParams(algo, X_train, y_train, problemType, params
   if (algo === 'gradient_boosting') return trainGradientBoosting(X_train, y_train, params.nTrees ?? 30, params.learningRate ?? 0.1, params.maxDepth ?? 4);
   if (algo === 'knn') return trainKNN(X_train, y_train, params.k ?? 5);
   if (algo === 'svm') return trainSVM(X_train, y_train, params.C ?? 1.0, params.learningRate ?? 0.01, params.epochs ?? 200);
-  if (algo === 'naive_bayes') return trainNaiveBayes(X_train, y_train);
+  if (algo === 'naive_bayes') return trainNaiveBayes(X_train, y_train, params.smoothing ?? 1e-9);
   return trainBaseline(y_train, problemType);
 }
 
@@ -520,5 +536,13 @@ export const HYPERPARAMETER_DEFS = {
   ],
   ridge_regression: [
     { key: 'lambda', label: 'Lambda (Regularization)', type: 'range', min: 0.01, max: 100, step: 0.5, default: 1.0 },
+  ],
+  naive_bayes: [
+    { key: 'smoothing', label: 'Variance Smoothing', type: 'range', min: 0.0001, max: 1.0, step: 0.0001, default: 0.001 },
+  ],
+  logistic_regression: [
+    { key: 'learningRate', label: 'Learning Rate', type: 'range', min: 0.001, max: 0.5, step: 0.001, default: 0.01 },
+    { key: 'epochs', label: 'Epochs', type: 'range', min: 50, max: 500, step: 50, default: 200 },
+    { key: 'lambda', label: 'Regularization (L2)', type: 'range', min: 0.001, max: 10, step: 0.01, default: 0.01 },
   ],
 };

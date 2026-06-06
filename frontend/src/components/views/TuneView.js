@@ -203,7 +203,7 @@ export default function TuneView() {
         <Card data-testid="tune-algo-select">
           <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><Zap className="h-4 w-4 text-amber-500" />Select Algorithm</CardTitle></CardHeader>
           <CardContent className="space-y-2">
-            {tunableAlgos.length === 0 && <p className="text-xs text-muted-foreground">No tunable algorithms found. Train models with Decision Tree, Random Forest, Gradient Boosting, KNN, SVM, or Ridge.</p>}
+            {tunableAlgos.length === 0 && <p className="text-xs text-muted-foreground">No tunable algorithms found. Train models first — most algorithms have tunable parameters.</p>}
             {tunableAlgos.map(algo => {
               const entry = trainingResult.leaderboard.find(m => m.algorithm === algo);
               const score = entry?.testMetrics?.[primaryKey];
