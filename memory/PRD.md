@@ -55,9 +55,11 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 - [x] Backend public predict handles scaled models correctly
 
 ### Advanced Hyperparameter Tuning (Jun 2026) ✅ TESTED
-- [x] **Tunable algorithms**: Decision Tree, Random Forest, Gradient Boosting, KNN, SVM, Ridge
-- [x] **Search strategies**: Random Search (20 trials), Grid Search (exhaustive)
-- [x] **Per-algorithm parameters**: maxDepth, minSamples, nTrees, learningRate, k, C, lambda, epochs
+- [x] **Tunable algorithms**: Decision Tree, Random Forest, Gradient Boosting, KNN, SVM, Ridge, Naive Bayes, Logistic Regression (all 8)
+- [x] **Search strategies**: Random Search (20 trials), Grid Search (exhaustive), Bayesian-style
+- [x] **Per-algorithm parameters**: maxDepth, minSamples, nTrees, learningRate, k, C, lambda, epochs, smoothing
+- [x] **Logistic Regression**: Proper gradient descent with tunable learning rate, epochs, L2 regularization
+- [x] **Naive Bayes**: Variance smoothing parameter (0.0001–1.0)
 - [x] **Results dashboard**: Original vs Tuned score comparison, improvement metric
 - [x] **Top 10 Trials table**: ranked by score with parameter values
 - [x] **Apply Tuned Model**: adds optimized model to session (only when improvement > 0)
