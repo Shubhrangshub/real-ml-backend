@@ -36,23 +36,24 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 ### Onboarding Guide
 - [x] 11-step spotlight tour (including What-If & Deploy), progress pill
 
-### Model Deployment (Feb 2026)
+### Model Deployment (Feb 2026) ✅ TESTED
 - [x] Deploy trained models to get a public prediction URL
-- [x] Public prediction page — anyone can make predictions without login
-- [x] REST API endpoint for programmatic access (curl, Python)
-- [x] Enable/disable (revoke) deployments
+- [x] Public prediction page — anyone can make predictions without login (client-side prediction using JS ML engine)
+- [x] REST API endpoint for programmatic access (curl, Python) — Python reimplementation of JS prediction logic
+- [x] Enable/disable (revoke) deployments (disabled models return 403)
 - [x] Delete deployments
 - [x] Prediction counter per deployment
 - [x] API: POST /api/deploy, GET /api/deploy, PATCH/DELETE /api/deploy/{id}
-- [x] Public: GET /api/public/model/{id}, POST /api/public/predict/{id}
+- [x] Public: GET /api/public/model/{id} (includes model_data_full), POST /api/public/predict/{id}
 
-### What-If Analyzer (Feb 2026)
+### What-If Analyzer (Feb 2026) ✅ TESTED
 - [x] Side-by-side baseline vs. modified scenario comparison
 - [x] Auto-populated feature sliders from dataset statistics
-- [x] Numeric sliders + categorical dropdowns
+- [x] Numeric sliders + categorical dropdowns (using model's encodingMap)
 - [x] Real-time prediction comparison with diff and % change
 - [x] Visual highlighting of changed features
 - [x] Works with all trained models (model selector dropdown)
+- [x] Uses prepareInputForPrediction + predictOne for correct data encoding
 
 ### Large Sample Datasets (Feb 2026)
 - [x] Loan Approval: 1,200 rows, 12 features (classification)
@@ -81,11 +82,18 @@ src/
 - users, user_sessions, analysis_snapshots, password_reset_tokens
 - leaderboard_entries, activity_log, deployed_models
 
+## Key Technical Details
+- Models trained CLIENT-SIDE in JavaScript (mlEngine.js)
+- Backend public predict reimplements JS prediction logic in Python (_predict_one_py, _prepare_input_py)
+- Public predict page uses model_data_full from API for client-side prediction
+- AppWrapper in App.js intercepts /predict/:id for public pages outside auth
+
 ## Backlog
 - [ ] P1: Automated PDF Report Generation
 - [ ] P1: React Hook dependency & array key optimization
 - [ ] P1: Real-time Collaborative Sessions
-- [ ] P2: Backend server.py refactoring
+- [ ] P2: Backend server.py refactoring (split into modules)
 - [ ] P2: Advanced hyperparameter tuning UI
 - [ ] P2: Interactive Tutorial Mode
 - [ ] P3: Dataset preprocessing pipeline UI
+- [ ] P3: Insecure token storage fix (localStorage → httpOnly cookies)
