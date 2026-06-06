@@ -29,6 +29,7 @@ import './App.css';
 import ExplainabilityView from './components/views/ExplainabilityView';
 import CompareModelsView from './components/views/CompareModelsView';
 import LeaderboardView from './components/views/LeaderboardView';
+import AdminView from './components/views/AdminView';
 import DashboardView from './components/views/DashboardView';
 import AnalysisView from './components/views/AnalysisView';
 import PredictView from './components/views/PredictView';
@@ -1621,7 +1622,7 @@ function AppMain({ authUser, onLogout }) {
         <div className="flex h-full flex-col gap-2">
           <div className="flex h-16 items-center border-b border-sidebar-border px-6"><div className="flex items-center gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Brain className="h-6 w-6" /></div><div><h1 className="text-lg font-bold text-sidebar-foreground">AutoML</h1><p className="text-xs text-sidebar-foreground/60">Universal Dashboard</p></div></div></div>
           <nav className="flex-1 space-y-1 px-3 py-4" data-testid="sidebar-nav">
-            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'compare', label: 'Compare', icon: GitBranch }, { id: 'leaderboard', label: 'Leaderboard', icon: Trophy }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }, { id: 'history', label: 'History', icon: History }].map((item) => (
+            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'compare', label: 'Compare', icon: GitBranch }, { id: 'leaderboard', label: 'Leaderboard', icon: Trophy }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }, { id: 'history', label: 'History', icon: History }, ...(authUser?.is_admin ? [{ id: 'admin', label: 'Admin', icon: Shield }] : [])].map((item) => (
               <Button key={item.id} variant={activeView === item.id ? 'secondary' : 'ghost'} className="w-full justify-start gap-3" onClick={() => setActiveView(item.id)} data-testid={`nav-${item.id}`}><item.icon className="h-4 w-4" />{item.label}</Button>
             ))}
           </nav>
@@ -1636,7 +1637,7 @@ function AppMain({ authUser, onLogout }) {
               <div className="min-w-0">
                 <div className="flex items-center gap-2.5">
                   <h2 className="text-lg font-bold tracking-tight whitespace-nowrap" data-testid="page-title">
-                    {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'leaderboard' && 'Model Leaderboard'}{activeView === 'history' && 'Analysis History'}
+                    {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'leaderboard' && 'Model Leaderboard'}{activeView === 'history' && 'Analysis History'}{activeView === 'admin' && 'Admin Dashboard'}
                   </h2>
                   {dataProfile?.fileName && <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-violet-500/15 to-fuchsia-500/15 text-violet-700 dark:text-violet-300 text-xs font-semibold border border-violet-200 dark:border-violet-800" data-testid="current-dataset-badge"><Database className="h-3 w-3" />{dataProfile.fileName}</span>}
                 </div>
@@ -1796,6 +1797,9 @@ function AppMain({ authUser, onLogout }) {
 
           {/* ==================== HISTORY ==================== */}
           {activeView === 'history' && <HistoryView />}
+
+          {/* ==================== ADMIN ==================== */}
+          {activeView === 'admin' && authUser?.is_admin && <AdminView />}
 
         </AnimatePresence></main>
       </div>

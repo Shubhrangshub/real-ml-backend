@@ -77,6 +77,11 @@ try:
     users_collection = db["users"]
     sessions_collection = db["user_sessions"]
     leaderboard_collection = db["leaderboard_entries"]
+    activity_collection = db["activity_log"]
+    # Seed admin flag for designated admin accounts
+    ADMIN_EMAILS = ["shubhrangshub@gmail.com"]
+    for ae in ADMIN_EMAILS:
+        users_collection.update_one({"email": ae}, {"$set": {"is_admin": True}}, upsert=False)
 except Exception as e:
     print(f"MongoDB connection warning: {e}")
     db = None
@@ -202,6 +207,25 @@ def require_auth(request: Request) -> Dict:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return user
 
+def require_admin(request: Request) -> Dict:
+    """Get current user and verify admin or raise 403."""
+    user = require_auth(request)
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+def log_activity(user_id: str, email: str, action: str, details: str = ""):
+    """Log user activity for admin dashboard."""
+    if db is None:
+        return
+    try:
+        activity_collection.insert_one({
+            "user_id": user_id, "email": email, "action": action,
+            "details": details, "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+    except Exception:
+        pass
+
 # ==================== AUTH ENDPOINTS ====================
 
 @app.post("/api/auth/signup")
@@ -227,7 +251,8 @@ async def signup(req: SignupRequest, response: FastAPIResponse):
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     response.set_cookie("session_token", session_token, path="/", httponly=True, secure=True, samesite="none", max_age=7*24*3600)
-    return {"status": "success", "token": session_token, "user": {"user_id": user_id, "email": req.email, "name": req.name, "picture": ""}}
+    log_activity(user_id, req.email, "signup", "New account created")
+    return {"status": "success", "token": session_token, "user": {"user_id": user_id, "email": req.email, "name": req.name, "picture": "", "is_admin": False}}
 
 @app.post("/api/auth/login")
 async def login(req: LoginRequest, response: FastAPIResponse):
@@ -245,7 +270,8 @@ async def login(req: LoginRequest, response: FastAPIResponse):
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     response.set_cookie("session_token", session_token, path="/", httponly=True, secure=True, samesite="none", max_age=7*24*3600)
-    return {"status": "success", "token": session_token, "user": {"user_id": user["user_id"], "email": user["email"], "name": user["name"], "picture": user.get("picture", "")}}
+    log_activity(user["user_id"], user["email"], "login", "Email login")
+    return {"status": "success", "token": session_token, "user": {"user_id": user["user_id"], "email": user["email"], "name": user["name"], "picture": user.get("picture", ""), "is_admin": user.get("is_admin", False)}}
 
 @app.post("/api/auth/google")
 async def google_auth(req: GoogleSessionRequest, response: FastAPIResponse):
@@ -285,14 +311,16 @@ async def google_auth(req: GoogleSessionRequest, response: FastAPIResponse):
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     response.set_cookie("session_token", session_token, path="/", httponly=True, secure=True, samesite="none", max_age=7*24*3600)
-    return {"status": "success", "token": session_token, "user": {"user_id": user_id, "email": email, "name": gdata.get("name", ""), "picture": gdata.get("picture", "")}}
+    user_doc = users_collection.find_one({"user_id": user_id}, {"_id": 0})
+    log_activity(user_id, email, "login", "Google OAuth login")
+    return {"status": "success", "token": session_token, "user": {"user_id": user_id, "email": email, "name": gdata.get("name", ""), "picture": gdata.get("picture", ""), "is_admin": user_doc.get("is_admin", False) if user_doc else False}}
 
 @app.get("/api/auth/me")
 async def auth_me(request: Request):
     user = get_current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return {"user_id": user["user_id"], "email": user["email"], "name": user["name"], "picture": user.get("picture", "")}
+    return {"user_id": user["user_id"], "email": user["email"], "name": user["name"], "picture": user.get("picture", ""), "is_admin": user.get("is_admin", False)}
 
 @app.post("/api/auth/logout")
 async def logout(request: Request, response: FastAPIResponse):
@@ -907,6 +935,9 @@ async def train(req: TrainRequest):
         except Exception as e:
             print(f"MongoDB history insert error: {e}")
 
+    # Log training activity
+    log_activity(req.user_id or "anonymous", "", "train", f"Trained {len(leaderboard)} models on '{target}' ({problem_type})")
+
     return {
         "status": "success",
         "problemType": problem_type,
@@ -1233,6 +1264,7 @@ async def save_snapshot(req: SnapshotSaveRequest, request: Request):
         snapshots_collection.insert_one(doc)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Save failed: {str(e)}")
+    log_activity(user_id or "anonymous", user.get("email", "") if user else "", "save_analysis", f"Saved '{req.name}' ({req.dataset_name})")
     return {"status": "success", "snapshot_id": snapshot_id, "action": "created"}
 
 @app.get("/api/snapshots")
@@ -1318,6 +1350,127 @@ async def download_export(token: str):
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{data["filename"]}"'}
     )
+
+# ==================== ADMIN ENDPOINTS ====================
+
+@app.get("/api/admin/users")
+async def admin_list_users(request: Request):
+    """List all users with usage stats."""
+    admin = require_admin(request)
+    users = list(users_collection.find({}, {"_id": 0, "password_hash": 0}))
+    for u in users:
+        uid = u["user_id"]
+        u["snapshots_count"] = snapshots_collection.count_documents({"user_id": uid})
+        u["leaderboard_count"] = leaderboard_collection.count_documents({"user_id": uid})
+        last_session = sessions_collection.find_one({"user_id": uid}, {"_id": 0}, sort=[("created_at", -1)])
+        u["last_active"] = last_session.get("created_at") if last_session else u.get("created_at")
+        u["is_admin"] = u.get("is_admin", False)
+        u["is_disabled"] = u.get("is_disabled", False)
+    return {"users": users, "total": len(users)}
+
+@app.patch("/api/admin/users/{user_id}")
+async def admin_update_user(user_id: str, request: Request):
+    """Update user flags (is_admin, is_disabled)."""
+    admin = require_admin(request)
+    body = await request.json()
+    update_fields = {}
+    if "is_admin" in body:
+        update_fields["is_admin"] = bool(body["is_admin"])
+    if "is_disabled" in body:
+        update_fields["is_disabled"] = bool(body["is_disabled"])
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    result = users_collection.update_one({"user_id": user_id}, {"$set": update_fields})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    target_user = users_collection.find_one({"user_id": user_id}, {"_id": 0})
+    log_activity(admin["user_id"], admin["email"], "admin_update_user", f"Updated {target_user.get('email')} — {update_fields}")
+    return {"status": "success", "updated": update_fields}
+
+@app.delete("/api/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, request: Request):
+    """Delete a user and all their data."""
+    admin = require_admin(request)
+    target = users_collection.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.get("email") == admin.get("email"):
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    # Delete all user data
+    sessions_collection.delete_many({"user_id": user_id})
+    snapshots_collection.delete_many({"user_id": user_id})
+    leaderboard_collection.delete_many({"user_id": user_id})
+    activity_collection.delete_many({"user_id": user_id})
+    users_collection.delete_one({"user_id": user_id})
+    log_activity(admin["user_id"], admin["email"], "admin_delete_user", f"Deleted user {target.get('email')}")
+    return {"status": "success"}
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+async def admin_reset_password(user_id: str, request: Request):
+    """Admin-initiated password reset."""
+    admin = require_admin(request)
+    body = await request.json()
+    new_password = body.get("new_password", "")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    target = users_collection.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    new_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+    users_collection.update_one({"user_id": user_id}, {"$set": {"password_hash": new_hash}})
+    log_activity(admin["user_id"], admin["email"], "admin_reset_password", f"Reset password for {target.get('email')}")
+    return {"status": "success", "message": f"Password reset for {target.get('email')}"}
+
+@app.get("/api/admin/analytics")
+async def admin_analytics(request: Request):
+    """Get platform-wide usage analytics."""
+    require_admin(request)
+    total_users = users_collection.count_documents({})
+    total_snapshots = snapshots_collection.count_documents({})
+    total_leaderboard = leaderboard_collection.count_documents({})
+    active_sessions = sessions_collection.count_documents({"expires_at": {"$gt": datetime.now(timezone.utc).isoformat()}})
+    google_users = users_collection.count_documents({"auth_provider": "google"})
+    email_users = users_collection.count_documents({"auth_provider": "email"})
+    # Recent signups (last 7 days)
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    recent_signups = users_collection.count_documents({"created_at": {"$gte": week_ago}})
+    # Activity counts
+    total_trains = activity_collection.count_documents({"action": "train"})
+    total_logins = activity_collection.count_documents({"action": "login"})
+    total_saves = activity_collection.count_documents({"action": "save_analysis"})
+    return {
+        "total_users": total_users, "total_snapshots": total_snapshots,
+        "total_leaderboard_entries": total_leaderboard, "active_sessions": active_sessions,
+        "google_users": google_users, "email_users": email_users,
+        "recent_signups": recent_signups, "total_trains": total_trains,
+        "total_logins": total_logins, "total_saves": total_saves,
+    }
+
+@app.get("/api/admin/activity")
+async def admin_activity(request: Request, limit: int = 50, action: str = ""):
+    """Get recent activity log with optional action filter."""
+    require_admin(request)
+    query = {}
+    if action:
+        query["action"] = action
+    activities = list(activity_collection.find(query, {"_id": 0}).sort("timestamp", -1).limit(limit))
+    return {"activities": activities, "total": activity_collection.count_documents(query)}
+
+@app.delete("/api/admin/system/leaderboard")
+async def admin_clear_all_leaderboard(request: Request):
+    """Clear ALL leaderboard entries (system-wide)."""
+    admin = require_admin(request)
+    result = leaderboard_collection.delete_many({})
+    log_activity(admin["user_id"], admin["email"], "admin_clear_leaderboard", f"Cleared {result.deleted_count} entries")
+    return {"status": "success", "deleted": result.deleted_count}
+
+@app.delete("/api/admin/system/snapshots")
+async def admin_clear_all_snapshots(request: Request):
+    """Clear ALL snapshots (system-wide)."""
+    admin = require_admin(request)
+    result = snapshots_collection.delete_many({})
+    log_activity(admin["user_id"], admin["email"], "admin_clear_snapshots", f"Cleared {result.deleted_count} snapshots")
+    return {"status": "success", "deleted": result.deleted_count}
 
 if __name__ == "__main__":
     import uvicorn
