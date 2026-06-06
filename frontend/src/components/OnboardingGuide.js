@@ -112,121 +112,76 @@ const MILESTONES = [
 function SpotlightTour({ isActive, onClose, steps, setActiveView }) {
   const [currentStep, setCurrentStep] = useState(0);
   const [spotlightRect, setSpotlightRect] = useState(null);
-  const [tooltipStyle, setTooltipStyle] = useState({});
-  const [ready, setReady] = useState(false);
-  const rafRef = useRef(null);
-  const retryRef = useRef(0);
-
-  // Navigate to correct view when step changes (separate from positioning)
-  useEffect(() => {
-    if (!isActive) return;
-    const step = steps[currentStep];
-    if (step?.view && setActiveView) {
-      setActiveView(step.view);
-    }
-  }, [isActive, currentStep, steps, setActiveView]);
-
-  // Position spotlight after view settles
-  useEffect(() => {
-    if (!isActive) return;
-    setReady(false);
-    retryRef.current = 0;
-
-    const step = steps[currentStep];
-    if (!step) return;
-
-    const findAndPosition = () => {
-      const el = document.querySelector(step.target);
-      if (!el) {
-        retryRef.current++;
-        if (retryRef.current < 40) { // ~2 seconds max
-          rafRef.current = requestAnimationFrame(findAndPosition);
-          return;
-        }
-        // Element not found after retries — show tooltip centered without spotlight
-        setSpotlightRect(null);
-        setTooltipStyle({
-          top: window.innerHeight / 2 - 80,
-          left: window.innerWidth / 2 - 160,
-        });
-        setReady(true);
-        return;
-      }
-
-      const rect = el.getBoundingClientRect();
-      const padding = 8;
-      setSpotlightRect({
-        top: rect.top - padding,
-        left: rect.left - padding,
-        width: rect.width + padding * 2,
-        height: rect.height + padding * 2,
-      });
-
-      const tooltip = {};
-      const tooltipWidth = 320;
-      const tooltipHeight = 160;
-
-      if (step.position === 'right') {
-        tooltip.top = Math.max(16, rect.top);
-        tooltip.left = rect.right + 20;
-        if (tooltip.left + tooltipWidth > window.innerWidth - 16) {
-          tooltip.left = rect.left - tooltipWidth - 20;
-        }
-      } else if (step.position === 'bottom') {
-        tooltip.top = rect.bottom + 16;
-        tooltip.left = Math.max(16, rect.left);
-        if (tooltip.left + tooltipWidth > window.innerWidth - 16) {
-          tooltip.left = window.innerWidth - tooltipWidth - 16;
-        }
-        if (tooltip.top + tooltipHeight > window.innerHeight - 16) {
-          tooltip.top = rect.top - tooltipHeight - 16;
-        }
-      } else if (step.position === 'left') {
-        tooltip.top = rect.top;
-        tooltip.left = rect.left - tooltipWidth - 20;
-      } else {
-        tooltip.top = rect.bottom + 16;
-        tooltip.left = rect.left;
-      }
-
-      setTooltipStyle(tooltip);
-      setReady(true);
-    };
-
-    // Wait for view transition before positioning
-    const timer = setTimeout(findAndPosition, 250);
-    return () => {
-      clearTimeout(timer);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [isActive, currentStep, steps]);
-
-  // Reposition on resize
-  useEffect(() => {
-    if (!isActive) return;
-    const handleResize = () => {
-      const step = steps[currentStep];
-      if (!step) return;
-      const el = document.querySelector(step.target);
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const padding = 8;
-      setSpotlightRect({
-        top: rect.top - padding, left: rect.left - padding,
-        width: rect.width + padding * 2, height: rect.height + padding * 2,
-      });
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [isActive, currentStep, steps]);
+  const [tooltipPos, setTooltipPos] = useState({ top: 200, left: 200 });
 
   // Reset step when tour starts
   useEffect(() => {
-    if (isActive) setCurrentStep(0);
+    if (isActive) {
+      setCurrentStep(0);
+      setSpotlightRect(null);
+    }
   }, [isActive]);
 
-  if (!isActive) return null;
+  // Navigate to correct view + position spotlight
+  useEffect(() => {
+    if (!isActive) return;
+    const step = steps[currentStep];
+    if (!step) return;
 
+    // Navigate to view first
+    if (step.view && setActiveView) setActiveView(step.view);
+
+    // Position after view settles
+    let cancelled = false;
+    const position = () => {
+      if (cancelled) return;
+      const el = document.querySelector(step.target);
+
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const pad = 8;
+        setSpotlightRect({
+          top: rect.top - pad, left: rect.left - pad,
+          width: rect.width + pad * 2, height: rect.height + pad * 2,
+        });
+
+        // Position tooltip relative to element
+        const tw = 320, th = 160;
+        let tt = {}, pos = step.position;
+        if (pos === 'right') {
+          tt.top = Math.max(16, rect.top);
+          tt.left = rect.right + 20;
+          if (tt.left + tw > window.innerWidth - 16) tt.left = rect.left - tw - 20;
+        } else if (pos === 'bottom') {
+          tt.top = rect.bottom + 16;
+          tt.left = Math.max(16, rect.left);
+          if (tt.left + tw > window.innerWidth - 16) tt.left = window.innerWidth - tw - 16;
+          if (tt.top + th > window.innerHeight - 16) tt.top = rect.top - th - 16;
+        } else if (pos === 'left') {
+          tt.top = rect.top;
+          tt.left = rect.left - tw - 20;
+        } else {
+          tt.top = rect.bottom + 16;
+          tt.left = rect.left;
+        }
+        setTooltipPos(tt);
+      } else {
+        // Element not found — no spotlight, center the tooltip
+        setSpotlightRect(null);
+        setTooltipPos({
+          top: Math.max(100, window.innerHeight / 2 - 100),
+          left: Math.max(16, window.innerWidth / 2 - 160),
+        });
+      }
+    };
+
+    // Try immediately, then retry once after 400ms for view transitions
+    const t1 = setTimeout(position, 50);
+    const t2 = setTimeout(position, 400);
+    return () => { cancelled = true; clearTimeout(t1); clearTimeout(t2); };
+  }, [isActive, currentStep, steps, setActiveView]);
+
+  if (!isActive) return null;
   const step = steps[currentStep];
   if (!step) return null;
   const isLast = currentStep === steps.length - 1;
@@ -234,30 +189,25 @@ function SpotlightTour({ isActive, onClose, steps, setActiveView }) {
 
   return (
     <div className="fixed inset-0 z-[100]" data-testid="spotlight-tour">
-      {/* Dark overlay — no onClick to prevent accidental close */}
-      <div className="absolute inset-0 pointer-events-none">
-        <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <mask id="spotlight-mask">
-              <rect width="100%" height="100%" fill="white" />
-              {spotlightRect && (
-                <rect
-                  x={spotlightRect.left} y={spotlightRect.top}
-                  width={spotlightRect.width} height={spotlightRect.height}
-                  rx="12" fill="black"
-                />
-              )}
-            </mask>
-          </defs>
-          <rect width="100%" height="100%" fill="rgba(0,0,0,0.65)" mask="url(#spotlight-mask)" />
-        </svg>
-      </div>
+      {/* Dark overlay with spotlight cutout */}
+      <svg className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <mask id="spotlight-mask">
+            <rect width="100%" height="100%" fill="white" />
+            {spotlightRect && (
+              <rect
+                x={spotlightRect.left} y={spotlightRect.top}
+                width={spotlightRect.width} height={spotlightRect.height}
+                rx="12" fill="black"
+              />
+            )}
+          </mask>
+        </defs>
+        <rect width="100%" height="100%" fill="rgba(0,0,0,0.6)" mask="url(#spotlight-mask)" />
+      </svg>
 
-      {/* Invisible click blocker (prevents interaction with underlying UI) */}
-      <div className="absolute inset-0" />
-
-      {/* Spotlight border glow */}
-      {spotlightRect && ready && (
+      {/* Spotlight glow */}
+      {spotlightRect && (
         <motion.div
           className="absolute rounded-xl border-2 border-violet-400 shadow-[0_0_20px_rgba(139,92,246,0.4)] pointer-events-none"
           initial={false}
@@ -269,61 +219,59 @@ function SpotlightTour({ isActive, onClose, steps, setActiveView }) {
         />
       )}
 
-      {/* Tooltip */}
-      {ready && (
-        <motion.div
-          key={currentStep}
-          initial={{ opacity: 0, y: 10, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.2, delay: 0.1 }}
-          className="absolute z-[101] w-80 rounded-2xl bg-white dark:bg-zinc-900 border shadow-2xl overflow-hidden"
-          style={tooltipStyle}
-          data-testid="tour-tooltip"
-        >
-          {/* Progress bar */}
-          <div className="h-1 bg-gray-100 dark:bg-zinc-800">
-            <div
-              className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all duration-300"
-              style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
-            />
-          </div>
+      {/* Tooltip — ALWAYS rendered, never hidden behind a "ready" gate */}
+      <motion.div
+        key={currentStep}
+        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.25 }}
+        className="absolute z-[101] w-80 rounded-2xl bg-white dark:bg-zinc-900 border shadow-2xl overflow-hidden"
+        style={tooltipPos}
+        data-testid="tour-tooltip"
+      >
+        {/* Progress bar */}
+        <div className="h-1 bg-gray-100 dark:bg-zinc-800">
+          <div
+            className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all duration-300"
+            style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
+          />
+        </div>
 
-          <div className="p-5">
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="h-6 w-6 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white text-xs font-bold flex items-center justify-center">
-                  {currentStep + 1}
-                </span>
-                <h3 className="font-bold text-sm">{step.title}</h3>
-              </div>
-              <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors" data-testid="tour-close">
-                <X className="h-4 w-4" />
-              </button>
+        <div className="p-5">
+          <div className="flex items-start justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="h-6 w-6 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white text-xs font-bold flex items-center justify-center">
+                {currentStep + 1}
+              </span>
+              <h3 className="font-bold text-sm">{step.title}</h3>
             </div>
-            <p className="text-sm text-muted-foreground leading-relaxed mb-4">{step.desc}</p>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors" data-testid="tour-close">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <p className="text-sm text-muted-foreground leading-relaxed mb-4">{step.desc}</p>
 
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">{currentStep + 1} of {steps.length}</span>
-              <div className="flex gap-2">
-                {!isFirst && (
-                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setCurrentStep(prev => prev - 1)} data-testid="tour-prev">
-                    <ChevronLeft className="h-3.5 w-3.5 mr-1" />Back
-                  </Button>
-                )}
-                {isFirst && (
-                  <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={onClose} data-testid="tour-skip">
-                    Skip tour
-                  </Button>
-                )}
-                <Button size="sm" className="h-8 text-xs bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:from-violet-600 hover:to-fuchsia-600"
-                  onClick={() => isLast ? onClose() : setCurrentStep(prev => prev + 1)} data-testid="tour-next">
-                  {isLast ? <><PartyPopper className="h-3.5 w-3.5 mr-1" />Got it!</> : <>Next<ChevronRight className="h-3.5 w-3.5 ml-1" /></>}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">{currentStep + 1} of {steps.length}</span>
+            <div className="flex gap-2">
+              {!isFirst && (
+                <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setCurrentStep(prev => prev - 1)} data-testid="tour-prev">
+                  <ChevronLeft className="h-3.5 w-3.5 mr-1" />Back
                 </Button>
-              </div>
+              )}
+              {isFirst && (
+                <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={onClose} data-testid="tour-skip">
+                  Skip tour
+                </Button>
+              )}
+              <Button size="sm" className="h-8 text-xs bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:from-violet-600 hover:to-fuchsia-600"
+                onClick={() => isLast ? onClose() : setCurrentStep(prev => prev + 1)} data-testid="tour-next">
+                {isLast ? <><PartyPopper className="h-3.5 w-3.5 mr-1" />Got it!</> : <>Next<ChevronRight className="h-3.5 w-3.5 ml-1" /></>}
+              </Button>
             </div>
           </div>
-        </motion.div>
-      )}
+        </div>
+      </motion.div>
     </div>
   );
 }
