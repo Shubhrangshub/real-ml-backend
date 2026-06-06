@@ -7,7 +7,7 @@ import {
   Download, AlertCircle, Layers, ShieldAlert, Table2, SplitSquareVertical, Info,
   Clock, Trophy, CheckCircle2, XCircle, Shield, Moon, Sun, FileUp, BarChart2,
   BookOpen, Lightbulb, Save, History, Share2, Copy, ExternalLink, Lock, Sheet, LogOut,
-  GitBranch, X, Rocket, Sliders
+  GitBranch, X, Rocket, Sliders, FileDown
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import {
@@ -50,6 +50,7 @@ import {
 import AppContext from './context/AppContext';
 import { getScoreColor, interpretMetric, arrayMin, arrayMax, arrayMinMax, generateId } from './utils/helpers';
 import { MetricTip } from './components/SmartTooltip';
+import { generateReport } from './utils/reportGenerator';
 import {
   parseCSV, profileDataset, generateDatasetSummary, suggestTask,
   scanDataset, cleanRemoveDuplicates, cleanFillMissing,
@@ -639,6 +640,30 @@ function AppMain({ authUser, onLogout }) {
     } catch (e) { toast.error('Google Sheets export failed: ' + e.message); }
     finally { setExportLoading(''); }
   }, [trainingResult, shapGlobal, limeResult, predictionHistory, buildFullCSV, triggerBackendDownload]);
+
+  const handleExportPDF = useCallback(async () => {
+    if (!trainingResult && !unsupervisedResult && !dataProfile) { toast.error('Nothing to report — load data and run analysis first.'); return; }
+    setExportLoading('pdf');
+    try {
+      // Fetch deployments for the report
+      let deployments = [];
+      try {
+        const token = localStorage.getItem('automl_token') || '';
+        const res = await fetch(`${API_URL}/api/deploy`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res.ok) { const d = await res.json(); deployments = d.deployments || []; }
+      } catch {} // silent — deployments are optional
+
+      const filename = await generateReport({
+        dataProfile, trainingResult, models, targetColumn, evalMode,
+        shapGlobal, limeResult, predictionHistory, unsupervisedResult,
+        clusterResult, anomalyResult, leaderboardEntries, deployments,
+        authUser,
+      });
+      toast.success(`Report downloaded: ${filename}`);
+    } catch (e) { toast.error('PDF generation failed: ' + e.message); console.error(e); }
+    finally { setExportLoading(''); }
+  }, [dataProfile, trainingResult, models, targetColumn, evalMode, shapGlobal, limeResult,
+    predictionHistory, unsupervisedResult, clusterResult, anomalyResult, leaderboardEntries, authUser]);
 
   // Load shared snapshot from URL on mount
   useEffect(() => {
@@ -1665,6 +1690,7 @@ function AppMain({ authUser, onLogout }) {
               {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="ghost" size="sm" onClick={() => handleSaveAnalysis()} data-testid="save-analysis-btn" className="h-8 px-2.5 text-xs"><Save className="h-3.5 w-3.5 mr-1.5" />Save</Button>}
               {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="ghost" size="sm" onClick={handleShareAnalysis} disabled={exportLoading === 'share'} data-testid="share-analysis-btn" className="h-8 px-2.5 text-xs">{exportLoading === 'share' ? <><span className="h-3.5 w-3.5 mr-1.5 animate-spin rounded-full border-2 border-current border-t-transparent" />...</> : <><Share2 className="h-3.5 w-3.5 mr-1.5" />Share</>}</Button>}
               {(trainingResult || shapGlobal || limeResult || predictionHistory?.length > 0) && !viewOnlyMode && <>
+                <Button variant="ghost" size="sm" onClick={handleExportPDF} disabled={!!exportLoading} data-testid="export-pdf-btn" title="Download PDF Report" className="h-8 px-2.5 text-xs font-semibold text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30">{exportLoading === 'pdf' ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <><FileDown className="h-3.5 w-3.5 mr-1.5" />PDF Report</>}</Button>
                 <Button variant="ghost" size="sm" onClick={handleExportSheets} disabled={!!exportLoading} data-testid="export-sheets-btn" title="Export to Google Sheets" className="h-8 px-2.5 text-xs">{exportLoading === 'sheets' ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <><Sheet className="h-3.5 w-3.5 mr-1.5" />Sheets</>}</Button>
                 <Button variant="ghost" size="sm" onClick={handleExportCSV} disabled={!!exportLoading} data-testid="export-csv-btn" className="h-8 px-2.5 text-xs">{exportLoading === 'csv' ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <><Download className="h-3.5 w-3.5 mr-1.5" />CSV</>}</Button>
               </>}

@@ -69,15 +69,6 @@ export default function PublicPredictPage({ deployId, onBack }) {
     setPredicting(false);
   };
 
-  // Increment prediction count on backend (fire-and-forget)
-  const incrementCount = useCallback(() => {
-    fetch(`${API_URL}/api/public/predict/${deployId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ features: formData }),
-    }).catch(() => {});
-  }, [deployId, formData]);
-
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-fuchsia-50 dark:from-zinc-950 dark:to-zinc-900">
       <div className="animate-pulse text-center">
