@@ -141,7 +141,15 @@ function SpotlightTour({ isActive, onClose, steps, setActiveView }) {
         retryRef.current++;
         if (retryRef.current < 40) { // ~2 seconds max
           rafRef.current = requestAnimationFrame(findAndPosition);
+          return;
         }
+        // Element not found after retries — show tooltip centered without spotlight
+        setSpotlightRect(null);
+        setTooltipStyle({
+          top: window.innerHeight / 2 - 80,
+          left: window.innerWidth / 2 - 160,
+        });
+        setReady(true);
         return;
       }
 
@@ -473,12 +481,8 @@ export default function OnboardingGuide({ setActiveView, csvText, trainingResult
     setTourActive(true);
   }, []);
 
-  // Filter tour steps based on current data state
-  const availableSteps = TOUR_STEPS.filter(s => {
-    if (s.requiresData && !csvText) return false;
-    if (s.waitForSelector && !csvText) return true; // show even without data
-    return true;
-  });
+  // Show all tour steps (tour is an overview, not interactive)
+  const availableSteps = TOUR_STEPS;
 
   // Milestone completion tracking
   const milestoneCompleted = [
