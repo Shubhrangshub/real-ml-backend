@@ -674,6 +674,36 @@ function AppMain({ authUser, onLogout }) {
   }, [dataProfile, trainingResult, models, targetColumn, evalMode, shapGlobal, limeResult,
     predictionHistory, unsupervisedResult, clusterResult, anomalyResult, leaderboardEntries, authUser, preprocessConfig]);
 
+  const handleDownloadSnapshotPDF = useCallback(async (snapshotId) => {
+    try {
+      toast.info('Generating PDF from saved analysis...');
+      const res = await fetch(`${API_URL}/api/snapshots/${snapshotId}`);
+      const data = await res.json();
+      if (!data.snapshot?.state) { toast.error('Snapshot not found or corrupted.'); return; }
+      const s = data.snapshot.state;
+      const dp = s.csvText ? profileDataset(s.csvText) : null;
+      if (dp && data.snapshot.dataset_name) dp.fileName = data.snapshot.dataset_name;
+      const filename = await generateReport({
+        dataProfile: dp,
+        trainingResult: s.trainingResult || null,
+        models: s.models || [],
+        targetColumn: s.targetColumn || null,
+        evalMode: s.evalMode || 'split',
+        shapGlobal: s.shapGlobal || null,
+        limeResult: s.limeResult || null,
+        predictionHistory: s.predictionHistory || [],
+        unsupervisedResult: s.unsupervisedResult || null,
+        clusterResult: s.clusterResult || null,
+        anomalyResult: s.anomalyResult || null,
+        leaderboardEntries: [],
+        deployments: [],
+        authUser,
+        preprocessConfig: null,
+      });
+      toast.success(`Report downloaded: ${filename}`);
+    } catch (e) { toast.error('PDF generation failed: ' + e.message); console.error(e); }
+  }, [authUser]);
+
   // Load shared snapshot from URL on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1691,7 +1721,7 @@ function AppMain({ authUser, onLogout }) {
     handleExplainPrediction, handleClusterExplain, handleRunUnsupervised, handleClusterPredict,
     fetchHistory, handleSaveAnalysis, handleLoadSnapshot, handleDeleteSnapshot,
     handleShareAnalysis, handleExportCSV, handleExportSheets, handleClearSession,
-    safeCopyToClipboard, getXaiModel, getDecisionTreeModel,
+    handleDownloadSnapshotPDF, safeCopyToClipboard, getXaiModel, getDecisionTreeModel,
     // Sub-components
     StatCard, MetricCard, DataUploadMini, TreeNode,
     // Auth

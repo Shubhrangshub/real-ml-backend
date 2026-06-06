@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { History, Play, Share2, Trash2, Save, ArrowUpRight, Clock, Database } from 'lucide-react';
+import { History, Play, Share2, Trash2, Save, ArrowUpRight, Clock, Database, FileDown } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { staggerContainer, fadeInUp, ALGO_NAMES } from '../../constants';
@@ -10,7 +10,7 @@ export default function HistoryView() {
   const {
     trainingResult, unsupervisedResult, viewOnlyMode, historyList, historyLoading,
     setShareUrl, setShareCopyStatus, handleSaveAnalysis, handleLoadSnapshot,
-    handleDeleteSnapshot, fetchHistory, safeCopyToClipboard
+    handleDeleteSnapshot, handleDownloadSnapshotPDF, fetchHistory, safeCopyToClipboard
   } = useApp();
 
   return (
@@ -57,6 +57,7 @@ export default function HistoryView() {
                 </div>
                 <div className="flex items-center gap-1.5 ml-4 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Button variant="default" size="sm" onClick={() => handleLoadSnapshot(snap.snapshot_id)} data-testid={`load-snapshot-${idx}`}><Play className="h-3.5 w-3.5 mr-1.5" />Restore</Button>
+                  <Button variant="outline" size="sm" onClick={() => handleDownloadSnapshotPDF(snap.snapshot_id)} data-testid={`pdf-snapshot-${idx}`} title="Download PDF Report"><FileDown className="h-3.5 w-3.5" /></Button>
                   <Button variant="outline" size="sm" onClick={async () => { const url = `${window.location.origin}${window.location.pathname}?snapshot=${snap.snapshot_id}`; setShareUrl(url); const ok = await safeCopyToClipboard(url); setShareCopyStatus(ok ? 'copied' : 'manual'); }} data-testid={`share-snapshot-${idx}`}><Share2 className="h-3.5 w-3.5" /></Button>
                   <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => handleDeleteSnapshot(snap.snapshot_id)} data-testid={`delete-snapshot-${idx}`}><Trash2 className="h-3.5 w-3.5" /></Button>
                 </div>
