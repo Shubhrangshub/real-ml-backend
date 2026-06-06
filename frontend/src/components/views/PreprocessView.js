@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Settings2, Droplets, BarChart3, Scissors, Filter, CheckCircle2, Info } from 'lucide-react';
+import { Settings2, Droplets, BarChart3, Scissors, Filter, CheckCircle2, Info, Lightbulb, Sparkles } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -32,18 +32,8 @@ const OUTLIER_OPTIONS = [
 export default function PreprocessView() {
   const { dataProfile, preprocessConfig, setPreprocessConfig, columns, targetColumn, preprocessLog } = useApp();
 
-  if (!dataProfile) {
-    return (
-      <motion.div {...fadeInUp} className="p-8 text-center" data-testid="preprocess-empty">
-        <Settings2 className="h-16 w-16 mx-auto mb-4 text-muted-foreground/30" />
-        <h3 className="text-lg font-bold mb-2">Load a Dataset First</h3>
-        <p className="text-sm text-muted-foreground">Upload a CSV or pick a sample dataset to configure preprocessing.</p>
-      </motion.div>
-    );
-  }
-
-  const totalMissing = Object.values(dataProfile.missingCounts || {}).reduce((a, b) => a + b, 0);
-  const numericCols = dataProfile.numericColumns || [];
+  const totalMissing = Object.values(dataProfile?.missingCounts || {}).reduce((a, b) => a + b, 0);
+  const numericCols = dataProfile?.numericColumns || [];
   const features = columns.filter(c => c !== targetColumn);
 
   const update = (key, value) => setPreprocessConfig(prev => ({ ...prev, [key]: value }));
@@ -61,6 +51,125 @@ export default function PreprocessView() {
     (preprocessConfig.excludeFeatures?.length || 0) > 0 && 'Feature Selection',
   ].filter(Boolean);
 
+  // ---- Smart Recommendations Engine ----
+  const recommendations = useMemo(() => {
+    if (!dataProfile) return [];
+    const recs = [];
+    const rows = dataProfile.rows || [];
+    const headers = dataProfile.headers || [];
+    const rowCount = dataProfile.rowCount || rows.length;
+    const nc = dataProfile.numericColumns || [];
+
+    // 1. Missing values
+    const missingCols = Object.entries(dataProfile.missingCounts || {}).filter(([, v]) => v > 0);
+    const totalMissingPct = rowCount > 0 ? missingCols.reduce((a, [, v]) => a + v, 0) / (rowCount * headers.length) * 100 : 0;
+    if (missingCols.length > 0) {
+      const highMissing = missingCols.filter(([, v]) => v / rowCount > 0.3);
+      if (highMissing.length > 0) {
+        recs.push({ key: 'missing', severity: 'high',
+          title: `${missingCols.length} column(s) have missing values (${totalMissingPct.toFixed(1)}% overall)`,
+          detail: `${highMissing.map(([c, v]) => `"${c}" (${(v/rowCount*100).toFixed(0)}%)`).join(', ')} have >30% missing. Recommend median fill.`,
+          action: { key: 'missingValues', value: 'median' },
+        });
+      } else {
+        recs.push({ key: 'missing', severity: 'medium',
+          title: `${missingCols.length} column(s) have missing values`,
+          detail: `Affected: ${missingCols.slice(0, 4).map(([c, v]) => `"${c}" (${v})`).join(', ')}${missingCols.length > 4 ? '...' : ''}. Auto-fill recommended.`,
+          action: { key: 'missingValues', value: 'auto' },
+        });
+      }
+    }
+
+    // 2. Outliers
+    const outlierCols = [];
+    nc.forEach(col => {
+      const vals = rows.map(r => Number(r[col])).filter(v => !isNaN(v)).sort((a, b) => a - b);
+      if (vals.length < 10) return;
+      const q1 = vals[Math.floor(vals.length * 0.25)];
+      const q3 = vals[Math.floor(vals.length * 0.75)];
+      const iqr = q3 - q1;
+      if (iqr === 0) return;
+      const oc = vals.filter(v => v < q1 - 1.5 * iqr || v > q3 + 1.5 * iqr).length;
+      if (oc / vals.length > 0.03) outlierCols.push({ col, pct: (oc / vals.length * 100).toFixed(1) });
+    });
+    if (outlierCols.length > 0) {
+      recs.push({ key: 'outliers', severity: outlierCols.some(c => parseFloat(c.pct) > 10) ? 'high' : 'medium',
+        title: `Outliers detected in ${outlierCols.length} column(s)`,
+        detail: `${outlierCols.slice(0, 3).map(c => `"${c.col}" (${c.pct}%)`).join(', ')}${outlierCols.length > 3 ? '...' : ''}. Clipping preserves data while reducing extremes.`,
+        action: { key: 'outlierMethod', value: 'clip' },
+      });
+    }
+
+    // 3. Scaling
+    if (nc.length >= 2) {
+      const ranges = nc.slice(0, 20).map(col => {
+        const vals = rows.map(r => Number(r[col])).filter(v => !isNaN(v));
+        return vals.length ? Math.max(...vals) - Math.min(...vals) : 0;
+      }).filter(r => r > 0);
+      if (ranges.length >= 2) {
+        const ratio = Math.max(...ranges) / (Math.min(...ranges) || 1);
+        if (ratio > 100) {
+          recs.push({ key: 'scaling', severity: 'medium',
+            title: 'Feature scales vary widely',
+            detail: `Range ratio is ${ratio.toFixed(0)}x. Standardization recommended for KNN, SVM, Ridge.`,
+            action: { key: 'scaling', value: 'standard' },
+          });
+        }
+      }
+    }
+
+    // 4. High-cardinality categorical
+    const catCols = headers.filter(h => !nc.includes(h) && h !== targetColumn);
+    const highCardCols = catCols.filter(col => new Set(rows.map(r => r[col] ?? '')).size > 20);
+    if (highCardCols.length > 0) {
+      recs.push({ key: 'highcard', severity: 'low',
+        title: `${highCardCols.length} high-cardinality categorical column(s)`,
+        detail: `${highCardCols.slice(0, 3).map(c => `"${c}"`).join(', ')} have many unique values. May cause overfitting.`,
+        suggestExclude: highCardCols,
+      });
+    }
+
+    // 5. Low-variance
+    const lowVarCols = nc.filter(col => {
+      const vals = rows.map(r => Number(r[col])).filter(v => !isNaN(v));
+      if (vals.length < 5) return false;
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      return vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length < 0.001;
+    });
+    if (lowVarCols.length > 0) {
+      recs.push({ key: 'lowvar', severity: 'low',
+        title: `${lowVarCols.length} near-constant feature(s)`,
+        detail: `${lowVarCols.slice(0, 3).map(c => `"${c}"`).join(', ')} add noise without predictive value.`,
+        suggestExclude: lowVarCols,
+      });
+    }
+
+    return recs;
+  }, [dataProfile, targetColumn]);
+
+  const applyRecommendation = useCallback((rec) => {
+    if (rec.action) update(rec.action.key, rec.action.value);
+    if (rec.suggestExclude) {
+      setPreprocessConfig(prev => ({
+        ...prev, excludeFeatures: [...new Set([...(prev.excludeFeatures || []), ...rec.suggestExclude])],
+      }));
+    }
+  }, [setPreprocessConfig]);
+
+  const applyAllRecommendations = useCallback(() => {
+    recommendations.forEach(rec => applyRecommendation(rec));
+  }, [recommendations, applyRecommendation]);
+
+  if (!dataProfile) {
+    return (
+      <motion.div {...fadeInUp} className="p-8 text-center" data-testid="preprocess-empty">
+        <Settings2 className="h-16 w-16 mx-auto mb-4 text-muted-foreground/30" />
+        <h3 className="text-lg font-bold mb-2">Load a Dataset First</h3>
+        <p className="text-sm text-muted-foreground">Upload a CSV or pick a sample dataset to configure preprocessing.</p>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div {...fadeInUp} className="p-8 space-y-6" data-testid="preprocess-view">
       {/* Pipeline Summary */}
@@ -74,14 +183,45 @@ export default function PreprocessView() {
               <div>
                 <h3 className="font-bold" data-testid="preprocess-title">Preprocessing Pipeline</h3>
                 <p className="text-xs text-muted-foreground">
-                  {activeSteps.length > 0 ? `${activeSteps.length} active step(s): ${activeSteps.join(' → ')}` : 'No preprocessing steps configured — using raw data'}
+                  {activeSteps.length > 0 ? `${activeSteps.length} active step(s): ${activeSteps.join(' \u2192 ')}` : 'No preprocessing steps configured \u2014 using raw data'}
                 </p>
               </div>
             </div>
-            <Badge variant="outline" className="text-xs">{dataProfile.rowCount?.toLocaleString()} rows · {features.length} features</Badge>
+            <Badge variant="outline" className="text-xs">{dataProfile.rowCount?.toLocaleString()} rows &middot; {features.length} features</Badge>
           </div>
         </CardContent>
       </Card>
+
+      {/* Smart Recommendations */}
+      {recommendations.length > 0 && (
+        <Card className="border-amber-200 dark:border-amber-800/50 bg-gradient-to-r from-amber-50/50 to-orange-50/30 dark:from-amber-950/20 dark:to-orange-950/10" data-testid="smart-recommendations">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Lightbulb className="h-4 w-4 text-amber-500" />Smart Recommendations
+                <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0 text-[10px]">{recommendations.length} suggestion{recommendations.length > 1 ? 's' : ''}</Badge>
+              </CardTitle>
+              <Button size="sm" className="h-7 text-xs gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600" onClick={applyAllRecommendations} data-testid="apply-all-recommendations">
+                <Sparkles className="h-3 w-3" />Apply All
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2.5 pt-0">
+            {recommendations.map(rec => (
+              <div key={rec.key} className="flex items-start gap-3 p-3 rounded-lg bg-white/60 dark:bg-zinc-900/40 border border-white/80 dark:border-zinc-800">
+                <div className="mt-0.5">
+                  {rec.severity === 'high' ? <Badge variant="destructive" className="text-[9px] px-1.5 py-0">HIGH</Badge> : rec.severity === 'medium' ? <Badge className="text-[9px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0">MED</Badge> : <Badge variant="outline" className="text-[9px] px-1.5 py-0">LOW</Badge>}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{rec.title}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{rec.detail}</p>
+                </div>
+                <Button variant="outline" size="sm" className="shrink-0 h-7 text-[11px]" onClick={() => applyRecommendation(rec)} data-testid={`apply-rec-${rec.key}`}>Apply</Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Step 1: Missing Values */}
@@ -125,7 +265,7 @@ export default function PreprocessView() {
             ))}
             <div className="flex items-start gap-2 mt-2 p-2 rounded-lg bg-muted/30 text-[11px] text-muted-foreground">
               <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span>Scaling is recommended for KNN, SVM, and Ridge. Tree-based models (Decision Tree, Random Forest, Gradient Boosting) are scale-invariant.</span>
+              <span>Scaling is recommended for KNN, SVM, and Ridge. Tree-based models are scale-invariant.</span>
             </div>
           </CardContent>
         </Card>
