@@ -85,9 +85,16 @@ src/
 - users, user_sessions, analysis_snapshots, password_reset_tokens
 - leaderboard_entries, activity_log, deployed_models
 
+### Smart Preprocessing Recommendations (Jun 2026) ✅ TESTED
+- [x] Dataset-aware recommendation engine (useMemo) analyzing missing values, outliers, scale variance, cardinality, low-variance
+- [x] Severity levels (HIGH/MED/LOW) with visual badges
+- [x] Individual "Apply" buttons per recommendation + "Apply All"
+- [x] React Hook dependency warning fixed (update wrapped in useCallback)
+
 ## Backlog
-- [ ] P1: React Hook dependency & array key optimization
 - [ ] P1: Real-time Collaborative Sessions
+- [ ] P2: React Hook dependency & array key optimization
 - [ ] P2: Backend server.py refactoring (split into modules)
 - [ ] P2: Interactive Tutorial Mode expansion
+- [ ] P3: Export preprocessing pipeline as downloadable Python script
 - [ ] P3: Insecure token storage fix (localStorage → httpOnly cookies)
