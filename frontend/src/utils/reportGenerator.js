@@ -3,7 +3,7 @@
  * Generates a comprehensive, professional PDF report with narration and visuals.
  */
 import { jsPDF } from 'jspdf';
-import { autoTable, applyPlugin } from 'jspdf-autotable';
+import { applyPlugin } from 'jspdf-autotable';
 
 // Apply the autoTable plugin to jsPDF so doc.autoTable() works
 applyPlugin(jsPDF);

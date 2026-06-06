@@ -36,26 +36,42 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 ### Onboarding Guide
 - [x] 11-step spotlight tour (including What-If & Deploy), progress pill
 
-### Model Deployment (Feb 2026) ✅ TESTED
+### Model Deployment ✅ TESTED
 - [x] Deploy trained models to get a public prediction URL
-- [x] Public prediction page — anyone can make predictions without login (client-side prediction using JS ML engine)
-- [x] REST API endpoint for programmatic access (curl, Python) — Python reimplementation of JS prediction logic
+- [x] Public prediction page — client-side prediction using JS ML engine
+- [x] REST API endpoint for programmatic access (Python reimplementation of JS prediction logic)
 - [x] Enable/disable (revoke) deployments (disabled models return 403)
-- [x] Delete deployments
-- [x] Prediction counter per deployment
+- [x] Delete deployments, Prediction counter per deployment
 - [x] API: POST /api/deploy, GET /api/deploy, PATCH/DELETE /api/deploy/{id}
-- [x] Public: GET /api/public/model/{id} (includes model_data_full), POST /api/public/predict/{id}
+- [x] Public: GET /api/public/model/{id}, POST /api/public/predict/{id}
 
-### What-If Analyzer (Feb 2026) ✅ TESTED
+### What-If Analyzer ✅ TESTED
 - [x] Side-by-side baseline vs. modified scenario comparison
 - [x] Auto-populated feature sliders from dataset statistics
-- [x] Numeric sliders + categorical dropdowns (using model's encodingMap)
 - [x] Real-time prediction comparison with diff and % change
-- [x] Visual highlighting of changed features
-- [x] Works with all trained models (model selector dropdown)
 - [x] Uses prepareInputForPrediction + predictOne for correct data encoding
 
-### Large Sample Datasets (Feb 2026)
+### Automated PDF Report Generation (Jun 2026) ✅ TESTED
+- [x] Professional multi-page PDF report (jsPDF + jspdf-autotable)
+- [x] Cover page with violet gradient, dataset info, user, and date
+- [x] Table of Contents (dynamic based on available data)
+- [x] Executive Summary — narrative description of the entire analysis
+- [x] Dataset Overview — metric cards (rows, features, numeric/categorical, completeness) + feature table
+- [x] Analysis Configuration — supervised/unsupervised, classification/regression/clustering, target variable, eval mode, train/test split details
+- [x] Model Leaderboard & Ranking — table + horizontal bar chart, best model highlighted
+- [x] Best Model Performance — metric cards + train vs test comparison + overfitting analysis + residual stats
+- [x] Model Comparison — all trained models side by side
+- [x] Feature Importance & Explainability — SHAP bar chart + table
+- [x] LIME Local Interpretation — contribution table with direction coloring
+- [x] Unsupervised Analysis Results — clustering algorithm comparison + cluster profiles
+- [x] Anomaly Detection Results
+- [x] Prediction History table
+- [x] Global Leaderboard entries
+- [x] Model Deployments table (status, prediction count)
+- [x] Conclusions & Recommendations — data-driven narrative with actionable insights
+- [x] Page footers with page numbers
+
+### Large Sample Datasets
 - [x] Loan Approval: 1,200 rows, 12 features (classification)
 - [x] House Prices: 1,000 rows, 12 features (regression)
 - [x] Insurance Costs: 1,100 rows, 9 features (regression)
@@ -65,9 +81,9 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 ## File Structure
 ```
 src/
-├── App.js (~1820 lines), AuthPage.js, constants.js
+├── App.js, AuthPage.js, constants.js
 ├── context/AppContext.js
-├── utils/helpers.js, mlEngine.js, datasetUtils.js
+├── utils/helpers.js, mlEngine.js, datasetUtils.js, reportGenerator.js
 ├── components/
 │   ├── SmartTooltip.js, OnboardingGuide.js, PublicPredictPage.js
 │   └── views/
@@ -82,14 +98,7 @@ src/
 - users, user_sessions, analysis_snapshots, password_reset_tokens
 - leaderboard_entries, activity_log, deployed_models
 
-## Key Technical Details
-- Models trained CLIENT-SIDE in JavaScript (mlEngine.js)
-- Backend public predict reimplements JS prediction logic in Python (_predict_one_py, _prepare_input_py)
-- Public predict page uses model_data_full from API for client-side prediction
-- AppWrapper in App.js intercepts /predict/:id for public pages outside auth
-
 ## Backlog
-- [ ] P1: Automated PDF Report Generation
 - [ ] P1: React Hook dependency & array key optimization
 - [ ] P1: Real-time Collaborative Sessions
 - [ ] P2: Backend server.py refactoring (split into modules)
