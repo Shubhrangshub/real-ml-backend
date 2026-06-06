@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { fadeInUp, ALGO_NAMES } from '../../constants';
 import { useApp } from '../../context/AppContext';
-import { predictOne } from '../../utils/mlEngine';
+import { predictOne, prepareInputForPrediction } from '../../utils/mlEngine';
 
 export default function WhatIfView() {
-  const { models, columns, targetColumn, csvText, dataProfile } = useApp();
+  const { models, columns, targetColumn, dataProfile } = useApp();
   const [selectedModelIdx, setSelectedModelIdx] = useState(0);
   const [baseline, setBaseline] = useState({});
   const [modified, setModified] = useState({});
@@ -17,12 +17,18 @@ export default function WhatIfView() {
   const [modifiedResult, setModifiedResult] = useState(null);
   const [initialized, setInitialized] = useState(false);
 
-  const features = useMemo(() => columns.filter(c => c !== targetColumn), [columns, targetColumn]);
-  const model = models[selectedModelIdx];
+  const modelObj = models[selectedModelIdx];
+  const md = modelObj?.modelData;
+
+  // Use the model's own numericCols/categoricalCols for features
+  const features = useMemo(() => {
+    if (!md) return columns.filter(c => c !== targetColumn);
+    return [...(md.numericCols || []), ...(md.categoricalCols || [])];
+  }, [md, columns, targetColumn]);
 
   // Compute feature ranges/categories from the data
   const featureStats = useMemo(() => {
-    if (!csvText || !dataProfile) return {};
+    if (!dataProfile) return {};
     const stats = {};
     const rows = dataProfile.rows || [];
     const headers = dataProfile.headers || [];
@@ -32,18 +38,21 @@ export default function WhatIfView() {
       const vals = rows.map(r => r[idx]).filter(v => v !== '' && v != null);
       const numeric = vals.map(Number).filter(v => !isNaN(v));
       if (numeric.length > vals.length * 0.5) {
+        const sorted = [...numeric].sort((a, b) => a - b);
         stats[feat] = {
           type: 'numeric', min: Math.min(...numeric), max: Math.max(...numeric),
           mean: numeric.reduce((a, b) => a + b, 0) / numeric.length,
-          median: numeric.sort((a, b) => a - b)[Math.floor(numeric.length / 2)],
+          median: sorted[Math.floor(sorted.length / 2)],
         };
       } else {
-        const unique = [...new Set(vals)].sort();
-        stats[feat] = { type: 'categorical', categories: unique.slice(0, 20) };
+        // Use encodingMap categories if available
+        const mapCats = md?.encodingMap?.[feat];
+        const unique = mapCats || [...new Set(vals)].sort();
+        stats[feat] = { type: 'categorical', categories: unique.slice(0, 30) };
       }
     });
     return stats;
-  }, [csvText, dataProfile, features]);
+  }, [dataProfile, features, md]);
 
   // Initialize with median/mode values
   const initialize = useCallback(() => {
@@ -62,13 +71,19 @@ export default function WhatIfView() {
   }, [features, featureStats]);
 
   const runPrediction = useCallback((inputData) => {
-    if (!model) return null;
+    if (!md) return null;
     try {
-      return predictOne(model, inputData, features);
+      // Build a row object matching the model's expected column format
+      const row = {};
+      (md.numericCols || []).forEach(col => { row[col] = Number(inputData[col]) || 0; });
+      (md.categoricalCols || []).forEach(col => { row[col] = inputData[col] || ''; });
+      const fvs = prepareInputForPrediction([row], md);
+      if (!fvs || !fvs.length) return null;
+      return predictOne(md, fvs[0]);
     } catch {
       return null;
     }
-  }, [model, features]);
+  }, [md]);
 
   const handleRunBoth = useCallback(() => {
     setBaselineResult(runPrediction(baseline));
@@ -80,7 +95,7 @@ export default function WhatIfView() {
     setModifiedResult(null);
   }, [baseline]);
 
-  if (!models.length || !targetColumn) {
+  if (!models.length || !targetColumn || !md) {
     return (
       <motion.div variants={fadeInUp} initial="initial" animate="animate" data-testid="whatif-view">
         <Card>
@@ -104,7 +119,7 @@ export default function WhatIfView() {
             <div className="flex items-center gap-2">
               <select value={selectedModelIdx} onChange={e => setSelectedModelIdx(Number(e.target.value))}
                 className="text-xs px-2 py-1.5 rounded-lg border bg-background" data-testid="whatif-model-select">
-                {models.map((m, i) => <option key={i} value={i}>{ALGO_NAMES[m.algorithm] || m.algorithm}</option>)}
+                {models.map((m, i) => <option key={m.modelId || i} value={i}>{ALGO_NAMES[m.algorithm] || m.algorithm}</option>)}
               </select>
               {!initialized && <Button size="sm" className="gap-1.5 bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white" onClick={initialize} data-testid="whatif-init-btn"><Play className="h-3.5 w-3.5" />Start Analyzing</Button>}
             </div>
@@ -112,7 +127,7 @@ export default function WhatIfView() {
         </CardHeader>
         {!initialized && (
           <CardContent>
-            <p className="text-sm text-muted-foreground">Explore how changing individual feature values affects your model's predictions. Click "Start Analyzing" to begin.</p>
+            <p className="text-sm text-muted-foreground">Explore how changing individual feature values affects your model&apos;s predictions. Click &ldquo;Start Analyzing&rdquo; to begin.</p>
           </CardContent>
         )}
       </Card>

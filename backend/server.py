@@ -1432,12 +1432,143 @@ async def get_public_model_info(deploy_id: str):
         "owner": doc.get("owner_email", "").split("@")[0] + "@...",
         "algorithm": md.get("algorithm"),
         "problem_type": md.get("problemType"),
-        "features": md.get("features", []),
+        "features": md.get("modelData", {}).get("numericCols", []) + md.get("modelData", {}).get("categoricalCols", []),
+        "numeric_cols": md.get("modelData", {}).get("numericCols", []),
+        "categorical_cols": md.get("modelData", {}).get("categoricalCols", []),
+        "encoding_map": md.get("modelData", {}).get("encodingMap", {}),
         "target": md.get("targetColumn"),
         "metrics": md.get("metrics", {}),
         "created_at": doc.get("created_at"),
         "prediction_count": doc.get("prediction_count", 0),
+        "model_data_full": md.get("modelData"),
     }
+
+
+# ---- Python reimplementation of JS predictOne / prepareInputForPrediction ----
+
+def _predict_tree_py(node, x):
+    """Traverse a decision tree node dict."""
+    if node is None:
+        return 0
+    if "value" in node and "featureIndex" not in node:
+        return node["value"]
+    fi = node.get("featureIndex")
+    thr = node.get("threshold")
+    if fi is None or thr is None:
+        return node.get("value", 0)
+    if x[fi] <= thr:
+        return _predict_tree_py(node.get("left"), x)
+    else:
+        return _predict_tree_py(node.get("right"), x)
+
+
+def _predict_one_py(model_data, x):
+    """Python version of mlEngine.predictOne."""
+    t = model_data.get("type", "")
+    if t == "baseline":
+        return model_data.get("value", 0)
+    if t == "decision_tree":
+        return _predict_tree_py(model_data.get("tree"), x)
+    if t == "random_forest_regressor":
+        trees = model_data.get("trees", [])
+        if not trees:
+            return 0
+        return sum(_predict_tree_py(tr, x) for tr in trees) / len(trees)
+    if t == "random_forest_classifier":
+        trees = model_data.get("trees", [])
+        votes = {}
+        for tr in trees:
+            p = _predict_tree_py(tr, x)
+            votes[p] = votes.get(p, 0) + 1
+        return max(votes, key=votes.get) if votes else 0
+    if t == "gradient_boosting":
+        base_mean = model_data.get("baseMean", 0)
+        lr = model_data.get("learningRate", 0.1)
+        trees = model_data.get("trees", [])
+        p = base_mean
+        for tr in trees:
+            p += lr * _predict_tree_py(tr, x)
+        return p
+    if t == "knn":
+        k = model_data.get("k", 5)
+        X_train = model_data.get("X_train", [])
+        y_train = model_data.get("y_train", [])
+        means = model_data.get("means")
+        stds = model_data.get("stds")
+        xs = x
+        if means and stds:
+            xs = [(v - means[j]) / stds[j] if stds[j] != 0 else 0 for j, v in enumerate(x)]
+        dists = []
+        for i, xi in enumerate(X_train):
+            d = sum((xi[j] - xs[j]) ** 2 for j in range(min(len(xi), len(xs))))
+            dists.append((d, y_train[i]))
+        dists.sort(key=lambda x: x[0])
+        top = dists[:k]
+        counts = {}
+        for _, label in top:
+            counts[label] = counts.get(label, 0) + 1
+        return max(counts, key=counts.get) if counts else 0
+    if t == "svm":
+        means = model_data.get("means")
+        stds = model_data.get("stds")
+        xs = x
+        if means and stds:
+            xs = [(v - means[j]) / stds[j] if stds[j] != 0 else 0 for j, v in enumerate(x)]
+        classes = model_data.get("classes", [0, 1])
+        if model_data.get("multiclass"):
+            classifiers = model_data.get("classifiers", [])
+            scores = [sum(xs[j] * c["w"][j] for j in range(min(len(xs), len(c["w"])))) + c["b"] for c in classifiers]
+            return classes[scores.index(max(scores))] if scores else classes[0]
+        w = model_data.get("w", [])
+        b = model_data.get("b", 0)
+        val = sum(xs[j] * w[j] for j in range(min(len(xs), len(w)))) + b
+        return classes[1] if val >= 0 else classes[0]
+    if t == "naive_bayes":
+        import math
+        classes = model_data.get("classes", [])
+        class_stats = model_data.get("classStats", {})
+        best, best_lp = classes[0] if classes else 0, float("-inf")
+        for cls in classes:
+            s = class_stats.get(str(cls), {})
+            lp = math.log(max(s.get("prior", 0.01), 1e-10))
+            means_nb = s.get("means", [])
+            variances = s.get("variances", [])
+            for j in range(min(len(x), len(means_nb))):
+                var = max(variances[j], 1e-10)
+                lp += -0.5 * math.log(2 * math.pi * var) - (x[j] - means_nb[j]) ** 2 / (2 * var)
+            if lp > best_lp:
+                best_lp = lp
+                best = cls
+        return best
+    if t == "logistic_regression":
+        import math
+        coeffs = model_data.get("coefficients", [0])
+        z = coeffs[0] + sum(x[i] * coeffs[i + 1] for i in range(min(len(x), len(coeffs) - 1)))
+        z = max(-500, min(500, z))
+        return 1 if (1 / (1 + math.exp(-z))) >= 0.5 else 0
+    # Default: linear model (linear_regression, ridge)
+    coeffs = model_data.get("coefficients", [0])
+    return coeffs[0] + sum(x[i] * coeffs[i + 1] for i in range(min(len(x), len(coeffs) - 1)))
+
+
+def _prepare_input_py(input_dict, model_data):
+    """Python version of mlEngine.prepareInputForPrediction."""
+    numeric_cols = model_data.get("numericCols", [])
+    categorical_cols = model_data.get("categoricalCols", [])
+    encoding_map = model_data.get("encodingMap", {})
+    row = []
+    for col in numeric_cols:
+        try:
+            row.append(float(input_dict.get(col, 0)))
+        except (ValueError, TypeError):
+            row.append(0.0)
+    for col in categorical_cols:
+        categories = encoding_map.get(col, [])
+        val = str(input_dict.get(col, ""))
+        for cat in categories[1:]:  # skip first (reference category)
+            row.append(1.0 if val == cat else 0.0)
+    return row
+
 
 @app.post("/api/public/predict/{deploy_id}")
 async def public_predict(deploy_id: str, request: Request):
@@ -1450,41 +1581,22 @@ async def public_predict(deploy_id: str, request: Request):
     body = await request.json()
     input_data = body.get("features", {})
     md = doc.get("model_data", {})
+    inner_md = md.get("modelData", {})
 
-    # Run prediction using the stored model
     try:
-        import pickle, base64
-        model_bytes = base64.b64decode(md.get("model_bytes", ""))
-        model = pickle.loads(model_bytes)
-        features = md.get("features", [])
-        encoders = md.get("encoders", {})
+        feature_vector = _prepare_input_py(input_data, inner_md)
+        prediction = _predict_one_py(inner_md, feature_vector)
+        result = {"prediction": float(prediction) if isinstance(prediction, (int, float, np.integer, np.floating)) else prediction}
 
-        # Prepare input
-        row = []
-        for feat in features:
-            val = input_data.get(feat, 0)
-            if feat in encoders:
-                mapping = encoders[feat]
-                val = mapping.get(str(val), 0)
-            try:
-                val = float(val)
-            except (ValueError, TypeError):
-                val = 0
-            row.append(val)
-
-        import numpy as np
-        X = np.array([row])
-        prediction = model.predict(X)[0]
-        result = {"prediction": float(prediction) if not isinstance(prediction, str) else prediction}
-
-        # For classification, try to get probabilities
-        if md.get("problemType") == "classification" and hasattr(model, "predict_proba"):
-            try:
-                proba = model.predict_proba(X)[0]
-                classes = model.classes_.tolist() if hasattr(model, 'classes_') else list(range(len(proba)))
-                result["probabilities"] = {str(c): round(float(p), 4) for c, p in zip(classes, proba)}
-            except Exception:
-                pass
+        # For classification, add class probabilities if possible
+        problem_type = md.get("problemType", "")
+        if problem_type == "classification" and inner_md.get("type") == "logistic_regression":
+            import math
+            coeffs = inner_md.get("coefficients", [0])
+            z = coeffs[0] + sum(feature_vector[i] * coeffs[i + 1] for i in range(min(len(feature_vector), len(coeffs) - 1)))
+            z = max(-500, min(500, z))
+            prob_1 = 1 / (1 + math.exp(-z))
+            result["probabilities"] = {"0": round(1 - prob_1, 4), "1": round(prob_1, 4)}
 
         deployed_models_collection.update_one({"deploy_id": deploy_id}, {"$inc": {"prediction_count": 1}})
         return {"status": "success", **result}

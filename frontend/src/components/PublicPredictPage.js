@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Brain, ArrowLeft, CheckCircle2, AlertCircle, BarChart3, Activity, Globe, Shield } from 'lucide-react';
+import { Send, Brain, ArrowLeft, CheckCircle2, AlertCircle, BarChart3, Globe, Shield } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ALGO_NAMES } from '../constants';
+import { predictOne, prepareInputForPrediction } from '../utils/mlEngine';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || '';
 
@@ -26,9 +27,9 @@ export default function PublicPredictPage({ deployId, onBack }) {
       }
       const data = await res.json();
       setModelInfo(data);
-      // Initialize form with empty values
       const init = {};
-      (data.features || []).forEach(f => { init[f] = ''; });
+      const allFeatures = [...(data.numeric_cols || []), ...(data.categorical_cols || [])];
+      allFeatures.forEach(f => { init[f] = ''; });
       setFormData(init);
     } catch (e) { setError('Failed to load model'); }
     setLoading(false);
@@ -40,17 +41,42 @@ export default function PublicPredictPage({ deployId, onBack }) {
     setPredicting(true);
     setResult(null);
     try {
-      const res = await fetch(`${API_URL}/api/public/predict/${deployId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ features: formData }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Prediction failed');
-      setResult(data);
+      const md = modelInfo?.model_data_full;
+      if (md) {
+        // Client-side prediction using the JS ML engine
+        const row = {};
+        (md.numericCols || []).forEach(col => { row[col] = Number(formData[col]) || 0; });
+        (md.categoricalCols || []).forEach(col => { row[col] = formData[col] || ''; });
+        const fvs = prepareInputForPrediction([row], md);
+        if (fvs && fvs.length) {
+          const prediction = predictOne(md, fvs[0]);
+          setResult({ prediction });
+        } else {
+          setResult({ error: 'Failed to prepare input' });
+        }
+      } else {
+        // Fallback: server-side prediction
+        const res = await fetch(`${API_URL}/api/public/predict/${deployId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ features: formData }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Prediction failed');
+        setResult(data);
+      }
     } catch (e) { setResult({ error: e.message }); }
     setPredicting(false);
   };
+
+  // Increment prediction count on backend (fire-and-forget)
+  const incrementCount = useCallback(() => {
+    fetch(`${API_URL}/api/public/predict/${deployId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ features: formData }),
+    }).catch(() => {});
+  }, [deployId, formData]);
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-fuchsia-50 dark:from-zinc-950 dark:to-zinc-900">
@@ -74,6 +100,9 @@ export default function PublicPredictPage({ deployId, onBack }) {
     </div>
   );
 
+  const allFeatures = [...(modelInfo?.numeric_cols || []), ...(modelInfo?.categorical_cols || [])];
+  const encodingMap = modelInfo?.encoding_map || {};
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-violet-50/50 via-white to-fuchsia-50/50 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950" data-testid="public-predict-page">
       {/* Header */}
@@ -92,11 +121,9 @@ export default function PublicPredictPage({ deployId, onBack }) {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-0">
-              <Shield className="h-3 w-3 mr-1" />Live
-            </Badge>
-          </div>
+          <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-0">
+            <Shield className="h-3 w-3 mr-1" />Live
+          </Badge>
         </div>
       </div>
 
@@ -106,7 +133,7 @@ export default function PublicPredictPage({ deployId, onBack }) {
           {[
             { label: 'Algorithm', value: ALGO_NAMES[modelInfo?.algorithm] || modelInfo?.algorithm, color: 'text-violet-600' },
             { label: 'Type', value: modelInfo?.problem_type, color: 'text-blue-600' },
-            { label: 'Features', value: modelInfo?.features?.length, color: 'text-emerald-600' },
+            { label: 'Features', value: allFeatures.length, color: 'text-emerald-600' },
             { label: 'Predictions', value: modelInfo?.prediction_count, color: 'text-amber-600' },
           ].map(s => (
             <Card key={s.label}>
@@ -142,17 +169,34 @@ export default function PublicPredictPage({ deployId, onBack }) {
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 md:grid-cols-2">
-              {(modelInfo?.features || []).map(feat => (
+              {/* Numeric features */}
+              {(modelInfo?.numeric_cols || []).map(feat => (
                 <div key={feat}>
                   <label className="text-xs font-medium text-muted-foreground mb-1 block">{feat}</label>
                   <input
-                    type="text"
+                    type="number"
+                    step="any"
                     value={formData[feat] || ''}
                     onChange={e => setFormData(prev => ({ ...prev, [feat]: e.target.value }))}
                     placeholder={`Enter ${feat}`}
                     className="w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-violet-500/30 transition-shadow"
                     data-testid={`input-${feat}`}
                   />
+                </div>
+              ))}
+              {/* Categorical features */}
+              {(modelInfo?.categorical_cols || []).map(feat => (
+                <div key={feat}>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">{feat}</label>
+                  <select
+                    value={formData[feat] || ''}
+                    onChange={e => setFormData(prev => ({ ...prev, [feat]: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-violet-500/30 transition-shadow"
+                    data-testid={`input-${feat}`}
+                  >
+                    <option value="">-- Select --</option>
+                    {(encodingMap[feat] || []).map(val => <option key={val} value={val}>{val}</option>)}
+                  </select>
                 </div>
               ))}
             </div>
@@ -198,7 +242,6 @@ export default function PublicPredictPage({ deployId, onBack }) {
           )}
         </AnimatePresence>
 
-        {/* Description */}
         {modelInfo?.description && (
           <p className="text-xs text-muted-foreground text-center">{modelInfo.description}</p>
         )}

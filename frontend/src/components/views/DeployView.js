@@ -46,7 +46,7 @@ export default function DeployView() {
         body: JSON.stringify({
           model_id: model.modelId,
           name: `${ALGO_NAMES[model.algorithm] || model.algorithm} — ${model.targetColumn || 'model'}`,
-          description: `${model.problemType} model trained on ${model.features?.length || '?'} features`,
+          description: `${model.problemType} model trained on ${model.modelData?.featureNames?.length || '?'} features`,
           model_data: model,
         }),
       });
@@ -106,7 +106,7 @@ export default function DeployView() {
                   <div>
                     <span className="font-semibold text-sm">{ALGO_NAMES[model.algorithm] || model.algorithm}</span>
                     <div className="text-xs text-muted-foreground mt-0.5">
-                      {model.problemType} · {model.features?.length || '?'} features
+                      {model.problemType} · {model.modelData?.featureNames?.length || model.modelData?.numericCols?.length + model.modelData?.categoricalCols?.length || '?'} features
                       {model.metrics && Object.entries(model.metrics).slice(0, 2).map(([k, v]) => (
                         <span key={k} className="ml-2">{k}: {typeof v === 'number' ? v.toFixed(3) : v}</span>
                       ))}
