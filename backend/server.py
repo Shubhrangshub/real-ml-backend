@@ -1556,6 +1556,7 @@ def _prepare_input_py(input_dict, model_data):
     numeric_cols = model_data.get("numericCols", [])
     categorical_cols = model_data.get("categoricalCols", [])
     encoding_map = model_data.get("encodingMap", {})
+    scale_params = model_data.get("scaleParams")
     row = []
     for col in numeric_cols:
         try:
@@ -1567,6 +1568,16 @@ def _prepare_input_py(input_dict, model_data):
         val = str(input_dict.get(col, ""))
         for cat in categories[1:]:  # skip first (reference category)
             row.append(1.0 if val == cat else 0.0)
+    # Apply scaling if it was used during training
+    if scale_params and scale_params.get("params"):
+        method = scale_params.get("method")
+        params = scale_params["params"]
+        for j in range(min(len(row), len(params))):
+            p = params[j]
+            if method == "standard":
+                row[j] = (row[j] - p.get("mean", 0)) / (p.get("std", 1) or 1)
+            elif method == "minmax":
+                row[j] = (row[j] - p.get("min", 0)) / (p.get("range", 1) or 1)
     return row
 
 

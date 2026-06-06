@@ -416,13 +416,24 @@ export function extractImportance(modelObj, featureNames) {
 }
 
 export function prepareInputForPrediction(inputRows, modelData) {
-  const { numericCols, categoricalCols, encodingMap } = modelData;
-  return inputRows.map(row => {
+  const { numericCols, categoricalCols, encodingMap, scaleParams } = modelData;
+  const raw = inputRows.map(row => {
     const f = [];
     numericCols.forEach(col => f.push(Number(row[col]) || 0));
     categoricalCols.forEach(col => encodingMap[col].slice(1).forEach(val => f.push(String(row[col] || '') === val ? 1 : 0)));
     return f;
   });
+  // Apply scaling if it was used during training
+  if (scaleParams?.params) {
+    return raw.map(row => row.map((v, j) => {
+      const p = scaleParams.params[j];
+      if (!p) return v;
+      if (scaleParams.method === 'standard') return (v - p.mean) / (p.std || 1);
+      if (scaleParams.method === 'minmax') return (v - p.min) / (p.range || 1);
+      return v;
+    }));
+  }
+  return raw;
 }
 
 // ==================== K-FOLD CROSS VALIDATION ====================
@@ -465,3 +476,49 @@ export function buildModelForAlgo(algo, X_train, y_train, problemType) {
   if (algo === 'naive_bayes') return trainNaiveBayes(X_train, y_train);
   return trainBaseline(y_train, problemType);
 }
+
+/** Build model with custom hyperparameters (used by tuning) */
+export function buildModelWithParams(algo, X_train, y_train, problemType, params = {}) {
+  if (algo === 'linear_regression') return trainLinearRegression(X_train, y_train);
+  if (algo === 'ridge_regression') return trainRidgeRegression(X_train, y_train, params.lambda ?? 1.0);
+  if (algo === 'logistic_regression') return trainLogisticRegression(X_train, y_train);
+  if (algo === 'decision_tree') {
+    return { type: 'decision_tree', tree: buildDecisionTree(X_train, y_train, params.maxDepth ?? 10, params.minSamples ?? 2, problemType === 'classification') };
+  }
+  if (algo === 'random_forest') {
+    return trainRandomForest(X_train, y_train, problemType === 'classification', params.nTrees ?? 10, params.maxDepth ?? 8);
+  }
+  if (algo === 'gradient_boosting') return trainGradientBoosting(X_train, y_train, params.nTrees ?? 30, params.learningRate ?? 0.1, params.maxDepth ?? 4);
+  if (algo === 'knn') return trainKNN(X_train, y_train, params.k ?? 5);
+  if (algo === 'svm') return trainSVM(X_train, y_train, params.C ?? 1.0, params.learningRate ?? 0.01, params.epochs ?? 200);
+  if (algo === 'naive_bayes') return trainNaiveBayes(X_train, y_train);
+  return trainBaseline(y_train, problemType);
+}
+
+/** Hyperparameter definitions per algorithm */
+export const HYPERPARAMETER_DEFS = {
+  decision_tree: [
+    { key: 'maxDepth', label: 'Max Depth', type: 'range', min: 2, max: 25, step: 1, default: 10 },
+    { key: 'minSamples', label: 'Min Samples Split', type: 'range', min: 2, max: 30, step: 1, default: 2 },
+  ],
+  random_forest: [
+    { key: 'nTrees', label: 'Number of Trees', type: 'range', min: 3, max: 50, step: 1, default: 10 },
+    { key: 'maxDepth', label: 'Max Depth', type: 'range', min: 2, max: 15, step: 1, default: 8 },
+  ],
+  gradient_boosting: [
+    { key: 'nTrees', label: 'Number of Trees', type: 'range', min: 5, max: 100, step: 5, default: 30 },
+    { key: 'learningRate', label: 'Learning Rate', type: 'range', min: 0.01, max: 0.5, step: 0.01, default: 0.1 },
+    { key: 'maxDepth', label: 'Max Depth', type: 'range', min: 2, max: 10, step: 1, default: 4 },
+  ],
+  knn: [
+    { key: 'k', label: 'K Neighbors', type: 'range', min: 1, max: 30, step: 1, default: 5 },
+  ],
+  svm: [
+    { key: 'C', label: 'Regularization (C)', type: 'range', min: 0.01, max: 100, step: 0.5, default: 1.0 },
+    { key: 'learningRate', label: 'Learning Rate', type: 'range', min: 0.001, max: 0.1, step: 0.001, default: 0.01 },
+    { key: 'epochs', label: 'Epochs', type: 'range', min: 50, max: 500, step: 50, default: 200 },
+  ],
+  ridge_regression: [
+    { key: 'lambda', label: 'Lambda (Regularization)', type: 'range', min: 0.01, max: 100, step: 0.5, default: 1.0 },
+  ],
+};

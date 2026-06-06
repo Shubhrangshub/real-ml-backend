@@ -149,7 +149,7 @@ export async function generateReport({
   dataProfile, trainingResult, models, targetColumn, evalMode,
   shapGlobal, limeResult, predictionHistory, unsupervisedResult,
   clusterResult, anomalyResult, leaderboardEntries, deployments,
-  authUser,
+  authUser, preprocessConfig, tuningResults,
 }) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pw = doc.internal.pageSize.getWidth(); // ~210
@@ -234,11 +234,13 @@ export async function generateReport({
   cy += 8;
   const tocItems = ['Executive Summary'];
   if (dataProfile) tocItems.push('Dataset Overview');
+  if (preprocessConfig && (preprocessConfig.missingValues !== 'none' || preprocessConfig.scaling !== 'none' || preprocessConfig.outlierMethod !== 'none' || (preprocessConfig.excludeFeatures?.length || 0) > 0)) tocItems.push('Preprocessing Pipeline');
   tocItems.push('Analysis Configuration');
   if (hasSupervisedResult) tocItems.push('Model Leaderboard & Ranking', 'Best Model Performance');
   if (models?.length > 1) tocItems.push('Model Comparison');
   if (shapGlobal || models?.some(m => m.featureImportance?.length > 0)) tocItems.push('Feature Importance & Explainability');
   if (limeResult) tocItems.push('LIME Local Interpretation');
+  if (tuningResults || models?.some(m => m.tuned)) tocItems.push('Hyperparameter Tuning Results');
   if (hasUnsupervisedResult) tocItems.push('Unsupervised Analysis Results');
   if (clusterResult && !hasUnsupervisedResult) tocItems.push('Clustering Results');
   if (anomalyResult) tocItems.push('Anomaly Detection Results');
@@ -350,7 +352,34 @@ export async function generateReport({
     }
   }
 
-  // ---- 3. Analysis Configuration ----
+  // ---- Preprocessing Pipeline ----
+  if (preprocessConfig && (preprocessConfig.missingValues !== 'none' || preprocessConfig.scaling !== 'none' || preprocessConfig.outlierMethod !== 'none' || (preprocessConfig.excludeFeatures?.length || 0) > 0)) {
+    sectionNum++;
+    y = sectionHeader(doc, y, 'Preprocessing Pipeline', sectionNum);
+    const ppRows = [];
+    if (preprocessConfig.missingValues !== 'none') ppRows.push(['Missing Values', preprocessConfig.missingValues === 'auto' ? 'Auto (median/mode)' : preprocessConfig.missingValues.charAt(0).toUpperCase() + preprocessConfig.missingValues.slice(1)]);
+    if (preprocessConfig.scaling !== 'none') ppRows.push(['Feature Scaling', preprocessConfig.scaling === 'standard' ? 'Standardization (Z-Score)' : 'Min-Max Normalization']);
+    if (preprocessConfig.outlierMethod !== 'none') ppRows.push(['Outlier Treatment', `${preprocessConfig.outlierMethod === 'clip' ? 'Clip (Winsorize)' : 'Remove'} — IQR × ${preprocessConfig.outlierThreshold}`]);
+    if (preprocessConfig.excludeFeatures?.length > 0) ppRows.push(['Excluded Features', preprocessConfig.excludeFeatures.join(', ')]);
+    y = ensureSpace(doc, y, 30);
+    doc.autoTable({
+      startY: y, margin: { left: 16, right: 16 },
+      head: [['Step', 'Configuration']],
+      body: ppRows,
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      headStyles: { fillColor: [245, 158, 11], textColor: C.white, fontStyle: 'bold' },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 50 } },
+      alternateRowStyles: { fillColor: [255, 251, 235] },
+    });
+    y = doc.lastAutoTable.finalY + 5;
+    const ppLog = trainingResult?.preprocessLog || [];
+    if (ppLog.length > 0) {
+      y = narrate(doc, y, 'Preprocessing actions applied: ' + ppLog.map(l => l.message).join('; '), mw);
+    }
+  }
+
+  // ---- Analysis Configuration ----
   sectionNum++;
   y = sectionHeader(doc, y, 'Analysis Configuration', sectionNum);
   {
@@ -647,7 +676,35 @@ export async function generateReport({
     y = doc.lastAutoTable.finalY + 8;
   }
 
-  // ---- 9. Unsupervised Analysis Results ----
+  // ---- Hyperparameter Tuning Results ----
+  {
+    const tunedModels = models?.filter(m => m.tuned) || [];
+    if (tuningResults || tunedModels.length > 0) {
+      sectionNum++;
+      y = sectionHeader(doc, y, 'Hyperparameter Tuning Results', sectionNum);
+      if (tunedModels.length > 0) {
+        y = narrate(doc, y, `${tunedModels.length} model(s) were tuned with optimized hyperparameters.`, mw);
+        const tuneRows = tunedModels.map(m => {
+          const paramStr = Object.entries(m.tuningParams || {}).map(([k, v]) => `${k}=${typeof v === 'number' ? v.toFixed(3) : v}`).join(', ');
+          const score = problemType === 'classification' ? pct(m.metrics?.accuracy) : fmt(m.metrics?.r2);
+          return [ALGO_NAMES[m.algorithm] || m.algorithm, paramStr, score];
+        });
+        y = ensureSpace(doc, y, 30);
+        doc.autoTable({
+          startY: y, margin: { left: 16, right: 16 },
+          head: [['Algorithm', 'Best Parameters', problemType === 'classification' ? 'Accuracy' : 'R²']],
+          body: tuneRows,
+          theme: 'grid',
+          styles: { fontSize: 7.5, cellPadding: 2 },
+          headStyles: { fillColor: [6, 182, 212], textColor: C.white, fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [236, 254, 255] },
+        });
+        y = doc.lastAutoTable.finalY + 8;
+      }
+    }
+  }
+
+  // ---- Unsupervised Analysis Results ----
   if (hasUnsupervisedResult) {
     sectionNum++;
     y = sectionHeader(doc, y, 'Unsupervised Analysis Results', sectionNum);

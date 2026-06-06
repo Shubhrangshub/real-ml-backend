@@ -78,6 +78,20 @@ const TOUR_STEPS = [
     view: null,
   },
   {
+    target: '[data-testid="nav-preprocess"]',
+    title: 'Data Preprocessing',
+    desc: 'Configure missing value handling, feature scaling, outlier treatment, and feature selection — all before training.',
+    position: 'right',
+    view: null,
+  },
+  {
+    target: '[data-testid="nav-tune"]',
+    title: 'Hyperparameter Tuning',
+    desc: 'Optimize model parameters using Grid or Random Search. Find the best configuration to boost performance!',
+    position: 'right',
+    view: null,
+  },
+  {
     target: '[data-testid="nav-deploy"]',
     title: 'Deploy Your Model',
     desc: 'Deploy any trained model and get a public link. Anyone can make predictions without logging in — plus a REST API for developers.',

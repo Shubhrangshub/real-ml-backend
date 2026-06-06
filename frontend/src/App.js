@@ -7,7 +7,7 @@ import {
   Download, AlertCircle, Layers, ShieldAlert, Table2, SplitSquareVertical, Info,
   Clock, Trophy, CheckCircle2, XCircle, Shield, Moon, Sun, FileUp, BarChart2,
   BookOpen, Lightbulb, Save, History, Share2, Copy, ExternalLink, Lock, Sheet, LogOut,
-  GitBranch, X, Rocket, Sliders, FileDown
+  GitBranch, X, Rocket, Sliders, FileDown, Settings2, SlidersHorizontal
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import {
@@ -40,6 +40,8 @@ import PredictView from './components/views/PredictView';
 import DataExplorerView from './components/views/DataExplorerView';
 import HistoryView from './components/views/HistoryView';
 import { ClustersView, AnomaliesView, ModelsView } from './components/views/SmallViews';
+import PreprocessView from './components/views/PreprocessView';
+import TuneView from './components/views/TuneView';
 
 // ==================== EXTRACTED MODULES ====================
 import {
@@ -51,6 +53,10 @@ import AppContext from './context/AppContext';
 import { getScoreColor, interpretMetric, arrayMin, arrayMax, arrayMinMax, generateId } from './utils/helpers';
 import { MetricTip } from './components/SmartTooltip';
 import { generateReport } from './utils/reportGenerator';
+import {
+  handleMissingValues, handleOutliers, scaleFeatures,
+  getDefaultPreprocessConfig,
+} from './utils/preprocessUtils';
 import {
   parseCSV, profileDataset, generateDatasetSummary, suggestTask,
   scanDataset, cleanRemoveDuplicates, cleanFillMissing,
@@ -195,6 +201,8 @@ function AppMain({ authUser, onLogout }) {
   const [treeModalOpen, setTreeModalOpen] = useState(false);
   const [treeModalAlgo, setTreeModalAlgo] = useState(null);
   const [exportLoading, setExportLoading] = useState('');
+  const [preprocessConfig, setPreprocessConfig] = useState(getDefaultPreprocessConfig());
+  const [preprocessLog, setPreprocessLog] = useState([]);
 
   const safeCopyToClipboard = useCallback(async (text) => {
     try {
@@ -338,6 +346,7 @@ function AppMain({ authUser, onLogout }) {
     setClusterPredResult(null); setPredictTab('predict'); setPredictionHistory([]);
     setSelectedModelIdx(-1); setCorrVarX(''); setCorrVarY('');
     setBatchCsvText(''); setBatchResults(null); setHistogramCol('');
+    setPreprocessConfig(getDefaultPreprocessConfig()); setPreprocessLog([]);
     setXaiTab('shap'); setXaiRow(0); setXaiDepFeature(0);
     setShapGlobal(null); setShapBeeswarm(null); setShapLocal(null); setShapDependence(null);
     setLimeResult(null); setLimeProbs(null); setClusterShap(null); setClusterBeeswarm(null);
@@ -657,13 +666,13 @@ function AppMain({ authUser, onLogout }) {
         dataProfile, trainingResult, models, targetColumn, evalMode,
         shapGlobal, limeResult, predictionHistory, unsupervisedResult,
         clusterResult, anomalyResult, leaderboardEntries, deployments,
-        authUser,
+        authUser, preprocessConfig,
       });
       toast.success(`Report downloaded: ${filename}`);
     } catch (e) { toast.error('PDF generation failed: ' + e.message); console.error(e); }
     finally { setExportLoading(''); }
   }, [dataProfile, trainingResult, models, targetColumn, evalMode, shapGlobal, limeResult,
-    predictionHistory, unsupervisedResult, clusterResult, anomalyResult, leaderboardEntries, authUser]);
+    predictionHistory, unsupervisedResult, clusterResult, anomalyResult, leaderboardEntries, authUser, preprocessConfig]);
 
   // Load shared snapshot from URL on mount
   useEffect(() => {
@@ -1015,12 +1024,55 @@ function AppMain({ authUser, onLogout }) {
       try {
         const startTime = performance.now();
         // Reuse already-parsed rows from dataProfile when available to avoid re-parsing
-        const rows = dataProfile?.rows || parseCSV(csvText).rows;
+        let rows = dataProfile?.rows || parseCSV(csvText).rows;
         if (rows.length < 4) throw new Error('Need at least 4 rows for train-test splitting');
+
+        // Apply preprocessing pipeline
+        const ppLog = [];
+        const ppHeaders = dataProfile?.headers || Object.keys(rows[0]);
+        const ppNumCols = dataProfile?.numericColumns || [];
+
+        // 1. Exclude selected features
+        if (preprocessConfig.excludeFeatures?.length > 0) {
+          rows = rows.map(r => {
+            const nr = { ...r };
+            preprocessConfig.excludeFeatures.forEach(col => { delete nr[col]; });
+            return nr;
+          });
+          ppLog.push({ step: 'Feature Selection', message: `Excluded ${preprocessConfig.excludeFeatures.length} feature(s): ${preprocessConfig.excludeFeatures.join(', ')}` });
+        }
+
+        // 2. Handle missing values
+        if (preprocessConfig.missingValues !== 'none') {
+          const mv = handleMissingValues(rows, ppHeaders, ppNumCols, preprocessConfig.missingValues);
+          rows = mv.rows;
+          mv.log.forEach(l => ppLog.push({ step: 'Missing Values', message: `${l.col}: filled ${l.count} values using ${l.strategy} (${l.fillValue})` }));
+        }
+
+        // 3. Handle outliers
+        if (preprocessConfig.outlierMethod !== 'none') {
+          const ol = handleOutliers(rows, ppNumCols, preprocessConfig.outlierMethod, preprocessConfig.outlierThreshold);
+          rows = ol.rows;
+          ol.log.forEach(l => ppLog.push({ step: 'Outliers', message: `${l.col}: ${l.affected} values ${l.method === 'clip' ? 'clipped' : 'removed'} ${l.range}` }));
+        }
+
+        if (rows.length < 4) throw new Error('Too few rows remaining after preprocessing — try less aggressive settings');
+
         const prepared = prepareFeatures(rows, targetColumn);
-        const { X, y, featureNames, encodingMap, numericCols, categoricalCols, textCols, targetEncoding, leakageCols } = prepared;
+        let { X, y, featureNames, encodingMap, numericCols, categoricalCols, textCols, targetEncoding, leakageCols } = prepared;
         if (featureNames.length === 0) throw new Error('No usable features after preprocessing');
         const problemType = detectProblemType(y);
+
+        // 4. Feature scaling
+        let scaleParams = null;
+        if (preprocessConfig.scaling !== 'none') {
+          const scaled = scaleFeatures(X, preprocessConfig.scaling);
+          X = scaled.X;
+          scaleParams = scaled.scaleParams;
+          ppLog.push({ step: 'Scaling', message: `Applied ${preprocessConfig.scaling === 'standard' ? 'standardization (z-score)' : 'min-max normalization'} to ${featureNames.length} features` });
+        }
+
+        setPreprocessLog(ppLog);
 
         // 80/20 Train-Test Split
         const { X_train, X_test, y_train, y_test, trainSize, testSize } = trainTestSplit(X, y, 0.2);
@@ -1098,7 +1150,7 @@ function AppMain({ authUser, onLogout }) {
         }
 
         // Store best model for predictions
-        const modelData = { featureNames, numericCols, categoricalCols, encodingMap, targetEncoding, ...bestModelObj };
+        const modelData = { featureNames, numericCols, categoricalCols, encodingMap, targetEncoding, scaleParams, ...bestModelObj };
         // Limit KNN storage for localStorage
         if (modelData.type === 'knn' && modelData.X_train && modelData.X_train.length > 500) {
           const si = Array.from({ length: modelData.X_train.length }, (_, i) => i);
@@ -1127,7 +1179,7 @@ function AppMain({ authUser, onLogout }) {
                   featureImportance: lbEntry.featureImportance,
                   createdAt: new Date().toISOString(), durationSec: lbEntry.durationSec,
                   evalMode, targetColumn,
-                  modelData: { featureNames, numericCols, categoricalCols, encodingMap, targetEncoding, ...tm.modelObj }
+                  modelData: { featureNames, numericCols, categoricalCols, encodingMap, targetEncoding, scaleParams, ...tm.modelObj }
                 });
               }
             }
@@ -1140,7 +1192,8 @@ function AppMain({ authUser, onLogout }) {
           totalTime: (performance.now() - startTime) / 1000,
           splitInfo: { trainSize, testSize, totalSize: rows.length },
           dataInfo: { numSamples: rows.length, numFeatures: featureNames.length, targetColumn, columns: featureNames, removedLeakageColumns: leakageCols, textColumns: textCols },
-          predictionsVsActual, residualStats
+          predictionsVsActual, residualStats,
+          preprocessConfig: { ...preprocessConfig }, preprocessLog: ppLog,
         });
 
         // Auto-save all trained models to leaderboard
@@ -1625,6 +1678,7 @@ function AppMain({ authUser, onLogout }) {
     deleteLeaderboardEntry, clearLeaderboard,
     setViewOnlyMode, shareUrl, setShareUrl, shareCopyStatus, setShareCopyStatus,
     treeModalOpen, setTreeModalOpen, treeModalAlgo, setTreeModalAlgo, exportLoading,
+    preprocessConfig, setPreprocessConfig, preprocessLog,
     // Computed
     stats, topModels, taskSuggestion, datasetSummary, suggestedTarget, smartRowSuggestions,
     bestXaiModelIdx, datasetScan, corrMatrix, histogramData, businessInterpretation,
@@ -1664,7 +1718,7 @@ function AppMain({ authUser, onLogout }) {
         <div className="flex h-full flex-col gap-2">
           <div className="flex h-16 items-center border-b border-sidebar-border px-6"><div className="flex items-center gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Brain className="h-6 w-6" /></div><div><h1 className="text-lg font-bold text-sidebar-foreground">AutoML</h1><p className="text-xs text-sidebar-foreground/60">Universal Dashboard</p></div></div></div>
           <nav className="flex-1 space-y-1 px-3 py-4" data-testid="sidebar-nav">
-            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'compare', label: 'Compare', icon: GitBranch }, { id: 'whatif', label: 'What-If', icon: Sliders }, { id: 'leaderboard', label: 'Leaderboard', icon: Trophy }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }, { id: 'deploy', label: 'Deploy', icon: Rocket }, { id: 'history', label: 'History', icon: History }, ...(authUser?.is_admin ? [{ id: 'admin', label: 'Admin', icon: Shield }] : [])].map((item) => (
+            {[{ id: 'dashboard', label: 'Dashboard', icon: Activity }, { id: 'analysis', label: 'Analysis', icon: Zap }, { id: 'preprocess', label: 'Preprocess', icon: Settings2 }, { id: 'predict', label: 'Predictions', icon: Sparkles }, { id: 'explainability', label: 'Explainability', icon: Eye }, { id: 'compare', label: 'Compare', icon: GitBranch }, { id: 'tune', label: 'Tune', icon: SlidersHorizontal }, { id: 'whatif', label: 'What-If', icon: Sliders }, { id: 'leaderboard', label: 'Leaderboard', icon: Trophy }, { id: 'explore', label: 'Data Explorer', icon: BarChart2 }, ...(targetColumn && targetColumn !== '__none__' ? [{ id: 'anomalies', label: 'Anomalies', icon: ShieldAlert }] : []), { id: 'models', label: 'Model Library', icon: Database }, { id: 'deploy', label: 'Deploy', icon: Rocket }, { id: 'history', label: 'History', icon: History }, ...(authUser?.is_admin ? [{ id: 'admin', label: 'Admin', icon: Shield }] : [])].map((item) => (
               <Button key={item.id} variant={activeView === item.id ? 'secondary' : 'ghost'} className="w-full justify-start gap-3" onClick={() => setActiveView(item.id)} data-testid={`nav-${item.id}`}><item.icon className="h-4 w-4" />{item.label}</Button>
             ))}
           </nav>
@@ -1679,7 +1733,7 @@ function AppMain({ authUser, onLogout }) {
               <div className="min-w-0">
                 <div className="flex items-center gap-2.5">
                   <h2 className="text-lg font-bold tracking-tight whitespace-nowrap" data-testid="page-title">
-                    {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'leaderboard' && 'Model Leaderboard'}{activeView === 'history' && 'Analysis History'}{activeView === 'admin' && 'Admin Dashboard'}{activeView === 'deploy' && 'Model Deployment'}{activeView === 'whatif' && 'What-If Analyzer'}
+                    {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'preprocess' && 'Data Preprocessing'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'tune' && 'Hyperparameter Tuning'}{activeView === 'leaderboard' && 'Model Leaderboard'}{activeView === 'history' && 'Analysis History'}{activeView === 'admin' && 'Admin Dashboard'}{activeView === 'deploy' && 'Model Deployment'}{activeView === 'whatif' && 'What-If Analyzer'}
                   </h2>
                   {dataProfile?.fileName && <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-violet-500/15 to-fuchsia-500/15 text-violet-700 dark:text-violet-300 text-xs font-semibold border border-violet-200 dark:border-violet-800" data-testid="current-dataset-badge"><Database className="h-3 w-3" />{dataProfile.fileName}</span>}
                 </div>
@@ -1789,6 +1843,9 @@ function AppMain({ authUser, onLogout }) {
           {/* ==================== ANALYSIS ==================== */}
           {activeView === 'analysis' && <AnalysisView />}
 
+          {/* ==================== PREPROCESS ==================== */}
+          {activeView === 'preprocess' && <PreprocessView />}
+
           {/* ==================== PREDICTIONS ==================== */}
           {activeView === 'predict' && <PredictView />}
 
@@ -1824,6 +1881,9 @@ function AppMain({ authUser, onLogout }) {
 
           {/* ==================== WHAT-IF ==================== */}
           {activeView === 'whatif' && <WhatIfView />}
+
+          {/* ==================== TUNE ==================== */}
+          {activeView === 'tune' && <TuneView />}
 
         </AnimatePresence></main>
       </div>
