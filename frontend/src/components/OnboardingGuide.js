@@ -3,23 +3,25 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle2, X, Rocket, Sparkles, PartyPopper, ChevronRight, ChevronLeft,
   Zap, Target, Play, Eye, Save, BarChart3, SlidersHorizontal, Sliders,
-  Settings2, RocketIcon, FileDown,
+  Settings2, RocketIcon, FileDown, Trophy,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 // ========================= GUIDE STEPS =========================
 const GUIDE_STEPS = [
+  { icon: Sparkles, title: 'Welcome to AutoML', desc: 'Your all-in-one machine learning platform. Everything runs in your browser — no setup needed. Let\'s walk through the key features.' },
   { icon: Zap, title: 'Load a Dataset', desc: 'Go to Analysis and upload a CSV or pick a sample dataset to get started.' },
   { icon: Target, title: 'Pick a Target', desc: 'Select which column you want to predict. The system auto-detects classification vs regression.' },
   { icon: Play, title: 'Train Models', desc: 'Click Train — the engine runs multiple algorithms and ranks them on a leaderboard.' },
   { icon: BarChart3, title: 'View Results', desc: 'Check the Dashboard for an overview, or dive into Predictions, Compare, and Data Explorer tabs.' },
   { icon: Eye, title: 'Explain Models', desc: 'Use SHAP and LIME in the Explainability tab to understand what drives each prediction.' },
-  { icon: Settings2, title: 'Preprocess Data', desc: 'Go to Preprocess to handle missing values, scale features, and apply smart recommendations.' },
-  { icon: SlidersHorizontal, title: 'Tune Hyperparameters', desc: 'Use the Tune tab to optimize any model with Grid, Random, or Bayesian search.' },
+  { icon: Settings2, title: 'Preprocess Data', desc: 'Go to Preprocess to handle missing values, scale features, remove outliers, and apply smart recommendations.' },
+  { icon: SlidersHorizontal, title: 'Tune Hyperparameters', desc: 'Use the Tune tab to optimize any model with Grid, Random, or Bayesian search strategies.' },
   { icon: Sliders, title: 'What-If Analysis', desc: 'Tweak feature values in the What-If tab and see how predictions change in real time.' },
-  { icon: RocketIcon, title: 'Deploy Models', desc: 'Deploy your best model as a REST API with a public prediction link.' },
-  { icon: FileDown, title: 'Export Reports', desc: 'Download PDF reports from the toolbar or from any saved analysis in History.' },
-  { icon: Save, title: 'Save & Share', desc: 'Save your work in History. Share a link so others can view your analysis.' },
+  { icon: Trophy, title: 'Track Performance', desc: 'The Leaderboard auto-ranks all trained models across sessions. Compare accuracy, F1, and more at a glance.' },
+  { icon: RocketIcon, title: 'Deploy Models', desc: 'Deploy your best model as a REST API with a public prediction link anyone can use.' },
+  { icon: FileDown, title: 'Export Reports', desc: 'Download PDF reports from the toolbar or directly from any saved analysis in History.' },
+  { icon: Save, title: 'Save & Share', desc: 'Save your work in History. Share a link so others can view your analysis read-only.' },
 ];
 
 // ========================= SIMPLE GUIDE DIALOG =========================
