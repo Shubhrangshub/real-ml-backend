@@ -1,7 +1,7 @@
 # AutoML Master - Product Requirements Document
 
 ## Overview
-AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabling dataset upload, model training, explainable AI (SHAP/LIME), and predictions — all running client-side in the browser.
+AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabling dataset upload, model training, explainable AI (SHAP/LIME), predictions, model deployment, and What-If analysis — all running client-side in the browser.
 
 ## Architecture
 - **Frontend**: React, TailwindCSS, Framer Motion, Recharts, Context API
@@ -11,7 +11,7 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 ## Implemented Features
 
 ### Core ML
-- [x] CSV upload & 5 sample datasets
+- [x] CSV upload & 5 large sample datasets (1000-1500 rows, 8-12 features each)
 - [x] Dataset profiling, scanner, cleaning
 - [x] 10+ ML algorithms, auto selection, K-fold cross-validation
 - [x] Single & batch predictions, unsupervised learning, anomaly detection
@@ -28,46 +28,64 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 - [x] Auto-save, sidebar tab, dashboard widget, CRUD APIs
 
 ### Dataset Context Management
-- [x] Full state reset on new dataset, auto-save with toast, dataset name badge
-
-### UI Polish
-- [x] Compact header, colorful sample cards, modern Model Library
+- [x] Full state reset, auto-save with toast, dataset name badge
 
 ### Admin Dashboard
 - [x] Analytics, User Management, Activity Log, System Controls
-- [x] Conditional sidebar tab (admin-only), seeded admin
 
-### Onboarding Guide (Feb 2026)
-- [x] 9-step spotlight tour with dark overlay + violet highlight border
-- [x] Auto-triggers on first login, re-triggerable via Guide button
-- [x] Floating progress pill (bottom-right) tracking 5 milestones:
-  1. Load a dataset, 2. Train a model, 3. Make a prediction, 4. Explore explainability, 5. Save an analysis
-- [x] Pill collapses to compact "N/5 complete" badge, expands on click
-- [x] "Retake the tour" button, "Dismiss permanently" option
-- [x] Celebration state when all milestones complete
-- [x] Tour steps: Sidebar → Analysis → Sample Datasets → Target Column → Train → Dashboard → Explainability → Leaderboard → History
+### Onboarding Guide
+- [x] 11-step spotlight tour (including What-If & Deploy), progress pill
+
+### Model Deployment (Feb 2026)
+- [x] Deploy trained models to get a public prediction URL
+- [x] Public prediction page — anyone can make predictions without login
+- [x] REST API endpoint for programmatic access (curl, Python)
+- [x] Enable/disable (revoke) deployments
+- [x] Delete deployments
+- [x] Prediction counter per deployment
+- [x] API: POST /api/deploy, GET /api/deploy, PATCH/DELETE /api/deploy/{id}
+- [x] Public: GET /api/public/model/{id}, POST /api/public/predict/{id}
+
+### What-If Analyzer (Feb 2026)
+- [x] Side-by-side baseline vs. modified scenario comparison
+- [x] Auto-populated feature sliders from dataset statistics
+- [x] Numeric sliders + categorical dropdowns
+- [x] Real-time prediction comparison with diff and % change
+- [x] Visual highlighting of changed features
+- [x] Works with all trained models (model selector dropdown)
+
+### Large Sample Datasets (Feb 2026)
+- [x] Loan Approval: 1,200 rows, 12 features (classification)
+- [x] House Prices: 1,000 rows, 12 features (regression)
+- [x] Insurance Costs: 1,100 rows, 9 features (regression)
+- [x] Customer Churn: 1,500 rows, 11 features (classification)
+- [x] Customer Segmentation: 1,000 rows, 10 features (unsupervised)
 
 ## File Structure
 ```
 src/
-├── App.js, AuthPage.js, constants.js
+├── App.js (~1820 lines), AuthPage.js, constants.js
 ├── context/AppContext.js
 ├── utils/helpers.js, mlEngine.js, datasetUtils.js
 ├── components/
-│   ├── SmartTooltip.js
-│   ├── OnboardingGuide.js (NEW - tour + progress pill)
+│   ├── SmartTooltip.js, OnboardingGuide.js, PublicPredictPage.js
 │   └── views/
 │       ├── DashboardView.js, AnalysisView.js, PredictView.js
 │       ├── ExplainabilityView.js, DataExplorerView.js
 │       ├── CompareModelsView.js, LeaderboardView.js
 │       ├── HistoryView.js, SmallViews.js, AdminView.js
+│       ├── DeployView.js, WhatIfView.js
 ```
 
+## DB Collections
+- users, user_sessions, analysis_snapshots, password_reset_tokens
+- leaderboard_entries, activity_log, deployed_models
+
 ## Backlog
-- [ ] P1: React Hook dependency issues & array key optimization
+- [ ] P1: Automated PDF Report Generation
+- [ ] P1: React Hook dependency & array key optimization
 - [ ] P1: Real-time Collaborative Sessions
-- [ ] P1: Model Deployment API
-- [ ] P1: Automated Report Generation (PDF/HTML)
 - [ ] P2: Backend server.py refactoring
-- [ ] P2: Advanced hyperparameter tuning UI, What-If Analyzer
+- [ ] P2: Advanced hyperparameter tuning UI
+- [ ] P2: Interactive Tutorial Mode
 - [ ] P3: Dataset preprocessing pipeline UI
