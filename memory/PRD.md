@@ -34,6 +34,7 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 
 ### What-If Analyzer ✅ TESTED
 - [x] Side-by-side baseline vs. modified scenario comparison
+- [x] Bug fix: numeric features now show range sliders + number inputs (was showing empty dropdowns due to row data access by index instead of column name)
 
 ### Automated PDF Report ✅ TESTED
 - [x] Multi-page PDF with cover, TOC, executive summary, dataset overview
