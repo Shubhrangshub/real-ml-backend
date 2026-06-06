@@ -45,20 +45,192 @@ export function AnomaliesView() {
     anomalyResult, handleAnomalyDetection, DataUploadMini
   } = useApp();
 
+  const methodExplanations = {
+    zscore: {
+      title: 'Z-Score Method',
+      desc: 'Measures how many standard deviations a value is from the mean. Values beyond the threshold are flagged as anomalies.',
+      thresholdHint: (t) => t <= 2 ? 'Strict — flags more data points as anomalies (top ~5%)' : t <= 3 ? 'Standard — flags extreme outliers (top ~1%)' : 'Lenient — only flags the most extreme values (top ~0.1%)',
+    },
+    iqr: {
+      title: 'IQR Method (Interquartile Range)',
+      desc: 'Uses the spread between Q1 (25th percentile) and Q3 (75th percentile). Values below Q1 - 1.5*IQR or above Q3 + 1.5*IQR are flagged. More robust to skewed data than Z-Score.',
+    },
+  };
+  const currentMethod = methodExplanations[anomalyMethod];
+
   return (
     <motion.div key="anomalies" variants={staggerContainer} initial="initial" animate="animate" exit="exit" className="space-y-6" data-testid="anomalies-view">
       {!dataProfile ? <DataUploadMini /> : (<>
-        <motion.div variants={fadeInUp}><Card data-testid="anomaly-config-card"><CardHeader><CardTitle className="flex items-center gap-2"><ShieldAlert className="h-5 w-5" />Configuration</CardTitle></CardHeader>
-          <CardContent><div className="flex items-center gap-6 flex-wrap">
-            <div className="space-y-2"><label className="text-sm font-medium">Method</label><select value={anomalyMethod} onChange={(e) => setAnomalyMethod(e.target.value)} className="rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="anomaly-method-select"><option value="zscore">Z-Score</option><option value="iqr">IQR</option></select></div>
-            {anomalyMethod === 'zscore' && <div className="space-y-2"><label className="text-sm font-medium">Threshold: <span className="text-primary font-bold">{anomalyThreshold}</span></label><input type="range" min={1.5} max={4} step={0.5} value={anomalyThreshold} onChange={(e) => setAnomalyThreshold(Number(e.target.value))} className="w-40 accent-primary" data-testid="anomaly-threshold-slider" /></div>}
-            <Button onClick={handleAnomalyDetection} size="lg" className="h-12" data-testid="run-anomaly-btn"><ShieldAlert className="h-4 w-4 mr-2" />Detect Anomalies</Button>
-          </div></CardContent></Card></motion.div>
+        <motion.div variants={fadeInUp}>
+          <Card data-testid="anomaly-config-card">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5" />Anomaly Detection
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Find unusual data points that deviate significantly from the rest of your dataset. Anomalies can indicate errors, fraud, or rare events.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-start gap-6 flex-wrap">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Detection Method</label>
+                  <select value={anomalyMethod} onChange={(e) => setAnomalyMethod(e.target.value)} className="block rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="anomaly-method-select">
+                    <option value="zscore">Z-Score</option>
+                    <option value="iqr">IQR (Interquartile Range)</option>
+                  </select>
+                </div>
+                {anomalyMethod === 'zscore' && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Threshold: <span className="text-primary font-bold">{anomalyThreshold}</span> standard deviations</label>
+                    <input type="range" min={1.5} max={4} step={0.5} value={anomalyThreshold} onChange={(e) => setAnomalyThreshold(Number(e.target.value))} className="w-48 accent-primary" data-testid="anomaly-threshold-slider" />
+                    <p className="text-xs text-muted-foreground">{currentMethod.thresholdHint(anomalyThreshold)}</p>
+                  </div>
+                )}
+                <div className="flex items-end">
+                  <Button onClick={handleAnomalyDetection} size="lg" className="h-12" data-testid="run-anomaly-btn">
+                    <ShieldAlert className="h-4 w-4 mr-2" />Detect Anomalies
+                  </Button>
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/40 border">
+                <p className="text-xs font-semibold mb-1">{currentMethod.title}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">{currentMethod.desc}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
         {anomalyResult && (<>
-          <motion.div variants={fadeInUp}><div className="grid gap-4 md:grid-cols-3"><Card data-testid="anomaly-count-card"><CardContent className="p-6 text-center"><p className="text-sm text-muted-foreground">Anomalies</p><p className="text-4xl font-bold text-destructive">{anomalyResult.totalAnomalies}</p></CardContent></Card><Card><CardContent className="p-6 text-center"><p className="text-sm text-muted-foreground">Normal</p><p className="text-4xl font-bold text-primary">{anomalyResult.totalRows - anomalyResult.totalAnomalies}</p></CardContent></Card><Card><CardContent className="p-6 text-center"><p className="text-sm text-muted-foreground">Rate</p><p className="text-4xl font-bold">{(anomalyResult.totalAnomalies / anomalyResult.totalRows * 100).toFixed(1)}%</p></CardContent></Card></div></motion.div>
-          {anomalyResult.xFeature && <motion.div variants={fadeInUp}><Card data-testid="anomaly-scatter-chart"><CardHeader><CardTitle>Normal vs Anomaly</CardTitle></CardHeader><CardContent><ResponsiveContainer width="100%" height={400}><ScatterChart><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="x" type="number" /><YAxis dataKey="y" type="number" /><ZAxis range={[60, 60]} /><Tooltip /><Legend /><Scatter name="Normal" data={anomalyResult.normalPoints} fill="hsl(var(--primary))" /><Scatter name="Anomaly" data={anomalyResult.anomalyPoints} fill="hsl(var(--destructive))" /></ScatterChart></ResponsiveContainer></CardContent></Card></motion.div>}
-          <motion.div variants={fadeInUp}><Card data-testid="anomaly-per-column"><CardHeader><CardTitle>Per Column</CardTitle></CardHeader><CardContent><ResponsiveContainer width="100%" height={250}><BarChart data={Object.entries(anomalyResult.anomalies).map(([col, items]) => ({ name: col, count: items.length })).filter(d => d.count > 0)}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" angle={-30} textAnchor="end" height={80} /><YAxis /><Tooltip /><Bar dataKey="count" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></CardContent></Card></motion.div>
-          {anomalyResult.anomalyRowIndices.length > 0 && <motion.div variants={fadeInUp}><Card data-testid="anomaly-rows-table"><CardHeader><CardTitle>Anomalous Rows</CardTitle></CardHeader><CardContent><div className="rounded-md border overflow-auto max-h-80"><table className="w-full text-sm"><thead><tr className="border-b bg-destructive/10 sticky top-0"><th className="p-2 text-left font-medium">Row</th>{dataProfile.numericColumns.slice(0, 6).map(col => <th key={col} className="p-2 text-left font-medium">{col}</th>)}</tr></thead><tbody>{anomalyResult.anomalyRowIndices.slice(0, 20).map(ri => <tr key={ri} className="border-b last:border-0 bg-destructive/5"><td className="p-2 font-mono text-xs font-bold">{ri + 1}</td>{dataProfile.numericColumns.slice(0, 6).map(col => { const isA = anomalyResult.anomalies[col]?.some(a => a.index === ri); return <td key={col} className={`p-2 text-xs ${isA ? 'text-destructive font-bold' : ''}`}>{typeof dataProfile.rows[ri]?.[col] === 'number' ? dataProfile.rows[ri][col].toFixed(2) : '-'}</td>; })}</tr>)}</tbody></table></div></CardContent></Card></motion.div>}
+          {/* Summary cards with narration */}
+          <motion.div variants={fadeInUp}>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Card data-testid="anomaly-count-card">
+                <CardContent className="p-6 text-center">
+                  <p className="text-sm text-muted-foreground">Anomalies Found</p>
+                  <p className="text-4xl font-bold text-destructive">{anomalyResult.totalAnomalies}</p>
+                  <p className="text-xs text-muted-foreground mt-1">rows flagged as unusual</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-6 text-center">
+                  <p className="text-sm text-muted-foreground">Normal</p>
+                  <p className="text-4xl font-bold text-primary">{anomalyResult.totalRows - anomalyResult.totalAnomalies}</p>
+                  <p className="text-xs text-muted-foreground mt-1">rows within expected range</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-6 text-center">
+                  <p className="text-sm text-muted-foreground">Anomaly Rate</p>
+                  <p className="text-4xl font-bold">{(anomalyResult.totalAnomalies / anomalyResult.totalRows * 100).toFixed(1)}%</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {anomalyResult.totalAnomalies / anomalyResult.totalRows < 0.01 ? 'Very clean dataset' : anomalyResult.totalAnomalies / anomalyResult.totalRows < 0.05 ? 'Typical anomaly rate' : 'High anomaly rate — review data quality'}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          </motion.div>
+
+          {/* Interpretation */}
+          <motion.div variants={fadeInUp}>
+            <div className="p-4 rounded-xl bg-muted/30 border space-y-1.5">
+              <p className="text-sm font-semibold">What does this mean?</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {anomalyResult.totalAnomalies === 0
+                  ? 'No anomalies were found — your data looks clean and consistent across all numeric columns.'
+                  : `${anomalyResult.totalAnomalies} row${anomalyResult.totalAnomalies > 1 ? 's' : ''} contain values that fall outside the expected range. `
+                    + (anomalyResult.totalAnomalies / anomalyResult.totalRows < 0.02
+                      ? 'This is a small fraction and may represent rare but valid cases. Review the flagged rows below to decide if they should be kept, corrected, or removed.'
+                      : 'This is a notable fraction of your data. Consider checking for data entry errors, sensor malfunctions, or legitimate edge cases in the flagged rows below.')
+                }
+              </p>
+            </div>
+          </motion.div>
+
+          {/* Scatter chart */}
+          {anomalyResult.xFeature && (
+            <motion.div variants={fadeInUp}>
+              <Card data-testid="anomaly-scatter-chart">
+                <CardHeader>
+                  <CardTitle>Normal vs Anomaly Scatter Plot</CardTitle>
+                  <p className="text-xs text-muted-foreground">Each dot is a data point plotted on the two most variable features. Red dots are the detected anomalies.</p>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={400}>
+                    <ScatterChart>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="x" type="number" name={anomalyResult.xFeature} />
+                      <YAxis dataKey="y" type="number" name={anomalyResult.yFeature} />
+                      <ZAxis range={[60, 60]} />
+                      <Tooltip />
+                      <Legend />
+                      <Scatter name="Normal" data={anomalyResult.normalPoints} fill="hsl(var(--primary))" />
+                      <Scatter name="Anomaly" data={anomalyResult.anomalyPoints} fill="hsl(var(--destructive))" />
+                    </ScatterChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* Per-column breakdown */}
+          <motion.div variants={fadeInUp}>
+            <Card data-testid="anomaly-per-column">
+              <CardHeader>
+                <CardTitle>Anomalies Per Column</CardTitle>
+                <p className="text-xs text-muted-foreground">Shows which columns contain the most anomalous values. Tall bars indicate columns with more extreme outliers.</p>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={Object.entries(anomalyResult.anomalies).map(([col, items]) => ({ name: col, count: items.length })).filter(d => d.count > 0)}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-30} textAnchor="end" height={80} />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Anomalous rows table */}
+          {anomalyResult.anomalyRowIndices.length > 0 && (
+            <motion.div variants={fadeInUp}>
+              <Card data-testid="anomaly-rows-table">
+                <CardHeader>
+                  <CardTitle>Flagged Rows</CardTitle>
+                  <p className="text-xs text-muted-foreground">These rows contain at least one anomalous value. Red bold values are the specific anomalies detected.</p>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-md border overflow-auto max-h-80">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-destructive/10 sticky top-0">
+                          <th className="p-2 text-left font-medium">Row</th>
+                          {dataProfile.numericColumns.slice(0, 6).map(col => <th key={col} className="p-2 text-left font-medium">{col}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {anomalyResult.anomalyRowIndices.slice(0, 20).map(ri => (
+                          <tr key={ri} className="border-b last:border-0 bg-destructive/5">
+                            <td className="p-2 font-mono text-xs font-bold">{ri + 1}</td>
+                            {dataProfile.numericColumns.slice(0, 6).map(col => {
+                              const isA = anomalyResult.anomalies[col]?.some(a => a.index === ri);
+                              return <td key={col} className={`p-2 text-xs ${isA ? 'text-destructive font-bold' : ''}`}>{typeof dataProfile.rows[ri]?.[col] === 'number' ? dataProfile.rows[ri][col].toFixed(2) : '-'}</td>;
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {anomalyResult.anomalyRowIndices.length > 20 && (
+                    <p className="text-xs text-muted-foreground mt-2 text-center">Showing first 20 of {anomalyResult.anomalyRowIndices.length} anomalous rows.</p>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
         </>)}
       </>)}
     </motion.div>

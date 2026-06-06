@@ -37,11 +37,21 @@ export default function PreprocessView() {
   const numericCols = dataProfile?.numericColumns || [];
   const features = columns.filter(c => c !== targetColumn);
 
-  const update = useCallback((key, value) => setPreprocessConfig(prev => ({ ...prev, [key]: value })), [setPreprocessConfig]);
+  const update = useCallback((key, value) => {
+    setPreprocessConfig(prev => ({ ...prev, [key]: value }));
+    const labels = {
+      missingValues: 'Missing Values', scaling: 'Feature Scaling',
+      outlierMethod: 'Outlier Treatment', outlierThreshold: null,
+    };
+    if (labels[key] !== undefined && labels[key] !== null) {
+      toast.success(`${labels[key]} updated`, { duration: 1500 });
+    }
+  }, [setPreprocessConfig]);
   const toggleExclude = (col) => {
     setPreprocessConfig(prev => {
       const ex = prev.excludeFeatures || [];
-      return { ...prev, excludeFeatures: ex.includes(col) ? ex.filter(c => c !== col) : [...ex, col] };
+      const excluding = !ex.includes(col);
+      return { ...prev, excludeFeatures: excluding ? [...ex, col] : ex.filter(c => c !== col) };
     });
   };
 
