@@ -1,274 +1,125 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle2, ChevronRight, ChevronLeft, X, Rocket, Sparkles, PartyPopper } from 'lucide-react';
+import {
+  CheckCircle2, X, Rocket, Sparkles, PartyPopper, ChevronRight, ChevronLeft,
+  Zap, Target, Play, Eye, Save, BarChart3, SlidersHorizontal, Sliders,
+  Settings2, RocketIcon, FileDown,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-const TOUR_STEPS = [
-  {
-    target: '[data-testid="app-sidebar"]',
-    title: 'Welcome to AutoML!',
-    desc: 'This sidebar is your main navigation. Each tab unlocks a different ML capability.',
-    position: 'right',
-    view: null,
-  },
-  {
-    target: '[data-testid="nav-analysis"]',
-    title: 'Start with Analysis',
-    desc: 'Upload your own CSV or pick a sample dataset to get started in seconds.',
-    position: 'right',
-    view: 'analysis',
-  },
-  {
-    target: '[data-testid="sample-dataset-0"]',
-    title: 'Try a Sample Dataset',
-    desc: 'Click any sample to instantly load it — no upload needed. Perfect for exploring.',
-    position: 'bottom',
-    view: 'analysis',
-    waitForSelector: true,
-  },
-  {
-    target: '[data-testid="target-column-select"]',
-    title: 'Pick What to Predict',
-    desc: 'Select your target column — the variable you want the ML model to learn and predict.',
-    position: 'bottom',
-    view: 'analysis',
-    requiresData: true,
-  },
-  {
-    target: '[data-testid="start-training-btn"]',
-    title: 'Train Models',
-    desc: 'One click trains 8+ algorithms simultaneously. Results appear in seconds — all in your browser!',
-    position: 'bottom',
-    view: 'analysis',
-    requiresData: true,
-  },
-  {
-    target: '[data-testid="nav-dashboard"]',
-    title: 'Your Command Center',
-    desc: 'The Dashboard shows your best models, key metrics, recent history, and leaderboard at a glance.',
-    position: 'right',
-    view: null,
-  },
-  {
-    target: '[data-testid="nav-explainability"]',
-    title: 'Understand Your Models',
-    desc: 'SHAP & LIME explain WHY predictions happen — turn black-box models into actionable insights.',
-    position: 'right',
-    view: null,
-  },
-  {
-    target: '[data-testid="nav-leaderboard"]',
-    title: 'Track Performance',
-    desc: 'Every model is auto-saved to the leaderboard. Compare algorithms and track trends over time.',
-    position: 'right',
-    view: null,
-  },
-  {
-    target: '[data-testid="nav-history"]',
-    title: 'Never Lose Work',
-    desc: "Analyses are auto-saved when you switch datasets. Load any past session from History — it's all here.",
-    position: 'right',
-    view: null,
-  },
-  {
-    target: '[data-testid="nav-whatif"]',
-    title: 'What-If Analyzer',
-    desc: 'Tweak feature values side-by-side and instantly see how predictions change. Great for scenario planning!',
-    position: 'right',
-    view: null,
-  },
-  {
-    target: '[data-testid="nav-preprocess"]',
-    title: 'Data Preprocessing',
-    desc: 'Configure missing value handling, feature scaling, outlier treatment, and feature selection — all before training.',
-    position: 'right',
-    view: null,
-  },
-  {
-    target: '[data-testid="nav-tune"]',
-    title: 'Hyperparameter Tuning',
-    desc: 'Optimize model parameters using Grid or Random Search. Find the best configuration to boost performance!',
-    position: 'right',
-    view: null,
-  },
-  {
-    target: '[data-testid="nav-deploy"]',
-    title: 'Deploy Your Model',
-    desc: 'Deploy any trained model and get a public link. Anyone can make predictions without logging in — plus a REST API for developers.',
-    position: 'right',
-    view: null,
-  },
+// ========================= GUIDE STEPS =========================
+const GUIDE_STEPS = [
+  { icon: Zap, title: 'Load a Dataset', desc: 'Go to Analysis and upload a CSV or pick a sample dataset to get started.' },
+  { icon: Target, title: 'Pick a Target', desc: 'Select which column you want to predict. The system auto-detects classification vs regression.' },
+  { icon: Play, title: 'Train Models', desc: 'Click Train — the engine runs multiple algorithms and ranks them on a leaderboard.' },
+  { icon: BarChart3, title: 'View Results', desc: 'Check the Dashboard for an overview, or dive into Predictions, Compare, and Data Explorer tabs.' },
+  { icon: Eye, title: 'Explain Models', desc: 'Use SHAP and LIME in the Explainability tab to understand what drives each prediction.' },
+  { icon: Settings2, title: 'Preprocess Data', desc: 'Go to Preprocess to handle missing values, scale features, and apply smart recommendations.' },
+  { icon: SlidersHorizontal, title: 'Tune Hyperparameters', desc: 'Use the Tune tab to optimize any model with Grid, Random, or Bayesian search.' },
+  { icon: Sliders, title: 'What-If Analysis', desc: 'Tweak feature values in the What-If tab and see how predictions change in real time.' },
+  { icon: RocketIcon, title: 'Deploy Models', desc: 'Deploy your best model as a REST API with a public prediction link.' },
+  { icon: FileDown, title: 'Export Reports', desc: 'Download PDF reports from the toolbar or from any saved analysis in History.' },
+  { icon: Save, title: 'Save & Share', desc: 'Save your work in History. Share a link so others can view your analysis.' },
 ];
 
-const MILESTONES = [
-  { id: 'dataset', label: 'Load a dataset', icon: '1' },
-  { id: 'train', label: 'Train a model', icon: '2' },
-  { id: 'predict', label: 'Make a prediction', icon: '3' },
-  { id: 'explain', label: 'Explore explainability', icon: '4' },
-  { id: 'save', label: 'Save an analysis', icon: '5' },
-];
+// ========================= SIMPLE GUIDE DIALOG =========================
+function GuideDialog({ isOpen, onClose, setActiveView }) {
+  const [step, setStep] = useState(0);
 
-// ========================= SPOTLIGHT TOUR =========================
-function SpotlightTour({ isActive, onClose, steps, setActiveView }) {
-  const [currentStep, setCurrentStep] = useState(0);
-  const [spotlightRect, setSpotlightRect] = useState(null);
-  const [tooltipPos, setTooltipPos] = useState({ top: 200, left: 200 });
-
-  // Reset step when tour starts
   useEffect(() => {
-    if (isActive) {
-      setCurrentStep(0);
-      setSpotlightRect(null);
-    }
-  }, [isActive]);
+    if (isOpen) setStep(0);
+  }, [isOpen]);
 
-  // Navigate to correct view + position spotlight
-  useEffect(() => {
-    if (!isActive) return;
-    const step = steps[currentStep];
-    if (!step) return;
+  if (!isOpen) return null;
 
-    // Navigate to view first
-    if (step.view && setActiveView) setActiveView(step.view);
-
-    // Position after view settles
-    let cancelled = false;
-    const position = () => {
-      if (cancelled) return;
-      const el = document.querySelector(step.target);
-
-      if (el) {
-        const rect = el.getBoundingClientRect();
-        const pad = 8;
-        setSpotlightRect({
-          top: rect.top - pad, left: rect.left - pad,
-          width: rect.width + pad * 2, height: rect.height + pad * 2,
-        });
-
-        // Position tooltip relative to element
-        const tw = 320, th = 160;
-        let tt = {}, pos = step.position;
-        if (pos === 'right') {
-          tt.top = Math.max(16, rect.top);
-          tt.left = rect.right + 20;
-          if (tt.left + tw > window.innerWidth - 16) tt.left = rect.left - tw - 20;
-        } else if (pos === 'bottom') {
-          tt.top = rect.bottom + 16;
-          tt.left = Math.max(16, rect.left);
-          if (tt.left + tw > window.innerWidth - 16) tt.left = window.innerWidth - tw - 16;
-          if (tt.top + th > window.innerHeight - 16) tt.top = rect.top - th - 16;
-        } else if (pos === 'left') {
-          tt.top = rect.top;
-          tt.left = rect.left - tw - 20;
-        } else {
-          tt.top = rect.bottom + 16;
-          tt.left = rect.left;
-        }
-        setTooltipPos(tt);
-      } else {
-        // Element not found — no spotlight, center the tooltip
-        setSpotlightRect(null);
-        setTooltipPos({
-          top: Math.max(100, window.innerHeight / 2 - 100),
-          left: Math.max(16, window.innerWidth / 2 - 160),
-        });
-      }
-    };
-
-    // Try immediately, then retry once after 400ms for view transitions
-    const t1 = setTimeout(position, 50);
-    const t2 = setTimeout(position, 400);
-    return () => { cancelled = true; clearTimeout(t1); clearTimeout(t2); };
-  }, [isActive, currentStep, steps, setActiveView]);
-
-  if (!isActive) return null;
-  const step = steps[currentStep];
-  if (!step) return null;
-  const isLast = currentStep === steps.length - 1;
-  const isFirst = currentStep === 0;
+  const current = GUIDE_STEPS[step];
+  const Icon = current.icon;
+  const isLast = step === GUIDE_STEPS.length - 1;
 
   return (
-    <div className="fixed inset-0 z-[100]" data-testid="spotlight-tour">
-      {/* Dark overlay with spotlight cutout */}
-      <svg className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <mask id="spotlight-mask">
-            <rect width="100%" height="100%" fill="white" />
-            {spotlightRect && (
-              <rect
-                x={spotlightRect.left} y={spotlightRect.top}
-                width={spotlightRect.width} height={spotlightRect.height}
-                rx="12" fill="black"
-              />
-            )}
-          </mask>
-        </defs>
-        <rect width="100%" height="100%" fill="rgba(0,0,0,0.6)" mask="url(#spotlight-mask)" />
-      </svg>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" data-testid="guide-dialog">
+      {/* Backdrop — click to close */}
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Spotlight glow */}
-      {spotlightRect && (
-        <motion.div
-          className="absolute rounded-xl border-2 border-violet-400 shadow-[0_0_20px_rgba(139,92,246,0.4)] pointer-events-none"
-          initial={false}
-          animate={{
-            top: spotlightRect.top, left: spotlightRect.left,
-            width: spotlightRect.width, height: spotlightRect.height,
-          }}
-          transition={{ duration: 0.3, ease: 'easeOut' }}
-        />
-      )}
-
-      {/* Tooltip — ALWAYS rendered, never hidden behind a "ready" gate */}
+      {/* Dialog */}
       <motion.div
-        key={currentStep}
-        initial={{ opacity: 0, y: 10, scale: 0.95 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.25 }}
-        className="absolute z-[101] w-80 rounded-2xl bg-white dark:bg-zinc-900 border shadow-2xl overflow-hidden"
-        style={tooltipPos}
-        data-testid="tour-tooltip"
+        key="guide"
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        transition={{ duration: 0.2 }}
+        className="relative z-10 w-full max-w-md mx-4 rounded-2xl bg-white dark:bg-zinc-900 border shadow-2xl overflow-hidden"
+        data-testid="guide-dialog-content"
       >
         {/* Progress bar */}
-        <div className="h-1 bg-gray-100 dark:bg-zinc-800">
-          <div
-            className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all duration-300"
-            style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
+        <div className="h-1.5 bg-gray-100 dark:bg-zinc-800">
+          <motion.div
+            className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500"
+            animate={{ width: `${((step + 1) / GUIDE_STEPS.length) * 100}%` }}
+            transition={{ duration: 0.3 }}
           />
         </div>
 
-        <div className="p-5">
-          <div className="flex items-start justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <span className="h-6 w-6 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white text-xs font-bold flex items-center justify-center">
-                {currentStep + 1}
-              </span>
-              <h3 className="font-bold text-sm">{step.title}</h3>
-            </div>
-            <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors" data-testid="tour-close">
+        <div className="p-6">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-5">
+            <span className="text-xs text-muted-foreground font-medium">
+              Step {step + 1} of {GUIDE_STEPS.length}
+            </span>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors" data-testid="guide-close">
               <X className="h-4 w-4" />
             </button>
           </div>
-          <p className="text-sm text-muted-foreground leading-relaxed mb-4">{step.desc}</p>
 
+          {/* Step content */}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={step}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.2 }}
+              className="mb-6"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center shrink-0">
+                  <Icon className="h-5 w-5 text-white" />
+                </div>
+                <h3 className="font-bold text-base">{current.title}</h3>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed pl-[52px]">{current.desc}</p>
+            </motion.div>
+          </AnimatePresence>
+
+          {/* Step indicators */}
+          <div className="flex items-center justify-center gap-1.5 mb-5">
+            {GUIDE_STEPS.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setStep(i)}
+                className={`h-1.5 rounded-full transition-all duration-300 ${i === step ? 'w-6 bg-violet-500' : i < step ? 'w-1.5 bg-violet-300 dark:bg-violet-700' : 'w-1.5 bg-gray-200 dark:bg-zinc-700'}`}
+                data-testid={`guide-dot-${i}`}
+              />
+            ))}
+          </div>
+
+          {/* Navigation */}
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">{currentStep + 1} of {steps.length}</span>
-            <div className="flex gap-2">
-              {!isFirst && (
-                <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setCurrentStep(prev => prev - 1)} data-testid="tour-prev">
-                  <ChevronLeft className="h-3.5 w-3.5 mr-1" />Back
-                </Button>
-              )}
-              {isFirst && (
-                <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={onClose} data-testid="tour-skip">
-                  Skip tour
-                </Button>
-              )}
-              <Button size="sm" className="h-8 text-xs bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:from-violet-600 hover:to-fuchsia-600"
-                onClick={() => isLast ? onClose() : setCurrentStep(prev => prev + 1)} data-testid="tour-next">
-                {isLast ? <><PartyPopper className="h-3.5 w-3.5 mr-1" />Got it!</> : <>Next<ChevronRight className="h-3.5 w-3.5 ml-1" /></>}
-              </Button>
-            </div>
+            <Button
+              variant="ghost" size="sm" className="h-8 text-xs"
+              onClick={() => step === 0 ? onClose() : setStep(s => s - 1)}
+              data-testid="guide-prev"
+            >
+              {step === 0 ? 'Skip' : <><ChevronLeft className="h-3.5 w-3.5 mr-1" />Back</>}
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:from-violet-600 hover:to-fuchsia-600"
+              onClick={() => isLast ? onClose() : setStep(s => s + 1)}
+              data-testid="guide-next"
+            >
+              {isLast ? <><PartyPopper className="h-3.5 w-3.5 mr-1" />Done!</> : <>Next<ChevronRight className="h-3.5 w-3.5 ml-1" /></>}
+            </Button>
           </div>
         </div>
       </motion.div>
@@ -276,22 +127,22 @@ function SpotlightTour({ isActive, onClose, steps, setActiveView }) {
   );
 }
 
+// ========================= MILESTONES =========================
+const MILESTONES = [
+  { id: 'load', label: 'Load a dataset', icon: '1' },
+  { id: 'train', label: 'Train models', icon: '2' },
+  { id: 'predict', label: 'Make predictions', icon: '3' },
+  { id: 'explain', label: 'Explain a model (SHAP/LIME)', icon: '4' },
+  { id: 'save', label: 'Save an analysis', icon: '5' },
+];
+
 // ========================= PROGRESS PILL =========================
-function ProgressPill({ milestones, completed, onStartTour }) {
+function ProgressPill({ milestones, completed, onStartGuide }) {
   const [expanded, setExpanded] = useState(false);
   const completedCount = completed.filter(Boolean).length;
   const total = milestones.length;
-  const allDone = completedCount === total;
   const progress = completedCount / total;
-
-  // Auto-hide after all milestones done (with celebration delay)
-  const [celebrated, setCelebrated] = useState(false);
-  useEffect(() => {
-    if (allDone && !celebrated) {
-      setCelebrated(true);
-      setTimeout(() => setExpanded(true), 500);
-    }
-  }, [allDone, celebrated]);
+  const allDone = completedCount === total;
 
   // Don't render if dismissed permanently
   const [dismissed, setDismissed] = useState(() => {
@@ -306,7 +157,7 @@ function ProgressPill({ milestones, completed, onStartTour }) {
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50" data-testid="progress-pill">
+    <div className="fixed bottom-6 right-6 z-40" data-testid="progress-pill">
       <AnimatePresence mode="wait">
         {!expanded ? (
           <motion.button
@@ -320,7 +171,6 @@ function ProgressPill({ milestones, completed, onStartTour }) {
             className="flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-white dark:bg-zinc-900 border shadow-lg hover:shadow-xl transition-shadow"
             data-testid="progress-pill-collapsed"
           >
-            {/* Circular progress */}
             <div className="relative h-8 w-8">
               <svg className="h-8 w-8 -rotate-90" viewBox="0 0 32 32">
                 <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" className="text-gray-100 dark:text-zinc-800" strokeWidth="3" />
@@ -355,7 +205,6 @@ function ProgressPill({ milestones, completed, onStartTour }) {
                 </button>
               </div>
 
-              {/* Progress bar */}
               <div className="h-2 rounded-full bg-gray-100 dark:bg-zinc-800 mb-4 overflow-hidden">
                 <motion.div
                   className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500"
@@ -365,7 +214,6 @@ function ProgressPill({ milestones, completed, onStartTour }) {
                 />
               </div>
 
-              {/* Milestones */}
               <div className="space-y-2 mb-4">
                 {milestones.map((m, idx) => {
                   const done = completed[idx];
@@ -388,8 +236,8 @@ function ProgressPill({ milestones, completed, onStartTour }) {
                   <p className="text-[10px] text-muted-foreground mt-0.5">You've explored all the core features.</p>
                 </div>
               ) : (
-                <Button variant="outline" size="sm" className="w-full text-xs h-8" onClick={onStartTour} data-testid="retake-tour-btn">
-                  <Rocket className="h-3.5 w-3.5 mr-1.5" />Retake the tour
+                <Button variant="outline" size="sm" className="w-full text-xs h-8" onClick={onStartGuide} data-testid="open-guide-btn">
+                  <Rocket className="h-3.5 w-3.5 mr-1.5" />View Getting Started Guide
                 </Button>
               )}
 
@@ -406,33 +254,28 @@ function ProgressPill({ milestones, completed, onStartTour }) {
 
 // ========================= MAIN EXPORT =========================
 export default function OnboardingGuide({ setActiveView, csvText, trainingResult, unsupervisedResult, predictionHistory, shapGlobal, limeResult, hasSavedOnce }) {
-  const [tourActive, setTourActive] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
 
-  // Auto-start tour for first-time users
+  // Auto-open guide for first-time users
   useEffect(() => {
     try {
       const seen = localStorage.getItem('automl_tour_seen');
       if (!seen) {
-        // Small delay so the app renders first
-        const timer = setTimeout(() => setTourActive(true), 1500);
+        const timer = setTimeout(() => setGuideOpen(true), 1500);
         return () => clearTimeout(timer);
       }
     } catch {}
   }, []);
 
-  const handleCloseTour = useCallback(() => {
-    setTourActive(false);
+  const handleCloseGuide = useCallback(() => {
+    setGuideOpen(false);
     try { localStorage.setItem('automl_tour_seen', 'true'); } catch {}
   }, []);
 
-  const handleStartTour = useCallback(() => {
-    setTourActive(true);
+  const handleOpenGuide = useCallback(() => {
+    setGuideOpen(true);
   }, []);
 
-  // Show all tour steps (tour is an overview, not interactive)
-  const availableSteps = TOUR_STEPS;
-
-  // Milestone completion tracking
   const milestoneCompleted = [
     !!csvText,
     !!(trainingResult || unsupervisedResult),
@@ -443,16 +286,15 @@ export default function OnboardingGuide({ setActiveView, csvText, trainingResult
 
   return (
     <>
-      <SpotlightTour
-        isActive={tourActive}
-        onClose={handleCloseTour}
-        steps={availableSteps}
+      <GuideDialog
+        isOpen={guideOpen}
+        onClose={handleCloseGuide}
         setActiveView={setActiveView}
       />
       <ProgressPill
         milestones={MILESTONES}
         completed={milestoneCompleted}
-        onStartTour={handleStartTour}
+        onStartGuide={handleOpenGuide}
       />
     </>
   );
