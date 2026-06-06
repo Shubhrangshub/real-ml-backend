@@ -31,13 +31,10 @@ export default function WhatIfView() {
     if (!dataProfile) return {};
     const stats = {};
     const rows = dataProfile.rows || [];
-    const headers = dataProfile.headers || [];
     features.forEach(feat => {
-      const idx = headers.indexOf(feat);
-      if (idx === -1) return;
-      const vals = rows.map(r => r[idx]).filter(v => v !== '' && v != null);
+      const vals = rows.map(r => r[feat]).filter(v => v !== '' && v != null && v !== undefined);
       const numeric = vals.map(Number).filter(v => !isNaN(v));
-      if (numeric.length > vals.length * 0.5) {
+      if (numeric.length > vals.length * 0.5 && numeric.length > 0) {
         const sorted = [...numeric].sort((a, b) => a - b);
         stats[feat] = {
           type: 'numeric', min: Math.min(...numeric), max: Math.max(...numeric),
@@ -47,7 +44,7 @@ export default function WhatIfView() {
       } else {
         // Use encodingMap categories if available
         const mapCats = md?.encodingMap?.[feat];
-        const unique = mapCats || [...new Set(vals)].sort();
+        const unique = mapCats || [...new Set(vals.map(String))].sort();
         stats[feat] = { type: 'categorical', categories: unique.slice(0, 30) };
       }
     });
