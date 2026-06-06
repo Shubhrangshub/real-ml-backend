@@ -36,7 +36,7 @@ export default function PreprocessView() {
   const numericCols = dataProfile?.numericColumns || [];
   const features = columns.filter(c => c !== targetColumn);
 
-  const update = (key, value) => setPreprocessConfig(prev => ({ ...prev, [key]: value }));
+  const update = useCallback((key, value) => setPreprocessConfig(prev => ({ ...prev, [key]: value })), [setPreprocessConfig]);
   const toggleExclude = (col) => {
     setPreprocessConfig(prev => {
       const ex = prev.excludeFeatures || [];
@@ -154,7 +154,7 @@ export default function PreprocessView() {
         ...prev, excludeFeatures: [...new Set([...(prev.excludeFeatures || []), ...rec.suggestExclude])],
       }));
     }
-  }, [setPreprocessConfig]);
+  }, [setPreprocessConfig, update]);
 
   const applyAllRecommendations = useCallback(() => {
     recommendations.forEach(rec => applyRecommendation(rec));
