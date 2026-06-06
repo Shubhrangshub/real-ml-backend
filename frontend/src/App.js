@@ -30,6 +30,7 @@ import ExplainabilityView from './components/views/ExplainabilityView';
 import CompareModelsView from './components/views/CompareModelsView';
 import LeaderboardView from './components/views/LeaderboardView';
 import AdminView from './components/views/AdminView';
+import OnboardingGuide from './components/OnboardingGuide';
 import DashboardView from './components/views/DashboardView';
 import AnalysisView from './components/views/AnalysisView';
 import PredictView from './components/views/PredictView';
@@ -179,6 +180,7 @@ function AppMain({ authUser, onLogout }) {
   const trainingResultRef = useRef(null);
   const unsupervisedResultRef = useRef(null);
   const [showGuide, setShowGuide] = useState(false);
+  const [hasSavedOnce, setHasSavedOnce] = useState(false);
   const [historyList, setHistoryList] = useState([]);
   const [leaderboardEntries, setLeaderboardEntries] = useState([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
@@ -451,6 +453,8 @@ function AppMain({ authUser, onLogout }) {
     limeResult, limeProbs, clusterShap, clusterBeeswarm,
     shapSummary, featureVsPred, clusterComparison, models, dataProfile, fetchHistory, computeFingerprint]);
   handleSaveAnalysisRef.current = handleSaveAnalysis;
+  // Track save milestone for onboarding
+  useEffect(() => { if (historyList?.length > 0) setHasSavedOnce(true); }, [historyList]);
 
   const handleLoadSnapshot = useCallback(async (snapshotId) => {
     try {
@@ -1618,6 +1622,16 @@ function AppMain({ authUser, onLogout }) {
     <AppContext.Provider value={ctx}>
     <div className="min-h-screen bg-background" data-testid="app-root">
       <Toaster position="top-right" richColors closeButton />
+      <OnboardingGuide
+        setActiveView={setActiveView}
+        csvText={csvText}
+        trainingResult={trainingResult}
+        unsupervisedResult={unsupervisedResult}
+        predictionHistory={predictionHistory}
+        shapGlobal={shapGlobal}
+        limeResult={limeResult}
+        hasSavedOnce={hasSavedOnce}
+      />
       <motion.aside initial={{ x: -300 }} animate={{ x: 0 }} className="fixed left-0 top-0 z-40 h-screen w-64 border-r bg-sidebar" data-testid="app-sidebar">
         <div className="flex h-full flex-col gap-2">
           <div className="flex h-16 items-center border-b border-sidebar-border px-6"><div className="flex items-center gap-2"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Brain className="h-6 w-6" /></div><div><h1 className="text-lg font-bold text-sidebar-foreground">AutoML</h1><p className="text-xs text-sidebar-foreground/60">Universal Dashboard</p></div></div></div>
@@ -1644,7 +1658,7 @@ function AppMain({ authUser, onLogout }) {
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <Button variant="ghost" size="sm" onClick={() => setShowGuide(prev => !prev)} data-testid="guide-toggle-btn" className={`h-8 px-2.5 text-xs ${showGuide ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300' : ''}`}><BookOpen className="h-3.5 w-3.5 mr-1.5" />Guide</Button>
+              <Button variant="ghost" size="sm" onClick={() => { try { localStorage.removeItem('automl_tour_seen'); localStorage.removeItem('automl_milestones_dismissed'); } catch {} window.location.reload(); }} data-testid="guide-toggle-btn" className="h-8 px-2.5 text-xs"><BookOpen className="h-3.5 w-3.5 mr-1.5" />Guide</Button>
               {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="ghost" size="sm" onClick={() => handleSaveAnalysis()} data-testid="save-analysis-btn" className="h-8 px-2.5 text-xs"><Save className="h-3.5 w-3.5 mr-1.5" />Save</Button>}
               {(trainingResult || unsupervisedResult) && !viewOnlyMode && <Button variant="ghost" size="sm" onClick={handleShareAnalysis} disabled={exportLoading === 'share'} data-testid="share-analysis-btn" className="h-8 px-2.5 text-xs">{exportLoading === 'share' ? <><span className="h-3.5 w-3.5 mr-1.5 animate-spin rounded-full border-2 border-current border-t-transparent" />...</> : <><Share2 className="h-3.5 w-3.5 mr-1.5" />Share</>}</Button>}
               {(trainingResult || shapGlobal || limeResult || predictionHistory?.length > 0) && !viewOnlyMode && <>
@@ -1714,31 +1728,6 @@ function AppMain({ authUser, onLogout }) {
         })()}</AnimatePresence>
 
         {/* ==================== GUIDE PANEL ==================== */}
-        <AnimatePresence>{showGuide && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="mx-8 mt-4 overflow-hidden" data-testid="guide-panel">
-            <Card className="border-blue-200 dark:border-blue-800 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20">
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2"><BookOpen className="h-5 w-5 text-blue-600" /><span className="font-semibold text-blue-900 dark:text-blue-300">Getting Started Guide</span></div>
-                  <Button variant="ghost" size="sm" onClick={() => setShowGuide(false)} className="text-muted-foreground h-7 text-xs">Dismiss</Button>
-                </div>
-                <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-7">
-                  {GUIDE_STEPS.map(s => {
-                    const done = s.step === 1 ? !!csvText : s.step === 2 ? (cleaningLog.length > 0 || (datasetScan?.score >= 70)) : s.step === 3 ? !!targetColumn : s.step === 4 ? (!!trainingResult || !!unsupervisedResult) : s.step === 5 ? (!!trainingResult || !!unsupervisedResult) : s.step === 6 ? predictionHistory.length > 0 : (!!shapGlobal || !!limeResult);
-                    return <div key={s.step} className={`rounded-lg border p-3 transition-colors ${done ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-700' : 'bg-white dark:bg-card border-border'}`} data-testid={`guide-step-${s.step}`}>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        {done ? <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" /> : <span className="h-5 w-5 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-[10px] font-bold flex items-center justify-center shrink-0">{s.step}</span>}
-                        <span className="text-xs font-semibold">{s.title}</span>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground leading-relaxed">{s.desc}</p>
-                    </div>;
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}</AnimatePresence>
-
         {/* ==================== VIEW-ONLY BANNER ==================== */}
         {viewOnlyMode && (
           <div className="mx-8 mt-4 p-3 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/20 flex items-center justify-between" data-testid="view-only-banner">

@@ -24,31 +24,44 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 - [x] Compare Models, Dark/Light mode, History, Model import/export
 - [x] Secure serialization (Pickle HMAC)
 
-### Model Leaderboard (Feb 2026)
-- [x] Auto-save to leaderboard, sidebar tab, dashboard widget, CRUD APIs
+### Model Leaderboard
+- [x] Auto-save, sidebar tab, dashboard widget, CRUD APIs
 
-### Dataset Context Management (Feb 2026)
+### Dataset Context Management
 - [x] Full state reset on new dataset, auto-save with toast, dataset name badge
 
-### UI Polish (Feb 2026)
+### UI Polish
 - [x] Compact header, colorful sample cards, modern Model Library
 
-### Admin Dashboard (Feb 2026)
-- [x] Admin tab in sidebar (conditional on is_admin flag)
-- [x] **Analytics**: Total users, active sessions, saved analyses, leaderboard models, logins, trains, recent signups, auth provider breakdown
-- [x] **User Management**: List all users with search, toggle admin, disable/enable, reset password, delete user (with all data), confirmation modals
-- [x] **Activity Log**: Tracks login, signup, train, save_analysis, admin actions with filters
-- [x] **System Controls**: Clear all leaderboard entries, clear all snapshots (with confirmation)
-- [x] Admin seeded: shubhrangshub@gmail.com
-- [x] Non-admin users cannot see or access admin features (403 protection)
+### Admin Dashboard
+- [x] Analytics, User Management, Activity Log, System Controls
+- [x] Conditional sidebar tab (admin-only), seeded admin
 
-## DB Collections
-- users, user_sessions, analysis_snapshots, password_reset_tokens
-- leaderboard_entries, activity_log
+### Onboarding Guide (Feb 2026)
+- [x] 9-step spotlight tour with dark overlay + violet highlight border
+- [x] Auto-triggers on first login, re-triggerable via Guide button
+- [x] Floating progress pill (bottom-right) tracking 5 milestones:
+  1. Load a dataset, 2. Train a model, 3. Make a prediction, 4. Explore explainability, 5. Save an analysis
+- [x] Pill collapses to compact "N/5 complete" badge, expands on click
+- [x] "Retake the tour" button, "Dismiss permanently" option
+- [x] Celebration state when all milestones complete
+- [x] Tour steps: Sidebar → Analysis → Sample Datasets → Target Column → Train → Dashboard → Explainability → Leaderboard → History
 
-## Admin Access
-- Default admin: shubhrangshub@gmail.com
-- Admin can designate other admins via Users tab
+## File Structure
+```
+src/
+├── App.js, AuthPage.js, constants.js
+├── context/AppContext.js
+├── utils/helpers.js, mlEngine.js, datasetUtils.js
+├── components/
+│   ├── SmartTooltip.js
+│   ├── OnboardingGuide.js (NEW - tour + progress pill)
+│   └── views/
+│       ├── DashboardView.js, AnalysisView.js, PredictView.js
+│       ├── ExplainabilityView.js, DataExplorerView.js
+│       ├── CompareModelsView.js, LeaderboardView.js
+│       ├── HistoryView.js, SmallViews.js, AdminView.js
+```
 
 ## Backlog
 - [ ] P1: React Hook dependency issues & array key optimization
@@ -56,6 +69,5 @@ AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabli
 - [ ] P1: Model Deployment API
 - [ ] P1: Automated Report Generation (PDF/HTML)
 - [ ] P2: Backend server.py refactoring
-- [ ] P2: Advanced hyperparameter tuning UI
-- [ ] P2: "What-If" Analyzer, Interactive Tutorial Mode
+- [ ] P2: Advanced hyperparameter tuning UI, What-If Analyzer
 - [ ] P3: Dataset preprocessing pipeline UI
