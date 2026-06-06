@@ -1,9 +1,10 @@
 import React, { useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Settings2, Droplets, BarChart3, Scissors, Filter, CheckCircle2, Info, Lightbulb, Sparkles } from 'lucide-react';
+import { Settings2, Droplets, BarChart3, Scissors, Filter, CheckCircle2, Info, Lightbulb, Sparkles, Check } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 import { fadeInUp } from '../../constants';
 import { useApp } from '../../context/AppContext';
 
@@ -147,18 +148,44 @@ export default function PreprocessView() {
     return recs;
   }, [dataProfile, targetColumn]);
 
+  const isRecApplied = useCallback((rec) => {
+    if (rec.action) {
+      if (preprocessConfig[rec.action.key] !== rec.action.value) return false;
+    }
+    if (rec.suggestExclude) {
+      const excluded = preprocessConfig.excludeFeatures || [];
+      if (!rec.suggestExclude.every(c => excluded.includes(c))) return false;
+    }
+    return true;
+  }, [preprocessConfig]);
+
   const applyRecommendation = useCallback((rec) => {
+    if (isRecApplied(rec)) return;
     if (rec.action) update(rec.action.key, rec.action.value);
     if (rec.suggestExclude) {
       setPreprocessConfig(prev => ({
         ...prev, excludeFeatures: [...new Set([...(prev.excludeFeatures || []), ...rec.suggestExclude])],
       }));
     }
-  }, [setPreprocessConfig, update]);
+    toast.success(`Applied: ${rec.title}`);
+  }, [setPreprocessConfig, update, isRecApplied]);
 
   const applyAllRecommendations = useCallback(() => {
-    recommendations.forEach(rec => applyRecommendation(rec));
-  }, [recommendations, applyRecommendation]);
+    const pending = recommendations.filter(rec => !isRecApplied(rec));
+    if (pending.length === 0) {
+      toast.info('All recommendations already applied');
+      return;
+    }
+    pending.forEach(rec => {
+      if (rec.action) update(rec.action.key, rec.action.value);
+      if (rec.suggestExclude) {
+        setPreprocessConfig(prev => ({
+          ...prev, excludeFeatures: [...new Set([...(prev.excludeFeatures || []), ...rec.suggestExclude])],
+        }));
+      }
+    });
+    toast.success(`Applied ${pending.length} recommendation${pending.length > 1 ? 's' : ''}`);
+  }, [recommendations, isRecApplied, update, setPreprocessConfig]);
 
   if (!dataProfile) {
     return (
@@ -193,35 +220,51 @@ export default function PreprocessView() {
       </Card>
 
       {/* Smart Recommendations */}
-      {recommendations.length > 0 && (
-        <Card className="border-amber-200 dark:border-amber-800/50 bg-gradient-to-r from-amber-50/50 to-orange-50/30 dark:from-amber-950/20 dark:to-orange-950/10" data-testid="smart-recommendations">
+      {recommendations.length > 0 && (() => {
+        const allApplied = recommendations.every(rec => isRecApplied(rec));
+        const pendingCount = recommendations.filter(rec => !isRecApplied(rec)).length;
+        return (
+        <Card className={`border-amber-200 dark:border-amber-800/50 ${allApplied ? 'bg-gradient-to-r from-emerald-50/50 to-green-50/30 dark:from-emerald-950/20 dark:to-green-950/10 border-emerald-200 dark:border-emerald-800/50' : 'bg-gradient-to-r from-amber-50/50 to-orange-50/30 dark:from-amber-950/20 dark:to-orange-950/10'}`} data-testid="smart-recommendations">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm flex items-center gap-2">
-                <Lightbulb className="h-4 w-4 text-amber-500" />Smart Recommendations
-                <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0 text-[10px]">{recommendations.length} suggestion{recommendations.length > 1 ? 's' : ''}</Badge>
+                {allApplied ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <Lightbulb className="h-4 w-4 text-amber-500" />}
+                Smart Recommendations
+                {allApplied
+                  ? <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-0 text-[10px]">All applied</Badge>
+                  : <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0 text-[10px]">{pendingCount} pending</Badge>
+                }
               </CardTitle>
-              <Button size="sm" className="h-7 text-xs gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600" onClick={applyAllRecommendations} data-testid="apply-all-recommendations">
-                <Sparkles className="h-3 w-3" />Apply All
-              </Button>
+              {!allApplied && (
+                <Button size="sm" className="h-7 text-xs gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600" onClick={applyAllRecommendations} data-testid="apply-all-recommendations">
+                  <Sparkles className="h-3 w-3" />Apply All
+                </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent className="space-y-2.5 pt-0">
-            {recommendations.map(rec => (
-              <div key={rec.key} className="flex items-start gap-3 p-3 rounded-lg bg-white/60 dark:bg-zinc-900/40 border border-white/80 dark:border-zinc-800">
+            {recommendations.map(rec => {
+              const applied = isRecApplied(rec);
+              return (
+              <div key={rec.key} className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${applied ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/50' : 'bg-white/60 dark:bg-zinc-900/40 border-white/80 dark:border-zinc-800'}`}>
                 <div className="mt-0.5">
-                  {rec.severity === 'high' ? <Badge variant="destructive" className="text-[9px] px-1.5 py-0">HIGH</Badge> : rec.severity === 'medium' ? <Badge className="text-[9px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0">MED</Badge> : <Badge variant="outline" className="text-[9px] px-1.5 py-0">LOW</Badge>}
+                  {applied ? <Badge className="text-[9px] px-1.5 py-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-0 gap-0.5"><Check className="h-2.5 w-2.5" />DONE</Badge> : rec.severity === 'high' ? <Badge variant="destructive" className="text-[9px] px-1.5 py-0">HIGH</Badge> : rec.severity === 'medium' ? <Badge className="text-[9px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0">MED</Badge> : <Badge variant="outline" className="text-[9px] px-1.5 py-0">LOW</Badge>}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{rec.title}</p>
+                  <p className={`text-sm font-medium ${applied ? 'text-emerald-700 dark:text-emerald-400' : ''}`}>{rec.title}</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">{rec.detail}</p>
                 </div>
-                <Button variant="outline" size="sm" className="shrink-0 h-7 text-[11px]" onClick={() => applyRecommendation(rec)} data-testid={`apply-rec-${rec.key}`}>Apply</Button>
+                {applied
+                  ? <span className="shrink-0 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1" data-testid={`applied-rec-${rec.key}`}><CheckCircle2 className="h-3.5 w-3.5" />Applied</span>
+                  : <Button variant="outline" size="sm" className="shrink-0 h-7 text-[11px]" onClick={() => applyRecommendation(rec)} data-testid={`apply-rec-${rec.key}`}>Apply</Button>
+                }
               </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
-      )}
+        );
+      })()}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Step 1: Missing Values */}

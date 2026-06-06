@@ -89,6 +89,8 @@ src/
 - [x] Dataset-aware recommendation engine (useMemo) analyzing missing values, outliers, scale variance, cardinality, low-variance
 - [x] Severity levels (HIGH/MED/LOW) with visual badges
 - [x] Individual "Apply" buttons per recommendation + "Apply All"
+- [x] Visual feedback: toast notifications, green "DONE"/"Applied" states, "All applied" card header
+- [x] `isRecApplied` helper tracks applied vs pending recommendations
 - [x] React Hook dependency warning fixed (update wrapped in useCallback)
 
 ## Backlog
