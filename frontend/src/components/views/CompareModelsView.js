@@ -267,6 +267,23 @@ export default function CompareModelsView() {
 
       {selectedModels.length >= 2 && (
         <>
+          {/* ==================== NEGATIVE R² WARNING ==================== */}
+          {!isClassification && selectedModels.some(m => (m.metrics?.r2 || 0) < 0) && (
+            <motion.div variants={fadeInUp}>
+              <Card className="border-amber-300 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-950/20" data-testid="negative-r2-warning">
+                <CardContent className="p-4 flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Models Performing Worse Than Baseline</p>
+                    <p className="text-xs text-amber-700/80 dark:text-amber-400/70 mt-1">
+                      {selectedModels.filter(m => (m.metrics?.r2 || 0) < 0).map(m => ALGO_NAMES[m.algorithm] || m.algorithm).join(', ')} {selectedModels.filter(m => (m.metrics?.r2 || 0) < 0).length === 1 ? 'has' : 'have'} a negative R² score, meaning {selectedModels.filter(m => (m.metrics?.r2 || 0) < 0).length === 1 ? 'it performs' : 'they perform'} worse than simply predicting the mean value. Consider excluding {selectedModels.filter(m => (m.metrics?.r2 || 0) < 0).length === 1 ? 'this model' : 'these models'} from production use.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
           {/* ==================== WINNER RECOMMENDATION ==================== */}
           {winner && (
             <motion.div variants={fadeInUp}>

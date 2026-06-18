@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { BarChart2, Zap, TrendingUp, BarChart3 } from 'lucide-react';
+import { BarChart2, Zap, TrendingUp, BarChart3, Info } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,8 +16,11 @@ import { useApp } from '../../context/AppContext';
 export default function DataExplorerView() {
   const {
     dataProfile, setActiveView, histogramCol, setHistogramCol, histogramData,
-    corrVarX, setCorrVarX, corrVarY, setCorrVarY, corrMatrix, dataPreview
+    corrVarX, setCorrVarX, corrVarY, setCorrVarY, corrMatrix, dataPreview,
+    cleaningLog, preprocessLog
   } = useApp();
+
+  const hasPreprocessing = (cleaningLog && cleaningLog.length > 0) || (preprocessLog && preprocessLog.length > 0);
 
   return (
   <motion.div key="explore" variants={staggerContainer} initial="initial" animate="animate" exit="exit" className="space-y-6" data-testid="explore-view">
@@ -70,7 +73,16 @@ export default function DataExplorerView() {
       </motion.div>
 
       {/* Correlation Heatmap */}
-      {corrMatrix.length > 0 && <motion.div variants={fadeInUp}><Card data-testid="explore-correlation-heatmap"><CardHeader><CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" />Correlation Heatmap</CardTitle><CardDescription>Pairwise correlations between all numeric variables. Blue = positive, red = negative.</CardDescription></CardHeader>
+      {corrMatrix.length > 0 && <motion.div variants={fadeInUp}>
+        {hasPreprocessing && (
+          <div className="mb-3 p-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/20 flex items-start gap-2.5" data-testid="preprocess-correlation-notice">
+            <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-blue-700 dark:text-blue-300">
+              Preprocessing has been applied to this dataset. Correlation values shown below reflect the <strong>processed data</strong> and may differ from the original raw dataset. Operations like outlier treatment, scaling, or missing value imputation can change correlation patterns.
+            </p>
+          </div>
+        )}
+        <Card data-testid="explore-correlation-heatmap"><CardHeader><CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" />Correlation Heatmap</CardTitle><CardDescription>Pairwise correlations between all numeric variables. Blue = positive, red = negative.</CardDescription></CardHeader>
         <CardContent><div className="overflow-auto">
           <div className="inline-grid gap-px" style={{gridTemplateColumns: `120px repeat(${dataProfile.numericColumns.length}, minmax(60px, 1fr))`}}>
             <div />

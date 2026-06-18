@@ -26,11 +26,12 @@ export default function WhatIfView() {
     return [...(md.numericCols || []), ...(md.categoricalCols || [])];
   }, [md, columns, targetColumn]);
 
-  // Compute feature ranges/categories from the data
+  // Compute feature ranges/categories from the data, with frequency info for rare-category flagging
   const featureStats = useMemo(() => {
     if (!dataProfile) return {};
     const stats = {};
     const rows = dataProfile.rows || [];
+    const totalRows = rows.length;
     features.forEach(feat => {
       const vals = rows.map(r => r[feat]).filter(v => v !== '' && v != null && v !== undefined);
       const numeric = vals.map(Number).filter(v => !isNaN(v));
@@ -45,7 +46,14 @@ export default function WhatIfView() {
         // Use encodingMap categories if available
         const mapCats = md?.encodingMap?.[feat];
         const unique = mapCats || [...new Set(vals.map(String))].sort();
-        stats[feat] = { type: 'categorical', categories: unique.slice(0, 30) };
+        // Compute frequency for each category to flag rare ones
+        const freq = {};
+        vals.forEach(v => { const s = String(v); freq[s] = (freq[s] || 0) + 1; });
+        const categories = unique.slice(0, 30);
+        const categoryFreq = {};
+        categories.forEach(c => { categoryFreq[c] = freq[c] || 0; });
+        const rareThreshold = Math.max(2, totalRows * 0.02); // < 2% occurrence
+        stats[feat] = { type: 'categorical', categories, categoryFreq, rareThreshold, totalRows };
       }
     });
     return stats;
@@ -148,8 +156,11 @@ export default function WhatIfView() {
                       <label className="text-xs font-medium w-36 truncate shrink-0" title={feat}>{feat}</label>
                       {s?.type === 'categorical' ? (
                         <select value={baseline[feat] || ''} onChange={e => setBaseline(prev => ({ ...prev, [feat]: e.target.value }))}
-                          className="flex-1 text-xs px-2 py-1.5 rounded border bg-background">
-                          {s.categories.map(c => <option key={c} value={c}>{c}</option>)}
+                          className="flex-1 text-xs px-2 py-1.5 rounded border bg-background" data-testid={`whatif-baseline-${feat}`}>
+                          {s.categories.map(c => {
+                            const isRare = s.categoryFreq && s.rareThreshold && (s.categoryFreq[c] || 0) < s.rareThreshold;
+                            return <option key={c} value={c}>{c}{isRare ? ' (rare)' : ''}</option>;
+                          })}
                         </select>
                       ) : (
                         <div className="flex-1 flex items-center gap-2">
@@ -184,8 +195,11 @@ export default function WhatIfView() {
                       <label className={`text-xs font-medium w-36 truncate shrink-0 ${changed ? 'text-fuchsia-700 dark:text-fuchsia-300' : ''}`} title={feat}>{feat}</label>
                       {s?.type === 'categorical' ? (
                         <select value={modified[feat] || ''} onChange={e => setModified(prev => ({ ...prev, [feat]: e.target.value }))}
-                          className={`flex-1 text-xs px-2 py-1.5 rounded border bg-background ${changed ? 'border-fuchsia-300 dark:border-fuchsia-700' : ''}`}>
-                          {s.categories.map(c => <option key={c} value={c}>{c}</option>)}
+                          className={`flex-1 text-xs px-2 py-1.5 rounded border bg-background ${changed ? 'border-fuchsia-300 dark:border-fuchsia-700' : ''}`} data-testid={`whatif-modified-${feat}`}>
+                          {s.categories.map(c => {
+                            const isRare = s.categoryFreq && s.rareThreshold && (s.categoryFreq[c] || 0) < s.rareThreshold;
+                            return <option key={c} value={c}>{c}{isRare ? ' (rare)' : ''}</option>;
+                          })}
                         </select>
                       ) : (
                         <div className="flex-1 flex items-center gap-2">

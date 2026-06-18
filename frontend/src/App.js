@@ -771,7 +771,7 @@ function AppMain({ authUser, onLogout }) {
       let score = 0;
       // Strong signal: column name matches common target/financial keywords
       if (targetKeywords.some(k => nameLower.includes(k))) score += 20;
-      if (financialKeywords.some(k => nameLower.includes(k)) && c.type === 'numeric') score += 15;
+      if (financialKeywords.some(k => nameLower.includes(k)) && c.type === 'numeric') score += 25;
       // Classification targets: categorical with 2-10 classes
       if (c.type === 'categorical' && c.uniqueCount >= 2 && c.uniqueCount <= 10) {
         score += 10 + (10 - c.uniqueCount);
