@@ -34,12 +34,12 @@ export default function LeaderboardView() {
   const [filterType, setFilterType] = useState('all');
 
   // Unique algorithms and types
-  const algorithms = useMemo(() => [...new Set(leaderboardEntries.map(e => e.algorithm))], [leaderboardEntries]);
+  const algorithms = useMemo(() => [...new Set(leaderboardEntries.map(e => e.algorithm))].filter(a => a !== 'baseline'), [leaderboardEntries]);
   const problemTypes = useMemo(() => [...new Set(leaderboardEntries.map(e => e.problem_type))], [leaderboardEntries]);
 
-  // Filtered & sorted entries
+  // Filtered & sorted entries (exclude baseline)
   const sortedEntries = useMemo(() => {
-    let entries = [...leaderboardEntries];
+    let entries = leaderboardEntries.filter(e => e.algorithm !== 'baseline');
     if (filterAlgo !== 'all') entries = entries.filter(e => e.algorithm === filterAlgo);
     if (filterType !== 'all') entries = entries.filter(e => e.problem_type === filterType);
 

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SlidersHorizontal, Play, Trophy, ArrowRight, Loader2, BarChart3, TrendingUp, Zap } from 'lucide-react';
+import { SlidersHorizontal, Play, Trophy, ArrowRight, Loader2, BarChart3, TrendingUp, Zap, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -312,11 +312,20 @@ export default function TuneView() {
                   </div>
                 </div>
 
-                {/* Apply Button */}
-                {tuningResult.improvement > 0 && (
+                {/* Apply Button or Keep Original Recommendation */}
+                {tuningResult.improvement > 0 ? (
                   <Button className="w-full mt-4 gap-2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:from-emerald-600 hover:to-teal-600" onClick={applyBestParams} data-testid="apply-tuned-btn">
                     <TrendingUp className="h-4 w-4" />Apply Tuned Model
                   </Button>
+                ) : (
+                  <div className="mt-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800" data-testid="keep-original-rec">
+                    <p className="text-sm font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                      <AlertTriangle className="h-4 w-4" />Recommendation: Keep original model
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Tuning did not improve the score. The original model is already performing at or near its best for this parameter range. Try a different algorithm or expand the dataset.
+                    </p>
+                  </div>
                 )}
               </CardContent>
             </Card>

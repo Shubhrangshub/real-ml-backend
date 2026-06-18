@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   GitBranch, Trophy, Zap, Brain, Target, TrendingUp, BarChart3,
-  CheckCircle2, AlertCircle, Shield,
+  CheckCircle2, AlertCircle, Shield, AlertTriangle,
   Activity, Clock, Layers
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -241,7 +241,8 @@ export default function CompareModelsView() {
                     <div className="h-3 w-3 rounded-full" style={{ backgroundColor: color }} />
                     <span>{name}</span>
                     {score !== undefined && (
-                      <Badge variant="secondary" className="text-xs px-1.5 py-0">
+                      <Badge variant={!isClassification && score < 0 ? 'destructive' : 'secondary'} className="text-xs px-1.5 py-0">
+                        {!isClassification && score < 0 && <AlertTriangle className="h-3 w-3 mr-0.5 inline" />}
                         {(score * 100).toFixed(1)}%
                       </Badge>
                     )}

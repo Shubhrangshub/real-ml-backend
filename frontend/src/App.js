@@ -763,18 +763,30 @@ function AppMain({ authUser, onLogout }) {
   const suggestedTarget = useMemo(() => {
     if (!dataProfile || targetColumn) return null;
     const cols = dataProfile.columns;
-    // Prefer categorical columns with 2-10 unique values (classification) or numeric columns with high variability (regression)
+    const financialKeywords = ['charges', 'charge', 'cost', 'price', 'amount', 'salary', 'income', 'revenue', 'profit', 'loss', 'fee', 'premium', 'insurance', 'payment', 'spend', 'expense', 'total', 'sales'];
+    const targetKeywords = ['target', 'label', 'class', 'output', 'result', 'outcome', 'status', 'approved', 'churned', 'survived', 'default'];
     let bestCol = null, bestScore = -1;
     for (const c of cols) {
+      const nameLower = c.name.toLowerCase();
       let score = 0;
+      // Strong signal: column name matches common target/financial keywords
+      if (targetKeywords.some(k => nameLower.includes(k))) score += 20;
+      if (financialKeywords.some(k => nameLower.includes(k)) && c.type === 'numeric') score += 15;
+      // Classification targets: categorical with 2-10 classes
       if (c.type === 'categorical' && c.uniqueCount >= 2 && c.uniqueCount <= 10) {
-        score = 10 + (10 - c.uniqueCount); // fewer classes = cleaner classification
-      } else if (c.type === 'numeric' && c.uniqueCount > 10) {
-        score = 5 + Math.min(5, c.std / (Math.abs(c.mean) || 1)); // higher variability = better regression target
+        score += 10 + (10 - c.uniqueCount);
       }
+      // Regression targets: numeric with high variability and many unique values
+      else if (c.type === 'numeric' && c.uniqueCount > 10) {
+        score += 5 + Math.min(5, c.std / (Math.abs(c.mean) || 1));
+      }
+      // Penalize ID-like, name-like, or index columns
+      if (['id', 'index', 'name', 'date', 'timestamp', 'key'].some(k => nameLower.includes(k))) score -= 30;
+      // Penalize columns with too many unique values relative to rows (likely IDs)
+      if (c.uniqueCount > dataProfile.rowCount * 0.8) score -= 20;
       if (score > bestScore) { bestScore = score; bestCol = c; }
     }
-    if (!bestCol) return null;
+    if (!bestCol || bestScore <= 0) return null;
     const task = bestCol.type === 'categorical' ? 'classification' : 'regression';
     return { name: bestCol.name, task, reason: bestCol.type === 'categorical' ? `Categorical with ${bestCol.uniqueCount} classes` : `Numeric with high variability (std: ${bestCol.std?.toFixed(2)})` };
   }, [dataProfile, targetColumn]);
@@ -1089,7 +1101,7 @@ function AppMain({ authUser, onLogout }) {
         if (rows.length < 4) throw new Error('Too few rows remaining after preprocessing — try less aggressive settings');
 
         const prepared = prepareFeatures(rows, targetColumn);
-        let { X, y, featureNames, encodingMap, numericCols, categoricalCols, textCols, targetEncoding, leakageCols } = prepared;
+        let { X, y, featureNames, encodingMap, numericCols, categoricalCols, textCols, targetEncoding, leakageCols, targetMin, targetMax } = prepared;
         if (featureNames.length === 0) throw new Error('No usable features after preprocessing');
         const problemType = detectProblemType(y);
 
@@ -1180,7 +1192,7 @@ function AppMain({ authUser, onLogout }) {
         }
 
         // Store best model for predictions
-        const modelData = { featureNames, numericCols, categoricalCols, encodingMap, targetEncoding, scaleParams, ...bestModelObj };
+        const modelData = { featureNames, numericCols, categoricalCols, encodingMap, targetEncoding, scaleParams, targetMin, targetMax, ...bestModelObj };
         // Limit KNN storage for localStorage
         if (modelData.type === 'knn' && modelData.X_train && modelData.X_train.length > 500) {
           const si = Array.from({ length: modelData.X_train.length }, (_, i) => i);
@@ -1209,7 +1221,7 @@ function AppMain({ authUser, onLogout }) {
                   featureImportance: lbEntry.featureImportance,
                   createdAt: new Date().toISOString(), durationSec: lbEntry.durationSec,
                   evalMode, targetColumn,
-                  modelData: { featureNames, numericCols, categoricalCols, encodingMap, targetEncoding, scaleParams, ...tm.modelObj }
+                  modelData: { featureNames, numericCols, categoricalCols, encodingMap, targetEncoding, scaleParams, targetMin, targetMax, ...tm.modelObj }
                 });
               }
             }
@@ -1260,8 +1272,13 @@ function AppMain({ authUser, onLogout }) {
       am.modelData.categoricalCols.forEach(col => { row[col] = predictionFormData[col] || ''; });
       const fvs = prepareInputForPrediction([row], am.modelData);
       const predictions = fvs.map(x => {
-        const raw = predictOne(am.modelData, x);
-        return am.modelData.targetEncoding ? am.modelData.targetEncoding[raw] : raw;
+        let raw = predictOne(am.modelData, x);
+        raw = am.modelData.targetEncoding ? am.modelData.targetEncoding[raw] : raw;
+        // Clamp regression predictions: prevent nonsensical negatives when target is naturally non-negative
+        if (am.problemType === 'regression' && typeof raw === 'number' && am.modelData.targetMin !== undefined && am.modelData.targetMin >= 0) {
+          raw = Math.max(0, raw);
+        }
+        return raw;
       });
       const sigmoid = (z) => 1 / (1 + Math.exp(-Math.max(-500, Math.min(500, z))));
       const probabilities = am.modelData.type === 'logistic_regression' ? fvs.map(x => { const z = am.modelData.coefficients[0] + x.reduce((s, v, i) => s + v * am.modelData.coefficients[i + 1], 0); const p = sigmoid(z); return [1 - p, p]; }) : null;

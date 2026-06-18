@@ -28,7 +28,7 @@ export function profileDataset(text) {
     const numericValues = values.filter(v => typeof v === 'number');
     const isNumeric = numericValues.length === values.length && numericValues.length > 0;
     const uniqueCount = new Set(values.map(String)).size;
-    const profile = { name: col, type: isNumeric ? 'numeric' : 'categorical', uniqueCount, missingCount: values.filter(v => v === '' || v === null || v === undefined).length, sampleValues: [...new Set(values.map(String))].slice(0, 5) };
+    const profile = { name: col, type: isNumeric ? 'numeric' : 'categorical', uniqueCount, missingCount: values.filter(v => v === '' || v === null || v === undefined).length, sampleValues: [...new Set(values.map(String))].slice(0, 10) };
     if (isNumeric && numericValues.length > 0) {
       const [lo, hi] = arrayMinMax(numericValues);
       profile.min = lo; profile.max = hi;

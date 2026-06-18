@@ -35,7 +35,9 @@ export function prepareFeatures(rows, targetCol) {
     targetEncoding = uniq;
     y = y.map(v => uniq.indexOf(String(v)));
   }
-  return { X, y, featureNames, encodingMap, numericCols, categoricalCols, textCols, targetEncoding, leakageCols };
+  const targetMin = targetEncoding ? undefined : Math.min(...y);
+  const targetMax = targetEncoding ? undefined : Math.max(...y);
+  return { X, y, featureNames, encodingMap, numericCols, categoricalCols, textCols, targetEncoding, leakageCols, targetMin, targetMax };
 }
 
 // ==================== TRAIN-TEST SPLIT ====================
@@ -538,7 +540,7 @@ export const HYPERPARAMETER_DEFS = {
     { key: 'epochs', label: 'Epochs', type: 'range', min: 50, max: 500, step: 50, default: 200 },
   ],
   ridge_regression: [
-    { key: 'lambda', label: 'Lambda (Regularization)', type: 'range', min: 0.01, max: 100, step: 0.5, default: 1.0 },
+    { key: 'lambda', label: 'Lambda (Regularization)', type: 'range', min: 0.01, max: 10, step: 0.1, default: 1.0 },
   ],
   naive_bayes: [
     { key: 'smoothing', label: 'Variance Smoothing', type: 'range', min: 0.0001, max: 1.0, step: 0.0001, default: 0.001 },

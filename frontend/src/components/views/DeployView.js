@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Rocket, Globe, Copy, Trash2, Eye, EyeOff, Clock, Activity,
-  Link2, Code, ExternalLink, ChevronDown, CheckCircle2, AlertCircle, Send, RefreshCw
+  Link2, Code, ExternalLink, ChevronDown, CheckCircle2, AlertCircle, Send, RefreshCw, AlertTriangle
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -111,9 +111,14 @@ export default function DeployView() {
                         <span key={k} className="ml-2">{k}: {typeof v === 'number' ? v.toFixed(3) : v}</span>
                       ))}
                     </div>
+                    {model.problemType === 'regression' && model.metrics?.r2 < 0 && (
+                      <div className="text-xs text-destructive font-medium mt-1 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />Negative R² — this model performs worse than predicting the mean
+                      </div>
+                    )}
                   </div>
-                  <Button size="sm" className="gap-1.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:from-violet-600 hover:to-fuchsia-600"
-                    onClick={() => handleDeploy(model)} disabled={deployingId === model.modelId} data-testid={`deploy-btn-${model.modelId}`}>
+                  <Button size="sm" className={`gap-1.5 ${model.problemType === 'regression' && model.metrics?.r2 < 0 ? 'bg-destructive hover:bg-destructive/90' : 'bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600'} text-white`}
+                    onClick={() => { if (model.problemType === 'regression' && model.metrics?.r2 < 0 && !window.confirm('This model has a negative R² score and performs poorly. Deploy anyway?')) return; handleDeploy(model); }} disabled={deployingId === model.modelId} data-testid={`deploy-btn-${model.modelId}`}>
                     {deployingId === model.modelId ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
                     Deploy
                   </Button>
