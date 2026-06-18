@@ -1,105 +1,62 @@
 # AutoML Master - Product Requirements Document
 
-## Overview
-AutoML Master is a full-stack AutoML platform (React + FastAPI + MongoDB) enabling dataset upload, model training, explainable AI (SHAP/LIME), predictions, model deployment, What-If analysis, preprocessing pipelines, and hyperparameter tuning — all running client-side in the browser.
+## Original Problem Statement
+Build a full-stack AutoML application with client-side ML, model training/comparison, deployment, and comprehensive data analysis features.
 
 ## Architecture
-- **Frontend**: React, TailwindCSS, Framer Motion, Recharts, Context API
-- **Backend**: FastAPI (Python), bcrypt auth, session tokens
-- **Database**: MongoDB (automl_db)
+- **Frontend**: React (TailwindCSS, Framer Motion, Recharts, Shadcn/UI). Context API for state management.
+- **Backend**: FastAPI (server.py)
+- **Database**: MongoDB
+- **ML**: Client-side via `mlEngine.js` (scikit-learn equivalent in JS)
+- **PDF**: jspdf + jspdf-autotable
 
-## Implemented Features
+## Core Features (All Completed)
+1. Dataset upload/sample loading with auto-profiling
+2. Model training (8 algorithms: Random Forest, Gradient Boosting, KNN, SVM, Decision Tree, Naive Bayes, Logistic/Linear Regression)
+3. Model Leaderboard with auto-save and ranking
+4. SHAP/LIME Explainability with beeswarm plots
+5. Model Comparison (radar charts, metric tables)
+6. Model Deployment via public REST API
+7. What-If Analyzer for predictions
+8. Automated PDF Report generation
+9. Data Preprocessing Pipeline UI with Smart Recommendations
+10. Advanced Hyperparameter Tuning (all 8 algorithms)
+11. Admin Dashboard with analytics
+12. 13-step Onboarding Dialog Guide
+13. Anomaly Detection with narration
+14. History with direct PDF download
 
-### Core ML
-- [x] CSV upload & 5 large sample datasets (1000-1500 rows)
-- [x] Dataset profiling, scanner, cleaning
-- [x] 10+ ML algorithms, auto selection, K-fold cross-validation
-- [x] Single & batch predictions, unsupervised learning, anomaly detection
+## QA Bug Fixes (All Complete - June 2026)
+### Bugs 1-11 (Fixed in previous session)
+- MAJOR-01 through MAJOR-05, MINOR-01 through MINOR-06
+- Clamped negative predictions, deduplicated models, auto-selected best models, bad R2 warnings, etc.
 
-### Explainability
-- [x] SHAP, LIME, feature importance, business interpretation, Decision Tree viz
+### Bugs 12-15 (Fixed June 18, 2026)
+- **MINOR-07**: Added prominent amber warning banner in Compare tab for models with negative R2 (`data-testid="negative-r2-warning"`)
+- **MINOR-08**: Already fixed - Tune tab shows "Keep original model" recommendation
+- **MINOR-09**: Added rare-category flagging in What-If dropdown with '(rare)' tag for categories < 2% occurrence
+- **MINOR-10**: Already fixed - Baseline entries filtered from Leaderboard
 
-### Auth & UX
-- [x] JWT session auth, Google OAuth, Forgot/Reset Password
-- [x] Compare Models, Dark/Light mode, History, Model import/export
+### Additional Bug Fixes
+- **MINOR-11**: Deploy tab confirm dialog for negative R2 models
+- **MINOR-12**: Data Explorer shows preprocessing notification near correlation heatmap (`data-testid="preprocess-correlation-notice"`)
+- **SHAP Chart**: Verified correct - pink (#ec4899) for positive push (right), cyan (#06b6d4) for negative pull (left)
 
-### Model Leaderboard, Admin Dashboard, Onboarding Guide
-- [x] All fully implemented and tested
+## Key DB Collections
+- `users`, `user_sessions`, `analysis_snapshots`, `leaderboard_entries`, `deployed_models`, `activity_log`
 
-### Model Deployment ✅ TESTED
-- [x] Deploy trained models to get a public prediction URL
-- [x] Public prediction page with client-side prediction
-- [x] REST API endpoint with Python reimplementation of JS prediction logic
-- [x] Enable/disable/delete deployments
+## Key API Endpoints
+- POST /api/deploy, /api/snapshots, /api/admin/analytics, /api/admin/users, /api/leaderboard
 
-### What-If Analyzer ✅ TESTED
-- [x] Side-by-side baseline vs. modified scenario comparison
-- [x] Bug fix: numeric features now show range sliders + number inputs (was showing empty dropdowns due to row data access by index instead of column name)
+## Pending Tasks
+### P1 - Upcoming
+- Real-time Collaborative Sessions
 
-### Automated PDF Report ✅ TESTED
-- [x] Multi-page PDF with cover, TOC, executive summary, dataset overview
-- [x] Model leaderboard, best model metrics, feature importance charts
-- [x] SHAP/LIME tables, preprocessing config, tuning results, deployments
-- [x] Conclusions & recommendations
+### P2/P3 - Future/Backlog
+- Export preprocessing pipeline as downloadable Python script
+- Refactor App.js (~2000 lines) into smaller hooks/providers
+- Refactor server.py for complexity
+- Address insecure token storage (localStorage -> httpOnly cookies)
 
-### Data Preprocessing Pipeline (Jun 2026) ✅ TESTED
-- [x] **Missing Values**: auto (median/mode), mean, median, mode, zero, drop rows, none
-- [x] **Feature Scaling**: none, standardize (z-score), min-max normalize
-- [x] **Outlier Treatment**: none, clip (winsorize), remove — configurable IQR threshold
-- [x] **Feature Selection**: toggle individual features, select all/numeric only
-- [x] Preprocessing config stored in state, applied during training pipeline
-- [x] Scale params stored in modelData for prediction compatibility
-- [x] Preprocessing log displayed after training
-- [x] Integrated with PDF report (preprocessing pipeline section)
-- [x] Integrated with onboarding guide (new tour step)
-- [x] Backend public predict handles scaled models correctly
-
-### Advanced Hyperparameter Tuning (Jun 2026) ✅ TESTED
-- [x] **Tunable algorithms**: Decision Tree, Random Forest, Gradient Boosting, KNN, SVM, Ridge, Naive Bayes, Logistic Regression (all 8)
-- [x] **Search strategies**: Random Search (20 trials), Grid Search (exhaustive), Bayesian-style
-- [x] **Per-algorithm parameters**: maxDepth, minSamples, nTrees, learningRate, k, C, lambda, epochs, smoothing
-- [x] **Logistic Regression**: Proper gradient descent with tunable learning rate, epochs, L2 regularization
-- [x] **Naive Bayes**: Variance smoothing parameter (0.0001–1.0)
-- [x] **Results dashboard**: Original vs Tuned score comparison, improvement metric
-- [x] **Top 10 Trials table**: ranked by score with parameter values
-- [x] **Apply Tuned Model**: adds optimized model to session (only when improvement > 0)
-- [x] Progress bar during tuning
-- [x] Integrated with PDF report (tuning results section)
-- [x] Integrated with onboarding guide (new tour step)
-
-## File Structure
-```
-src/
-├── App.js, AuthPage.js, constants.js
-├── context/AppContext.js
-├── utils/helpers.js, mlEngine.js, datasetUtils.js, reportGenerator.js, preprocessUtils.js
-├── components/
-│   ├── SmartTooltip.js, OnboardingGuide.js, PublicPredictPage.js
-│   └── views/
-│       ├── DashboardView.js, AnalysisView.js, PredictView.js
-│       ├── ExplainabilityView.js, DataExplorerView.js
-│       ├── CompareModelsView.js, LeaderboardView.js
-│       ├── HistoryView.js, SmallViews.js, AdminView.js
-│       ├── DeployView.js, WhatIfView.js
-│       ├── PreprocessView.js, TuneView.js
-```
-
-## DB Collections
-- users, user_sessions, analysis_snapshots, password_reset_tokens
-- leaderboard_entries, activity_log, deployed_models
-
-### Smart Preprocessing Recommendations (Jun 2026) ✅ TESTED
-- [x] Dataset-aware recommendation engine (useMemo) analyzing missing values, outliers, scale variance, cardinality, low-variance
-- [x] Severity levels (HIGH/MED/LOW) with visual badges
-- [x] Individual "Apply" buttons per recommendation + "Apply All"
-- [x] Visual feedback: toast notifications, green "DONE"/"Applied" states, "All applied" card header
-- [x] `isRecApplied` helper tracks applied vs pending recommendations
-- [x] React Hook dependency warning fixed (update wrapped in useCallback)
-
-## Backlog
-- [ ] P1: Real-time Collaborative Sessions
-- [ ] P2: React Hook dependency & array key optimization
-- [ ] P2: Backend server.py refactoring (split into modules)
-- [ ] P2: Interactive Tutorial Mode expansion
-- [ ] P3: Export preprocessing pipeline as downloadable Python script
-- [ ] P3: Insecure token storage fix (localStorage → httpOnly cookies)
+## Test Credentials
+- Admin: shubhrangshub@gmail.com / MyNewPass123!
