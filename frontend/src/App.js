@@ -162,6 +162,17 @@ function AppMain({ authUser, onLogout }) {
   const [predictTab, setPredictTab] = useState('predict');
   const [predictionHistory, setPredictionHistory] = useState([]);
   const [selectedModelIdx, setSelectedModelIdx] = useState(-1);
+
+  // Helper: compute best model index by score (used for default selection)
+  const getBestModelIdx = useCallback((modelList) => {
+    if (!modelList || modelList.length === 0) return 0;
+    let bi = 0, bs = -Infinity;
+    modelList.forEach((m, i) => {
+      const s = m.problemType === 'classification' ? (m.metrics?.accuracy || 0) : (m.metrics?.r2 || -Infinity);
+      if (s > bs) { bs = s; bi = i; }
+    });
+    return bi;
+  }, []);
   const [corrVarX, setCorrVarX] = useState('');
   const [corrVarY, setCorrVarY] = useState('');
   const [darkMode, setDarkMode] = useState(() => {
@@ -769,9 +780,11 @@ function AppMain({ authUser, onLogout }) {
     for (const c of cols) {
       const nameLower = c.name.toLowerCase();
       let score = 0;
+      const matchesKeyword = targetKeywords.some(k => nameLower.includes(k));
+      const matchesFinancial = financialKeywords.some(k => nameLower.includes(k));
       // Strong signal: column name matches common target/financial keywords
-      if (targetKeywords.some(k => nameLower.includes(k))) score += 20;
-      if (financialKeywords.some(k => nameLower.includes(k)) && c.type === 'numeric') score += 25;
+      if (matchesKeyword) score += 20;
+      if (matchesFinancial && c.type === 'numeric') score += 25;
       // Classification targets: categorical with 2-10 classes
       if (c.type === 'categorical' && c.uniqueCount >= 2 && c.uniqueCount <= 10) {
         score += 10 + (10 - c.uniqueCount);
@@ -779,11 +792,16 @@ function AppMain({ authUser, onLogout }) {
       // Regression targets: numeric with high variability and many unique values
       else if (c.type === 'numeric' && c.uniqueCount > 10) {
         score += 5 + Math.min(5, c.std / (Math.abs(c.mean) || 1));
+        // Bonus: continuous numeric with many unique values is a strong regression target signal
+        if (c.uniqueCount > dataProfile.rowCount * 0.5) score += 8;
       }
       // Penalize ID-like, name-like, or index columns
       if (['id', 'index', 'name', 'date', 'timestamp', 'key'].some(k => nameLower.includes(k))) score -= 30;
-      // Penalize columns with too many unique values relative to rows (likely IDs)
-      if (c.uniqueCount > dataProfile.rowCount * 0.8) score -= 20;
+      // Penalize columns with too many unique values ONLY if non-numeric or no keyword match
+      // Numeric columns matching financial/target keywords are likely valid targets (e.g., charges, price)
+      if (c.uniqueCount > dataProfile.rowCount * 0.8 && !(c.type === 'numeric' && (matchesKeyword || matchesFinancial))) {
+        score -= 20;
+      }
       if (score > bestScore) { bestScore = score; bestCol = c; }
     }
     if (!bestCol || bestScore <= 0) return null;
@@ -794,7 +812,7 @@ function AppMain({ authUser, onLogout }) {
   // Smart XAI row suggestions: suggest interesting rows for explanation
   const smartRowSuggestions = useMemo(() => {
     if (!models.length || !dataProfile) return [];
-    const model = models[selectedModelIdx === -1 ? models.length - 1 : selectedModelIdx];
+    const model = models[selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : getBestModelIdx(models)];
     if (!model) return [];
     try {
       const data = prepareInputForPrediction(dataProfile.rows, model.modelData);
@@ -815,7 +833,7 @@ function AppMain({ authUser, onLogout }) {
       suggestions.push({ idx: mid.idx, label: 'Representative (median)', desc: `Prediction: ${Number(mid.pred).toFixed(3)}` });
       return suggestions;
     } catch { return []; }
-  }, [models, selectedModelIdx, dataProfile]);
+  }, [models, selectedModelIdx, dataProfile, getBestModelIdx]);
 
   // ==================== XAI MODEL HELPER (moved up to avoid hoisting issues) ====================
   const bestXaiModelIdx = useMemo(() => {
@@ -1263,7 +1281,7 @@ function AppMain({ authUser, onLogout }) {
   // ==================== PREDICTION ====================
   const handlePredict = () => {
     setError(''); setPredictionResult(null);
-    const idx = selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : models.length - 1;
+    const idx = selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : getBestModelIdx(models);
     const am = models[idx];
     if (!am) { setError('No trained model available.'); return; }
     try {
@@ -1294,7 +1312,7 @@ function AppMain({ authUser, onLogout }) {
   // ==================== BATCH PREDICTIONS ====================
   const handleBatchPredict = () => {
     setError(''); setBatchResults(null);
-    const idx = selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : models.length - 1;
+    const idx = selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : getBestModelIdx(models);
     const am = models[idx];
     if (!am) { setError('No trained model available.'); return; }
     if (!batchCsvText.trim()) { setError('Please upload or paste CSV data for batch prediction.'); return; }
