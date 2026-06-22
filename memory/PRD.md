@@ -35,15 +35,15 @@ Build a full-stack AutoML application with client-side ML, model training/compar
 - **MAJOR-01** (RE-FIX): Target suggestion now correctly picks 'charges' over 'sex' for insurance datasets. Root cause: high-uniqueness penalty (-20) was incorrectly applied to numeric financial columns. Fix: numeric columns matching financial/target keywords skip the penalty and get a +8 continuous bonus.
 - **MAJOR-03** (RE-FIX): Prediction engine now uses the SAME model shown in dropdown. Root cause: `handlePredict` fell back to `models.length - 1` (last trained) instead of best model. Fix: created `getBestModelIdx()` helper used by handlePredict, handleBatchPredict, and smartRowSuggestions.
 
-### Bugs 12-15 (Fixed June 18, 2026)
+### Bugs 12-15 Re-Fixes (June 18, 2026)
 - **MINOR-07**: Added prominent amber warning banner in Compare tab for models with negative R2 (`data-testid="negative-r2-warning"`)
 - **MINOR-08**: Already fixed - Tune tab shows "Keep original model" recommendation
 - **MINOR-09**: Added rare-category flagging in What-If dropdown with '(rare)' tag for categories < 2% occurrence
 - **MINOR-10**: Already fixed - Baseline entries filtered from Leaderboard
 
-### Additional Bug Fixes
-- **MINOR-11**: Deploy tab confirm dialog for negative R2 models
-- **MINOR-12**: Data Explorer shows preprocessing notification near correlation heatmap (`data-testid="preprocess-correlation-notice"`)
+### Additional Bug Fixes & Re-Fixes (June 18, 2026)
+- **MINOR-11** (RE-FIX): Replaced conditional window.confirm (only for negative R²) with a proper confirmation dialog for ALL deployments. Shows model name, metrics, Cancel/Confirm buttons. Extra amber warning for R² < 0.7 or accuracy < 0.7.
+- **MINOR-12** (RE-FIX): Banner now checks `preprocessConfig` active steps (scaling, outlier, excludeFeatures) in addition to cleaningLog/preprocessLog. "Apply All" in Preprocess tab now triggers the banner in Data Explorer.
 - **SHAP Chart**: Verified correct - pink (#ec4899) for positive push (right), cyan (#06b6d4) for negative pull (left)
 
 ## Key DB Collections
