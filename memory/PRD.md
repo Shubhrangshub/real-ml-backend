@@ -31,6 +31,10 @@ Build a full-stack AutoML application with client-side ML, model training/compar
 - MAJOR-01 through MAJOR-05, MINOR-01 through MINOR-06
 - Clamped negative predictions, deduplicated models, auto-selected best models, bad R2 warnings, etc.
 
+### Bugs 1-11 Re-Fixes (June 18, 2026)
+- **MAJOR-01** (RE-FIX): Target suggestion now correctly picks 'charges' over 'sex' for insurance datasets. Root cause: high-uniqueness penalty (-20) was incorrectly applied to numeric financial columns. Fix: numeric columns matching financial/target keywords skip the penalty and get a +8 continuous bonus.
+- **MAJOR-03** (RE-FIX): Prediction engine now uses the SAME model shown in dropdown. Root cause: `handlePredict` fell back to `models.length - 1` (last trained) instead of best model. Fix: created `getBestModelIdx()` helper used by handlePredict, handleBatchPredict, and smartRowSuggestions.
+
 ### Bugs 12-15 (Fixed June 18, 2026)
 - **MINOR-07**: Added prominent amber warning banner in Compare tab for models with negative R2 (`data-testid="negative-r2-warning"`)
 - **MINOR-08**: Already fixed - Tune tab shows "Keep original model" recommendation
