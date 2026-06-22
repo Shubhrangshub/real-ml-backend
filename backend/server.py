@@ -22,6 +22,7 @@ import uuid
 import time
 import os
 import pickle
+import io
 import base64
 import hmac
 import hashlib
@@ -101,6 +102,28 @@ MODELS: Dict[str, Dict[str, Any]] = {}
 # ==================== SECURE MODEL SERIALIZATION ====================
 _MODEL_SIGNING_KEY = os.environ.get("MODEL_SIGNING_KEY", JWT_SECRET).encode()
 
+# Allowlist of safe modules for unpickling (sklearn models + numpy/scipy data)
+_SAFE_PICKLE_MODULES = frozenset({
+    "sklearn", "numpy", "scipy", "collections", "builtins",
+    "copy", "copyreg", "_codecs", "encodings", "abc",
+    "numbers", "functools", "operator", "itertools", "re",
+    "joblib", "_pickle", "array",
+})
+
+class RestrictedUnpickler(pickle.Unpickler):
+    """Only allow unpickling classes from a known safe set of modules."""
+    def find_class(self, module: str, name: str):
+        top = module.split(".")[0]
+        if top in _SAFE_PICKLE_MODULES:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(
+            f"Blocked unpickling of {module}.{name} — not in allowed modules"
+        )
+
+def _restricted_pickle_loads(data: bytes):
+    """Unpickle bytes using the RestrictedUnpickler."""
+    return RestrictedUnpickler(io.BytesIO(data)).load()
+
 def secure_pickle_dumps(obj) -> str:
     """Serialize object with HMAC signature to prevent tampering."""
     data = pickle.dumps(obj)
@@ -109,16 +132,16 @@ def secure_pickle_dumps(obj) -> str:
     return base64.b64encode(payload).decode("utf-8")
 
 def secure_pickle_loads(encoded: str):
-    """Deserialize object after verifying HMAC signature."""
+    """Deserialize object after verifying HMAC signature. Uses restricted unpickler."""
     raw = base64.b64decode(encoded)
     if b"|" in raw[:65]:
         sig_hex, data = raw.split(b"|", 1)
         expected = hmac.new(_MODEL_SIGNING_KEY, data, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig_hex.decode(), expected):
             raise ValueError("Model signature verification failed — data may be tampered")
-        return pickle.loads(data)
-    # Legacy fallback for models saved before signing was added
-    return pickle.loads(raw)
+        return _restricted_pickle_loads(data)
+    # Legacy unsigned data — still use restricted unpickler to prevent code execution
+    return _restricted_pickle_loads(raw)
 
 # ==================== REQUEST/RESPONSE MODELS ====================
 
@@ -1624,7 +1647,7 @@ async def public_predict(deploy_id: str, request: Request):
 @app.get("/api/admin/users")
 async def admin_list_users(request: Request):
     """List all users with usage stats."""
-    admin = require_admin(request)
+    require_admin(request)
     users = list(users_collection.find({}, {"_id": 0, "password_hash": 0}))
     for u in users:
         uid = u["user_id"]

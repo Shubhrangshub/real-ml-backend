@@ -53,6 +53,18 @@ Build a full-stack AutoML application with client-side ML, model training/compar
 ## Key API Endpoints
 - POST /api/deploy, /api/snapshots, /api/admin/analytics, /api/admin/users, /api/leaderboard
 
+
+### Code Quality Fixes (June 22, 2026)
+**Phase 1 — Security:**
+- Hardened pickle deserialization with `RestrictedUnpickler` — only allows sklearn/numpy/scipy modules
+- Legacy unsigned pickle fallback now also uses restricted unpickler
+- HMAC signature verification still enforced for model integrity
+
+**Phase 2 — React Hook Stability:**
+- Extracted auth hooks from `App()` into `/hooks/useAuth.js` — eliminates conditional hooks errors
+- Fixed `dataProfile?.fileName` missing dependency in session-save useEffect
+- Webpack now compiles with zero React hook warnings
+
 ## Pending Tasks
 ### P1 - Upcoming
 - Real-time Collaborative Sessions

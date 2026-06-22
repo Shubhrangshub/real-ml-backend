@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AuthPage from './AuthPage';
+import { useAuth } from './hooks/useAuth';
 import {
   Brain, Sparkles, TrendingUp, Activity, Database, Zap, Upload, Play,
   Eye, Trash2, ChevronRight, ArrowUpRight, FileText, Target, Cpu, BarChart3,
@@ -75,46 +76,7 @@ import {
 const API_URL = process.env.REACT_APP_BACKEND_URL || '';
 
 function App() {
-  // ==================== AUTH STATE ====================
-  const [authUser, setAuthUser] = useState(null); // null = checking, false = not auth, {user} = auth
-  const [authChecked, setAuthChecked] = useState(false);
-  const authProcessedRef = useRef(false);
-
-  // Check for Google OAuth callback (session_id in URL fragment)
-  useEffect(() => {
-    if (authProcessedRef.current) return;
-    const hash = window.location.hash;
-    if (hash.includes('session_id=')) {
-      authProcessedRef.current = true;
-      const sessionId = hash.split('session_id=')[1]?.split('&')[0];
-      if (sessionId) {
-        fetch(`${API_URL}/api/auth/google`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: sessionId }),
-        }).then(r => r.json()).then(data => {
-          if (data.token) localStorage.setItem('automl_token', data.token);
-          if (data.user) { setAuthUser(data.user); setAuthChecked(true); }
-          else { setAuthUser(false); setAuthChecked(true); }
-          window.history.replaceState({}, '', window.location.pathname);
-        }).catch(() => { setAuthUser(false); setAuthChecked(true); window.history.replaceState({}, '', window.location.pathname); });
-        return;
-      }
-    }
-    // Check existing session via stored token
-    const token = localStorage.getItem('automl_token');
-    if (!token) { setAuthUser(false); setAuthChecked(true); return; }
-    fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } })
-      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-      .then(user => { setAuthUser(user); setAuthChecked(true); })
-      .catch(() => { localStorage.removeItem('automl_token'); setAuthUser(false); setAuthChecked(true); });
-  }, []);
-
-  const handleLogout = useCallback(async () => {
-    const token = localStorage.getItem('automl_token');
-    await fetch(`${API_URL}/api/auth/logout`, { method: 'POST', headers: token ? { 'Authorization': `Bearer ${token}` } : {} });
-    localStorage.removeItem('automl_token');
-    setAuthUser(false);
-  }, []);
+  const { authUser, setAuthUser, authChecked, handleLogout } = useAuth();
 
   // Show login page if not authenticated
   if (!authChecked) {
@@ -318,6 +280,7 @@ function AppMain({ authUser, onLogout }) {
   }, [models, sessionLoaded]);
 
   // Debounced session save (500ms after last state change)
+  const datasetFileName = dataProfile?.fileName || null;
   useEffect(() => {
     if (!sessionLoaded) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -325,7 +288,7 @@ function AppMain({ authUser, onLogout }) {
       try {
         localStorage.setItem(SESSION_KEY, JSON.stringify({
           csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan,
-          datasetFileName: dataProfile?.fileName || null,
+          datasetFileName,
           trainingResult, predictionResult, predictionHistory, selectedModelIdx,
           unsupervisedResult, clusterResult, anomalyResult, batchResults,
           shapGlobal, shapBeeswarm, shapLocal, shapDependence,
@@ -337,7 +300,7 @@ function AppMain({ authUser, onLogout }) {
       } catch (e) { console.error('Session save failed:', e); }
     }, 500);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [sessionLoaded, csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan, dataProfile,
+  }, [sessionLoaded, csvText, targetColumn, algorithm, evalMode, cleaningLog, precleanScan, datasetFileName,
     trainingResult, predictionResult, predictionHistory, selectedModelIdx,
     unsupervisedResult, clusterResult, anomalyResult, batchResults,
     shapGlobal, shapBeeswarm, shapLocal, shapDependence,
@@ -553,7 +516,6 @@ function AppMain({ authUser, onLogout }) {
       autoSaveTimerRef.current = setTimeout(() => handleSaveAnalysis(), 800);
     }
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trainingResult]);
 
   useEffect(() => {
@@ -563,7 +525,6 @@ function AppMain({ authUser, onLogout }) {
       autoSaveTimerRef.current = setTimeout(() => handleSaveAnalysis(), 800);
     }
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unsupervisedResult]);
 
   const buildFullCSV = useCallback(() => {
