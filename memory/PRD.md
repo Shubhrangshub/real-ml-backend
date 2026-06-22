@@ -31,19 +31,20 @@ Build a full-stack AutoML application with client-side ML, model training/compar
 - MAJOR-01 through MAJOR-05, MINOR-01 through MINOR-06
 - Clamped negative predictions, deduplicated models, auto-selected best models, bad R2 warnings, etc.
 
-### Bugs 1-11 Re-Fixes (June 18, 2026)
-- **MAJOR-01** (RE-FIX): Target suggestion now correctly picks 'charges' over 'sex' for insurance datasets. Root cause: high-uniqueness penalty (-20) was incorrectly applied to numeric financial columns. Fix: numeric columns matching financial/target keywords skip the penalty and get a +8 continuous bonus.
-- **MAJOR-03** (RE-FIX): Prediction engine now uses the SAME model shown in dropdown. Root cause: `handlePredict` fell back to `models.length - 1` (last trained) instead of best model. Fix: created `getBestModelIdx()` helper used by handlePredict, handleBatchPredict, and smartRowSuggestions.
+### Bugs 1-11 Re-Fixes (June 18-22, 2026)
+- **MAJOR-01** (RE-FIX x2): Fixed in TWO places — App.js `suggestedTarget` logic AND `datasetUtils.js` `generateDatasetSummary` `possibleTarget`. Root cause: `datasetUtils.js` blindly picked first categorical column (`sex`) via `break`. Now uses priority system: financial keyword match → target keyword match → categorical with fewest classes → numeric.
+- **MAJOR-03** (RE-FIX): Prediction engine now uses `getBestModelIdx()` helper everywhere. Also fixed batch prediction select dropdown fallback. Fixed model auto-selection in WhatIfView (was using `models[-1]` when state was -1).
 
-### Bugs 12-15 Re-Fixes (June 18, 2026)
-- **MINOR-07**: Added prominent amber warning banner in Compare tab for models with negative R2 (`data-testid="negative-r2-warning"`)
-- **MINOR-08**: Already fixed - Tune tab shows "Keep original model" recommendation
-- **MINOR-09**: Added rare-category flagging in What-If dropdown with '(rare)' tag for categories < 2% occurrence
+### Bugs 12-15 Re-Fixes (June 18-22, 2026)
+- **MINOR-07**: Amber warning banner in Compare tab for negative R² models (code verified, cannot trigger with current data)
+- **MINOR-08**: Already fixed - Tune tab "Keep original model" recommendation
+- **MINOR-09**: Rare-category flagging in What-If AND Predictions dropdowns. Categories < 2% occurrence tagged with '(rare)'
 - **MINOR-10**: Already fixed - Baseline entries filtered from Leaderboard
 
-### Additional Bug Fixes & Re-Fixes (June 18, 2026)
-- **MINOR-11** (RE-FIX): Replaced conditional window.confirm (only for negative R²) with a proper confirmation dialog for ALL deployments. Shows model name, metrics, Cancel/Confirm buttons. Extra amber warning for R² < 0.7 or accuracy < 0.7.
-- **MINOR-12** (RE-FIX): Banner now checks `preprocessConfig` active steps (scaling, outlier, excludeFeatures) in addition to cleaningLog/preprocessLog. "Apply All" in Preprocess tab now triggers the banner in Data Explorer.
+### Additional Bug Re-Fixes (June 22, 2026)
+- **MINOR-05**: Added rare-category flagging in PredictView categorical dropdowns (consistent with What-If)
+- **MINOR-11** (RE-FIX x2): Deploy confirmation dialog now uses React Portal (`createPortal`) to render at document.body level, fixing CSS stacking context issue from parent `motion.div` transform. Works for ALL deployments with extra warning for R² < 0.7.
+- **MINOR-12** (RE-FIX): Banner now checks `preprocessConfig` active steps (scaling, outlier, excludeFeatures) in addition to cleaningLog/preprocessLog. "Apply All" now triggers the banner.
 - **SHAP Chart**: Verified correct - pink (#ec4899) for positive push (right), cyan (#06b6d4) for negative pull (left)
 
 ## Key DB Collections

@@ -110,7 +110,7 @@ export default function PredictView() {
         </CardContent></Card>
       ) : (<>
         <Card data-testid="batch-model-selector"><CardHeader><CardTitle className="flex items-center gap-2"><Cpu className="h-5 w-5" />Select Model for Batch</CardTitle></CardHeader>
-          <CardContent><select value={selectedModelIdx === -1 ? models.length - 1 : selectedModelIdx} onChange={e => { setSelectedModelIdx(Number(e.target.value)); setBatchResults(null); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="batch-model-select">
+          <CardContent><select value={selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : (() => { let bi = 0, bs = -Infinity; models.forEach((m, i) => { const s = m.problemType === 'classification' ? (m.metrics?.accuracy || 0) : (m.metrics?.r2 || -Infinity); if (s > bs) { bs = s; bi = i; } }); return bi; })()} onChange={e => { setSelectedModelIdx(Number(e.target.value)); setBatchResults(null); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" data-testid="batch-model-select">
             {models.map((m, i) => <option key={m.modelId} value={i}>{ALGO_NAMES[m.algorithm] || m.algorithm} — {m.problemType} — Target: {m.targetColumn}</option>)}
           </select></CardContent></Card>
 

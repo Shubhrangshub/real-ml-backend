@@ -17,7 +17,7 @@ export default function WhatIfView() {
   const [modifiedResult, setModifiedResult] = useState(null);
   const [initialized, setInitialized] = useState(false);
 
-  const modelObj = models[selectedModelIdx];
+  const modelObj = models.length > 0 ? models[selectedModelIdx >= 0 && selectedModelIdx < models.length ? selectedModelIdx : (() => { let bi = 0, bs = -Infinity; models.forEach((m, i) => { const s = m.problemType === 'classification' ? (m.metrics?.accuracy || 0) : (m.metrics?.r2 || -Infinity); if (s > bs) { bs = s; bi = i; } }); return bi; })()] : null;
   const md = modelObj?.modelData;
 
   // Use the model's own numericCols/categoricalCols for features

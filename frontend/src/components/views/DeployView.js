@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Rocket, Globe, Copy, Trash2, Eye, EyeOff, Clock, Activity,
@@ -224,54 +225,57 @@ print(r.json())`}</pre>
       </Card>
 
       {/* ==================== DEPLOY CONFIRMATION DIALOG ==================== */}
-      <AnimatePresence>
-        {confirmDeploy && (
-          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" data-testid="deploy-confirm-overlay"
-            onClick={(e) => { if (e.target === e.currentTarget) setConfirmDeploy(null); }}>
-            <motion.div initial={{scale:0.95,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.95,opacity:0}} className="bg-background rounded-xl border shadow-2xl p-6 max-w-md w-full mx-4" data-testid="deploy-confirm-dialog">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-                  <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+      {createPortal(
+        <AnimatePresence>
+          {confirmDeploy && (
+            <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" data-testid="deploy-confirm-overlay"
+              onClick={(e) => { if (e.target === e.currentTarget) setConfirmDeploy(null); }}>
+              <motion.div initial={{scale:0.95,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.95,opacity:0}} className="bg-background rounded-xl border shadow-2xl p-6 max-w-md w-full mx-4" data-testid="deploy-confirm-dialog">
+                <div className="flex items-start gap-3 mb-4">
+                  <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-base">Confirm Deployment</h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Are you sure you want to deploy <strong>{ALGO_NAMES[confirmDeploy.algorithm] || confirmDeploy.algorithm}</strong>
+                      {confirmDeploy.problemType === 'regression' && confirmDeploy.metrics?.r2 != null && ` (R²: ${confirmDeploy.metrics.r2.toFixed(3)})`}
+                      {confirmDeploy.problemType === 'classification' && confirmDeploy.metrics?.accuracy != null && ` (Accuracy: ${(confirmDeploy.metrics.accuracy * 100).toFixed(1)}%)`}
+                      {' '}as a live public API? This will allow anyone with the link to make predictions.
+                    </p>
+                    {confirmDeploy.problemType === 'regression' && confirmDeploy.metrics?.r2 != null && confirmDeploy.metrics.r2 < 0.7 && (
+                      <div className="mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800" data-testid="deploy-low-accuracy-warning">
+                        <p className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-1.5">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                          {confirmDeploy.metrics.r2 < 0
+                            ? 'This model has a negative R² score — it performs worse than simply predicting the mean. Deploying it is strongly discouraged.'
+                            : 'This model has moderate accuracy. Consider training a better model before deploying to production.'}
+                        </p>
+                      </div>
+                    )}
+                    {confirmDeploy.problemType === 'classification' && confirmDeploy.metrics?.accuracy != null && confirmDeploy.metrics.accuracy < 0.7 && (
+                      <div className="mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800" data-testid="deploy-low-accuracy-warning">
+                        <p className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-1.5">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                          This model has low accuracy. Consider training a better model before deploying to production.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-base">Confirm Deployment</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Are you sure you want to deploy <strong>{ALGO_NAMES[confirmDeploy.algorithm] || confirmDeploy.algorithm}</strong>
-                    {confirmDeploy.problemType === 'regression' && confirmDeploy.metrics?.r2 != null && ` (R²: ${confirmDeploy.metrics.r2.toFixed(3)})`}
-                    {confirmDeploy.problemType === 'classification' && confirmDeploy.metrics?.accuracy != null && ` (Accuracy: ${(confirmDeploy.metrics.accuracy * 100).toFixed(1)}%)`}
-                    {' '}as a live public API? This will allow anyone with the link to make predictions.
-                  </p>
-                  {confirmDeploy.problemType === 'regression' && confirmDeploy.metrics?.r2 != null && confirmDeploy.metrics.r2 < 0.7 && (
-                    <div className="mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800" data-testid="deploy-low-accuracy-warning">
-                      <p className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-1.5">
-                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                        {confirmDeploy.metrics.r2 < 0
-                          ? 'This model has a negative R² score — it performs worse than simply predicting the mean. Deploying it is strongly discouraged.'
-                          : 'This model has moderate accuracy. Consider training a better model before deploying to production.'}
-                      </p>
-                    </div>
-                  )}
-                  {confirmDeploy.problemType === 'classification' && confirmDeploy.metrics?.accuracy != null && confirmDeploy.metrics.accuracy < 0.7 && (
-                    <div className="mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800" data-testid="deploy-low-accuracy-warning">
-                      <p className="text-xs text-amber-700 dark:text-amber-300 flex items-start gap-1.5">
-                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                        This model has low accuracy. Consider training a better model before deploying to production.
-                      </p>
-                    </div>
-                  )}
+                <div className="flex justify-end gap-2 mt-5">
+                  <Button variant="outline" size="sm" onClick={() => setConfirmDeploy(null)} data-testid="deploy-cancel-btn">Cancel</Button>
+                  <Button size="sm" className="gap-1.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 text-white"
+                    onClick={() => { const m = confirmDeploy; setConfirmDeploy(null); handleDeploy(m); }} data-testid="deploy-confirm-btn">
+                    <Rocket className="h-3.5 w-3.5" />Confirm Deploy
+                  </Button>
                 </div>
-              </div>
-              <div className="flex justify-end gap-2 mt-5">
-                <Button variant="outline" size="sm" onClick={() => setConfirmDeploy(null)} data-testid="deploy-cancel-btn">Cancel</Button>
-                <Button size="sm" className="gap-1.5 bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 text-white"
-                  onClick={() => { const m = confirmDeploy; setConfirmDeploy(null); handleDeploy(m); }} data-testid="deploy-confirm-btn">
-                  <Rocket className="h-3.5 w-3.5" />Confirm Deploy
-                </Button>
-              </div>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </motion.div>
   );
 }

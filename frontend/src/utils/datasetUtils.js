@@ -84,12 +84,40 @@ export function generateDatasetSummary(profile) {
   const keyVars = scored.slice(0, Math.min(5, scored.length));
 
   let possibleTarget = null;
+  const financialKeywords = ['charges', 'charge', 'cost', 'price', 'amount', 'salary', 'income', 'revenue', 'profit', 'loss', 'fee', 'premium', 'insurance', 'payment', 'spend', 'expense', 'total', 'sales'];
+  const targetKeywords = ['target', 'label', 'class', 'output', 'result', 'outcome', 'status', 'approved', 'churned', 'survived', 'default'];
+
+  // Priority 1: Numeric column matching financial/target keywords (strong regression signal)
   for (const c of profile.columns) {
-    if (c.type === 'categorical' && c.uniqueCount >= 2 && c.uniqueCount <= 10) {
-      possibleTarget = { name: c.name, reason: `categorical with ${c.uniqueCount} classes`, task: 'classification' };
+    const nameLower = c.name.toLowerCase();
+    if (c.type === 'numeric' && c.uniqueCount > 10 && c.std > 0 &&
+        (financialKeywords.some(k => nameLower.includes(k)) || targetKeywords.some(k => nameLower.includes(k)))) {
+      possibleTarget = { name: c.name, reason: `continuous numeric variable`, task: 'regression' };
       break;
     }
   }
+  // Priority 2: Categorical column matching target keywords
+  if (!possibleTarget) {
+    for (const c of profile.columns) {
+      const nameLower = c.name.toLowerCase();
+      if (c.type === 'categorical' && c.uniqueCount >= 2 && c.uniqueCount <= 10 &&
+          targetKeywords.some(k => nameLower.includes(k))) {
+        possibleTarget = { name: c.name, reason: `categorical with ${c.uniqueCount} classes`, task: 'classification' };
+        break;
+      }
+    }
+  }
+  // Priority 3: Any categorical with 2-10 classes (but prefer fewer classes = clearer target)
+  if (!possibleTarget) {
+    let bestCat = null;
+    for (const c of profile.columns) {
+      if (c.type === 'categorical' && c.uniqueCount >= 2 && c.uniqueCount <= 10) {
+        if (!bestCat || c.uniqueCount < bestCat.uniqueCount) bestCat = c;
+      }
+    }
+    if (bestCat) possibleTarget = { name: bestCat.name, reason: `categorical with ${bestCat.uniqueCount} classes`, task: 'classification' };
+  }
+  // Priority 4: Any numeric with high variability
   if (!possibleTarget) {
     for (const c of profile.columns) {
       if (c.type === 'numeric' && c.uniqueCount > 10 && c.std > 0) {
