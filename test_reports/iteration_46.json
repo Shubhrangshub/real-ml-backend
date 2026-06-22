@@ -1,0 +1,90 @@
+{
+  "summary": "Tested re-fixes for MINOR-11 (Deploy confirmation dialog for ALL models) and MINOR-12 (Preprocessing notice banner in Data Explorer). Both bugs verified as FIXED through UI testing with Playwright.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_46.json"],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A - Frontend only testing",
+    "frontend": "100% (both MINOR bugs verified fixed)"
+  },
+  "test_credentials": {
+    "email": "shubhrangshub@gmail.com",
+    "password": "MyNewPass123!"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "MINOR-11 and MINOR-12 bugs are now fixed. Deploy confirmation dialog works for all models. Preprocessing notice banner appears in Data Explorer after Apply All.",
+  "bug_fixes_tested": {
+    "MINOR-11": {
+      "description": "Deploy confirmation dialog must appear for ALL models (not just negative R²)",
+      "status": "PASS",
+      "verification_method": "UI Testing with Playwright",
+      "code_location": "DeployView.js lines 227-274",
+      "test_details": {
+        "test_scenario": "Load Insurance Costs dataset, train models with Auto, go to Deploy tab, click Deploy on any model",
+        "expected_result": "Confirmation dialog appears with model name, metrics, Cancel and Confirm Deploy buttons",
+        "actual_result": "Dialog appeared with text 'Are you sure you want to deploy Linear Regression (R²: 0.971) as a live public API? This will allow anyone with the link to make predictions.'",
+        "additional_tests": [
+          "Cancel button closes dialog - PASS",
+          "Low accuracy warning appears for R² < 0.7 (Decision Tree R²: 0.350 showed 'This model has moderate accuracy. Consider training a better model before deploying to production.') - PASS"
+        ]
+      }
+    },
+    "MINOR-12": {
+      "description": "Preprocessing notice banner must appear in Data Explorer when preprocessConfig has active steps",
+      "status": "PASS",
+      "verification_method": "UI Testing with Playwright",
+      "code_location": "DataExplorerView.js lines 20-29",
+      "test_details": {
+        "test_scenario": "Load Insurance Costs dataset, go to Preprocess tab, click 'Apply All' to apply recommendations, then go to Data Explorer",
+        "expected_result": "Blue info banner appears above correlation heatmap with data-testid='preprocess-correlation-notice'",
+        "actual_result": "Banner appeared with text 'Note: Correlation values reflect your current dataset state. If preprocessing was applied, values may differ from the original raw data. Operations like outlier treatment, scaling, or missing value imputation can change correlation patterns.'",
+        "fix_explanation": "DataExplorerView.js now checks preprocessConfig (scaling !== 'none', outlierMethod !== 'none', excludeFeatures.length > 0) in addition to cleaningLog/preprocessLog"
+      }
+    }
+  },
+  "ui_testing_results": {
+    "login": "PASS - Login with credentials works",
+    "navigation": "PASS - All nav tabs accessible",
+    "dataset_loading": "PASS - Insurance Costs sample dataset loads correctly",
+    "model_training": "PASS - Auto training completes with 3 models (Linear Regression, Decision Tree, Random Forest)",
+    "deploy_confirmation_dialog": {
+      "status": "PASS",
+      "details": [
+        "Dialog appears for all models (not just negative R²)",
+        "Dialog shows model name and metrics",
+        "Dialog contains 'as a live public API? This will allow anyone with the link to make predictions.'",
+        "Cancel button works - dialog closes",
+        "Confirm Deploy button present",
+        "Low accuracy warning (data-testid='deploy-low-accuracy-warning') appears for R² < 0.7"
+      ]
+    },
+    "preprocessing_notice_banner": {
+      "status": "PASS",
+      "details": [
+        "Banner NOT present before applying preprocessing (correct)",
+        "After clicking 'Apply All' on Preprocess tab, banner appears in Data Explorer",
+        "Banner has correct data-testid='preprocess-correlation-notice'",
+        "Banner text explains correlation values may differ from original raw data"
+      ]
+    }
+  },
+  "data_testid_verification": {
+    "deploy-confirm-dialog": "VERIFIED - Present when Deploy button clicked",
+    "deploy-cancel-btn": "VERIFIED - Present in dialog",
+    "deploy-confirm-btn": "VERIFIED - Present in dialog",
+    "deploy-low-accuracy-warning": "VERIFIED - Present for models with R² < 0.7",
+    "preprocess-correlation-notice": "VERIFIED - Present in Data Explorer after preprocessing applied"
+  }
+}

@@ -17,10 +17,16 @@ export default function DataExplorerView() {
   const {
     dataProfile, setActiveView, histogramCol, setHistogramCol, histogramData,
     corrVarX, setCorrVarX, corrVarY, setCorrVarY, corrMatrix, dataPreview,
-    cleaningLog, preprocessLog
+    cleaningLog, preprocessLog, preprocessConfig
   } = useApp();
 
-  const hasPreprocessing = (cleaningLog && cleaningLog.length > 0) || (preprocessLog && preprocessLog.length > 0);
+  const hasPreprocessing = (cleaningLog && cleaningLog.length > 0)
+    || (preprocessLog && preprocessLog.length > 0)
+    || (preprocessConfig && (
+      preprocessConfig.scaling !== 'none'
+      || preprocessConfig.outlierMethod !== 'none'
+      || (preprocessConfig.excludeFeatures?.length || 0) > 0
+    ));
 
   return (
   <motion.div key="explore" variants={staggerContainer} initial="initial" animate="animate" exit="exit" className="space-y-6" data-testid="explore-view">
@@ -78,7 +84,7 @@ export default function DataExplorerView() {
           <div className="mb-3 p-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/20 flex items-start gap-2.5" data-testid="preprocess-correlation-notice">
             <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
             <p className="text-xs text-blue-700 dark:text-blue-300">
-              Preprocessing has been applied to this dataset. Correlation values shown below reflect the <strong>processed data</strong> and may differ from the original raw dataset. Operations like outlier treatment, scaling, or missing value imputation can change correlation patterns.
+              <strong>Note:</strong> Correlation values reflect your current dataset state. If preprocessing was applied, values may differ from the original raw data. Operations like outlier treatment, scaling, or missing value imputation can change correlation patterns.
             </p>
           </div>
         )}
