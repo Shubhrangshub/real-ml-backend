@@ -1003,6 +1003,7 @@ function AppMain({ authUser, onLogout }) {
       const p = profileDataset(text);
       if (p && fileName) p.fileName = fileName;
       setDataProfile(p); setColumns(p?.headers || []);
+      if (!isCleanAction && p) toast.success(`Dataset uploaded successfully — ${p.rowCount} rows, ${p.headers.length} columns`);
     }
     else { setDataProfile(null); setColumns([]); }
   }, []);

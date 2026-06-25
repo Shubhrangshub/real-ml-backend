@@ -74,15 +74,30 @@ export default function PredictView() {
         ); })()}
 
         {/* Supervised Result */}
-        {predictionResult && <motion.div variants={fadeInUp} initial="initial" animate="animate"><Card className="border-2 border-primary" data-testid="prediction-results"><CardHeader><CardTitle className="flex items-center gap-2 text-primary"><Eye className="h-5 w-5" />Prediction Result</CardTitle><CardDescription>Generated using {ALGO_NAMES[predictionResult.algorithm] || predictionResult.algorithm}</CardDescription></CardHeader>
+        {predictionResult && (() => {
+          const activeModel = models.find(m => m.modelId === predictionResult.modelId) || models[selectedModelIdx >= 0 ? selectedModelIdx : 0];
+          const rowCount = dataProfile?.rows?.length || 0;
+          const rareThreshold = Math.max(2, rowCount * 0.02);
+          const isValueRare = (col, val) => {
+            if (!val || typeof val !== 'string' || !dataProfile?.rows || rowCount === 0) return false;
+            const freq = dataProfile.rows.filter(r => String(r[col] || '') === val).length;
+            return freq < rareThreshold;
+          };
+          return <motion.div variants={fadeInUp} initial="initial" animate="animate"><Card className="border-2 border-primary" data-testid="prediction-results"><CardHeader><CardTitle className="flex items-center gap-2 text-primary"><Eye className="h-5 w-5" />Prediction Result</CardTitle><CardDescription>Generated using {ALGO_NAMES[predictionResult.algorithm] || predictionResult.algorithm}</CardDescription></CardHeader>
           <CardContent><div className="space-y-4">{predictionResult.predictions.map((pred, idx) => {
             const isClassification = predictionResult.problemType === 'classification';
+            const predRare = typeof pred === 'string' && activeModel?.targetColumn && isValueRare(activeModel.targetColumn, pred);
             return (<div key={idx} className="rounded-xl border-2 border-primary/20 bg-primary/5 p-6" data-testid={`prediction-result-${idx}`}>
-              <div className="flex items-center justify-between"><div><p className="text-sm font-medium text-muted-foreground mb-1">{isClassification ? 'Predicted Class' : 'Predicted Value'}</p><p className="text-4xl font-bold text-primary" data-testid="prediction-value">{typeof pred === 'number' ? (isClassification ? pred : pred.toFixed(4)) : pred}</p></div><div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center"><Target className="h-8 w-8 text-primary" /></div></div>
+              <div className="flex items-center justify-between"><div><p className="text-sm font-medium text-muted-foreground mb-1">{isClassification ? 'Predicted Class' : 'Predicted Value'}</p><p className="text-4xl font-bold text-primary" data-testid="prediction-value">{typeof pred === 'number' ? (isClassification ? pred : pred.toFixed(4)) : pred}{predRare && <span className="text-lg ml-2 text-amber-500 font-medium">(rare)</span>}</p></div><div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center"><Target className="h-8 w-8 text-primary" /></div></div>
               {predictionResult.probabilities?.[idx] && <div className="mt-4 pt-4 border-t"><p className="text-xs font-medium text-muted-foreground mb-2">Class Probabilities</p><div className="space-y-2">{predictionResult.probabilities[idx].map((p, ci) => <div key={ci} className="flex items-center gap-3"><span className="text-xs font-mono w-16">Class {ci}</span><div className="flex-1 h-3 bg-muted rounded-full overflow-hidden"><div className="h-full bg-primary rounded-full transition-all" style={{ width: `${(p * 100).toFixed(1)}%` }} /></div><span className="text-xs font-mono w-14 text-right">{(p * 100).toFixed(1)}%</span></div>)}</div></div>}
-              {predictionResult.inputData && <div className="mt-4 pt-4 border-t"><p className="text-xs font-medium text-muted-foreground mb-2">Input Summary</p><div className="flex flex-wrap gap-2">{Object.entries(predictionResult.inputData).filter(([,v]) => v !== '' && v !== 0).map(([k, v]) => <Badge key={k} variant="secondary" className="text-xs">{k}: {v}</Badge>)}</div></div>}
+              {predictionResult.inputData && <div className="mt-4 pt-4 border-t"><p className="text-xs font-medium text-muted-foreground mb-2">Input Summary</p><div className="flex flex-wrap gap-2">{Object.entries(predictionResult.inputData).filter(([,v]) => v !== '' && v !== 0).map(([k, v]) => {
+                const isCat = activeModel?.modelData?.categoricalCols?.includes(k);
+                const rareTag = isCat && isValueRare(k, String(v)) ? ' (rare)' : '';
+                return <Badge key={k} variant="secondary" className="text-xs" data-testid={`input-badge-${k}`}>{k}: {v}{rareTag}</Badge>;
+              })}</div></div>}
             </div>);
-          })}</div></CardContent></Card></motion.div>}
+          })}</div></CardContent></Card></motion.div>;
+        })()}
 
         {/* Unsupervised Cluster Prediction */}
         {unsupervisedResult && <Card data-testid="cluster-prediction"><CardHeader><CardTitle className="flex items-center gap-2"><Layers className="h-5 w-5" />Predict Cluster</CardTitle><CardDescription>Assign a new data point to the nearest cluster using {unsupervisedResult.bestAlgorithm?.name}</CardDescription></CardHeader>
