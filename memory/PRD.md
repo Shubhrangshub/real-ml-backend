@@ -65,6 +65,10 @@ Build a full-stack AutoML application with client-side ML, model training/compar
 - Fixed `dataProfile?.fileName` missing dependency in session-save useEffect
 - Webpack now compiles with zero React hook warnings
 
+### Bug Re-Test Final Fixes (June 25, 2026)
+- **MINOR-09 (FINAL FIX)**: Prediction Result panel now shows "(rare)" tag on both the predicted value and Input Summary badges for rare categorical values. Uses same threshold (max(2, rowCount*0.02)) as the dropdown.
+- **Upload Toast**: Added `toast.success("Dataset uploaded successfully — X rows, Y columns")` to `handleCsvTextChange` for non-cleaning actions. Triggers on file upload, drag-and-drop, and sample dataset loading.
+
 ## Pending Tasks
 ### P1 - Upcoming
 - Real-time Collaborative Sessions
@@ -74,6 +78,8 @@ Build a full-stack AutoML application with client-side ML, model training/compar
 - Refactor App.js (~2000 lines) into smaller hooks/providers
 - Refactor server.py for complexity
 - Address insecure token storage (localStorage -> httpOnly cookies)
+- Replace array index keys with stable identifiers in React lists
+- Optimize expensive JSX computations with useMemo
 
 ## Test Credentials
 - Admin: shubhrangshub@gmail.com / MyNewPass123!
