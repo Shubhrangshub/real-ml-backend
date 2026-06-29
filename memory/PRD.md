@@ -69,6 +69,9 @@ Build a full-stack AutoML application with client-side ML, model training/compar
 - **MINOR-09 (FINAL FIX)**: Prediction Result panel now shows "(rare)" tag on both the predicted value and Input Summary badges for rare categorical values. Uses same threshold (max(2, rowCount*0.02)) as the dropdown.
 - **Upload Toast**: Added `toast.success("Dataset uploaded successfully — X rows, Y columns")` to `handleCsvTextChange` for non-cleaning actions. Triggers on file upload, drag-and-drop, and sample dataset loading.
 
+### Employee Dataset Bug Fix (June 25, 2026)
+- **EMP-BUG-01 (FIXED)**: Empty-field prediction returning $151,075 instead of 0. Root cause: Linear Regression intercept produced non-zero output even with all-zero inputs. Fix: Added all-fields-empty guard in `handlePredict` that returns 0 directly with a `toast.warning` before calling the ML engine. Works across all datasets (insurance, employee, etc.).
+
 ## Pending Tasks
 ### P1 - Upcoming
 - Real-time Collaborative Sessions
