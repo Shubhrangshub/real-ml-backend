@@ -1247,6 +1247,16 @@ function AppMain({ authUser, onLogout }) {
     const am = models[idx];
     if (!am) { setError('No trained model available.'); return; }
     try {
+      // Check if ALL fields are blank/empty — return 0 for regression, default class for classification
+      const allNumericEmpty = am.modelData.numericCols.every(col => predictionFormData[col] === undefined || predictionFormData[col] === '' || predictionFormData[col] === null);
+      const allCatEmpty = am.modelData.categoricalCols.every(col => !predictionFormData[col] || predictionFormData[col] === '');
+      if (allNumericEmpty && allCatEmpty) {
+        const zeroPred = am.problemType === 'regression' ? 0 : 0;
+        setPredictionResult({ status: 'success', modelId: am.modelId, algorithm: am.algorithm, predictions: [zeroPred], probabilities: null, problemType: am.problemType, inputData: {} });
+        setPredictionHistory(prev => [...prev, { id: Date.now(), type: 'supervised', model: ALGO_NAMES[am.algorithm] || am.algorithm, target: am.targetColumn, prediction: zeroPred, input: {}, timestamp: Date.now() }]);
+        toast.warning('All input fields are empty — prediction defaults to 0.');
+        return;
+      }
       const row = {};
       am.modelData.numericCols.forEach(col => { row[col] = Number(predictionFormData[col]) || 0; });
       am.modelData.categoricalCols.forEach(col => { row[col] = predictionFormData[col] || ''; });
