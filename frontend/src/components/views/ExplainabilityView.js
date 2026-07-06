@@ -147,9 +147,9 @@ export default function ExplainabilityView() {
               <XAxis type="number" tick={{ fontSize: 11 }} label={{ value: 'Mean SHAP Value', position: 'bottom', fontSize: 11 }} />
               <YAxis type="category" dataKey="feature" tick={{ fontSize: 11 }} width={140} />
               <Tooltip content={({ active, payload }) => active && payload?.length ? <div className="bg-popover border rounded-lg shadow-lg p-3 text-xs"><p className="font-semibold">{payload[0]?.payload?.feature}</p><p className="text-pink-500">Positive push: +{payload[0]?.payload?.positive?.toFixed(4)}</p><p className="text-cyan-500">Negative pull: {payload[0]?.payload?.negative?.toFixed(4)}</p></div> : null} />
-              <ReferenceLine x={0} stroke="#94a3b8" strokeDasharray="4 4" />
-              <Bar dataKey="positive" stackId="a" fill="#ec4899" radius={[0, 4, 4, 0]} name="Positive push" isAnimationActive={false} />
-              <Bar dataKey="negative" stackId="a" fill="#06b6d4" radius={[4, 0, 0, 4]} name="Negative pull" isAnimationActive={false} />
+              <ReferenceLine x={0} stroke="#94a3b8" strokeDasharray="4 4" strokeWidth={1.5} />
+              <Bar dataKey="positive" fill="#ec4899" radius={[0, 4, 4, 0]} name="Positive push" isAnimationActive={false} />
+              <Bar dataKey="negative" fill="#06b6d4" radius={[4, 0, 0, 4]} name="Negative pull" isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
           <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">

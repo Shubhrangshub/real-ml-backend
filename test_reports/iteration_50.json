@@ -1,0 +1,83 @@
+{
+  "summary": "SHAP Summary Plot fix verified: Bars now properly diverge from zero reference line. Pink bars (positive push) extend RIGHT from zero, cyan bars (negative pull) extend LEFT from zero. The fix removed stackId='a' from both Bar components in ExplainabilityView.js lines 151-152, allowing grouped bars instead of stacked bars. All regression tests passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Console",
+        "issues": ["Minor: validateDOMNesting warning - <div> cannot appear as descendant of <p> in Badge component (pre-existing issue)"]
+      }
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_50.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FIX VERIFIED (ExplainabilityView.js lines 151-152): Removed stackId='a' from both Bar components in SHAP Summary Plot",
+    "Line 151: <Bar dataKey=\"positive\" fill=\"#ec4899\" radius={[0, 4, 4, 0]} name=\"Positive push\" isAnimationActive={false} />",
+    "Line 152: <Bar dataKey=\"negative\" fill=\"#06b6d4\" radius={[4, 0, 0, 4]} name=\"Negative pull\" isAnimationActive={false} />",
+    "Without stackId, bars render as grouped bars that independently start from zero, properly showing divergence"
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A - Frontend only testing",
+    "frontend": "100%"
+  },
+  "test_credentials": {
+    "email": "shubhrangshub@gmail.com",
+    "password": "MyNewPass123!"
+  },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "SHAP Summary Plot fix is verified. The Insurance Costs sample dataset (1100 rows, 9 columns) was used for testing. Training completes in ~1-2 seconds (cached). The chart now shows: (1) Pink bars extending RIGHT from x=0 for positive SHAP values, (2) Cyan bars extending LEFT from x=0 for negative SHAP values, (3) Dashed reference line at x=0, (4) Legend showing 'Increases prediction' and 'Decreases prediction'.",
+  "bugs_tested": {
+    "SHAP_SUMMARY_PLOT_FIX": {
+      "status": "FIXED AND VERIFIED",
+      "description": "SHAP Summary Plot bars should properly diverge from zero reference line instead of being stacked",
+      "root_cause": "Recharts stackId='a' on both Bar components caused negative bars to start from end of positive bars instead of from zero",
+      "fix_applied": "Removed stackId='a' from both Bar components in ExplainabilityView.js lines 151-152",
+      "test_steps": [
+        "1. Login with test credentials",
+        "2. Navigate to Analysis tab",
+        "3. Load 'Insurance Costs' sample dataset",
+        "4. Select 'InsuranceCost' as target variable",
+        "5. Click 'Start Training' and wait for completion",
+        "6. Navigate to Explainability tab",
+        "7. Click 'Run SHAP Analysis'",
+        "8. Scroll to 'SHAP Summary Plot' card",
+        "9. Verify bars diverge from center zero line"
+      ],
+      "expected_result": "Pink bars extend RIGHT from zero, cyan bars extend LEFT from zero",
+      "actual_result": "Chart shows grouped bars properly diverging from x=0 reference line with correct legend",
+      "verification": "PASSED"
+    }
+  },
+  "regression_tests": {
+    "model_training": {
+      "status": "PASSED",
+      "description": "Training a model on Insurance Costs dataset completes successfully",
+      "actual_result": "Linear Regression model trained with R² 0.971"
+    },
+    "explainability_charts": {
+      "status": "PASSED",
+      "description": "Explainability tab renders all charts without errors",
+      "actual_result": "SHAP Global Importance, SHAP Summary Plot, and other charts render correctly"
+    },
+    "predictions_tab": {
+      "status": "PASSED",
+      "description": "Predictions tab works correctly with trained model",
+      "actual_result": "Form displays all feature inputs, Generate Prediction button works, Prediction Result shows generated value"
+    }
+  },
+  "code_verification": {
+    "file": "/app/frontend/src/components/views/ExplainabilityView.js",
+    "lines": "151-152",
+    "before_fix": "<Bar dataKey=\"positive\" stackId=\"a\" ... />\n<Bar dataKey=\"negative\" stackId=\"a\" ... />",
+    "after_fix": "<Bar dataKey=\"positive\" fill=\"#ec4899\" radius={[0, 4, 4, 0]} name=\"Positive push\" isAnimationActive={false} />\n<Bar dataKey=\"negative\" fill=\"#06b6d4\" radius={[4, 0, 0, 4]} name=\"Negative pull\" isAnimationActive={false} />"
+  }
+}
