@@ -1,0 +1,83 @@
+{
+  "summary": "Frontend testing completed for two bug fixes: (1) Dashboard shows stats on initial login - VERIFIED, (2) Preprocessing nudge visible immediately after loading dataset - VERIFIED. Both regression tests passed: Proceed to Training button works, Training still works correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_53.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "BUG FIX 1 VERIFIED: DashboardView.js lines 32-57 compute lbStats from leaderboard entries when no in-session models exist",
+    "BUG FIX 1 VERIFIED: DashboardView.js lines 60-165 show historical dashboard with stat cards (Total Models, Avg Score, Best Algorithm, Highest Score, Last Training), charts (Model Performance, Algorithm Usage), and Saved Analyses section",
+    "BUG FIX 2 VERIFIED: AnalysisView.js lines 215-245 contain preprocessing nudge positioned after Data Scanner card - visible immediately after loading dataset, BEFORE selecting target column",
+    "Preprocessing nudge shows status in green ('Preprocessing active: Missing Values will be applied during training.') with Edit button that navigates to Preprocess tab",
+    "REGRESSION VERIFIED: Proceed to Training button (data-testid='proceed-to-training-btn') exists on Preprocess tab and is functional",
+    "REGRESSION VERIFIED: Training a model still works correctly - model count increased from 207 to 219 after training"
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A - Frontend only testing",
+    "frontend": "100%"
+  },
+  "test_credentials": {
+    "email": "shubhrangshub@gmail.com",
+    "password": "MyNewPass123!"
+  },
+  "seed_data_creation": "None - used existing saved analyses and leaderboard data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Both bug fixes verified working. Dashboard now shows leaderboard-derived stats (Total Models: 219, Avg Score: 46.1%, Best Algorithm: Ridge Regression, Highest Score: 97.8%, Last Training: 7/6/2026), charts, and Saved Analyses section on initial login. Preprocessing nudge is visible immediately after loading a dataset on Analysis tab - shows 'Preprocessing active: Missing Values will be applied during training.' in green with Edit button. User has 14 saved analysis sessions and 219 models in leaderboard.",
+  "features_tested": {
+    "BUG_FIX_1_DASHBOARD_STATS_ON_LOGIN": {
+      "status": "PASSED",
+      "location": "DashboardView.js lines 32-165",
+      "data_testids": ["dashboard-view", "lb-performance-chart", "lb-usage-chart", "dashboard-saved-analyses", "dashboard-leaderboard-widget"],
+      "description": "Dashboard shows leaderboard-derived stats, charts, and saved analyses on initial login when no in-session models exist",
+      "verified_behavior": "Shows 'Welcome back! You have 219 trained models from previous sessions.' with stat cards (Total Models: 219, Avg Score: 46.1%, Best Algorithm: Ridge Regression, Highest Score: 97.8%, Last Training: 7/6/2026), Model Performance chart, Algorithm Usage chart, Saved Analyses section (14 sessions), and All-Time Leaderboard widget"
+    },
+    "BUG_FIX_2_PREPROCESSING_NUDGE_VISIBLE": {
+      "status": "PASSED",
+      "location": "AnalysisView.js lines 215-245",
+      "data_testids": ["preprocessing-nudge", "go-to-preprocess-btn"],
+      "description": "Preprocessing nudge visible immediately after loading dataset, BEFORE selecting target column",
+      "verified_behavior": "After loading Insurance Costs sample dataset, preprocessing nudge shows 'Preprocessing active: Missing Values will be applied during training.' in green with Edit button. Clicking Edit navigates to Preprocess tab."
+    },
+    "REGRESSION_PROCEED_TO_TRAINING_BUTTON": {
+      "status": "PASSED",
+      "location": "PreprocessView.js",
+      "data_testids": ["proceed-to-training-btn"],
+      "description": "Proceed to Training button exists on Preprocess tab",
+      "verified_behavior": "Button found and functional, shows 'Ready to Train' message with '1 preprocessing step(s) will be applied during training: Missing Values'"
+    },
+    "REGRESSION_TRAINING_WORKS": {
+      "status": "PASSED",
+      "location": "AnalysisView.js",
+      "data_testids": ["start-training-btn", "training-results"],
+      "description": "Training a model still works correctly",
+      "verified_behavior": "Training completed successfully, model count increased from 207 to 219"
+    }
+  },
+  "regression_tests": {
+    "dashboard_stats_display": {
+      "status": "PASSED",
+      "description": "Dashboard displays stat cards, charts, and saved analyses on initial login"
+    },
+    "preprocessing_nudge_visibility": {
+      "status": "PASSED",
+      "description": "Preprocessing nudge visible immediately after loading dataset"
+    },
+    "proceed_to_training_button": {
+      "status": "PASSED",
+      "description": "Proceed to Training button exists and works on Preprocess tab"
+    },
+    "model_training": {
+      "status": "PASSED",
+      "description": "Training a model still works correctly"
+    }
+  }
+}

@@ -212,6 +212,35 @@ export default function AnalysisView() {
       </CardContent>
     </Card></motion.div>}
 
+    {/* Preprocessing Nudge — visible as soon as data is loaded */}
+    {dataProfile && <motion.div variants={fadeInUp}>
+      {(() => {
+        const ppActive = [
+          preprocessConfig.missingValues !== 'none' && 'Missing Values',
+          preprocessConfig.scaling !== 'none' && 'Feature Scaling',
+          preprocessConfig.outlierMethod !== 'none' && 'Outlier Treatment',
+          (preprocessConfig.excludeFeatures?.length || 0) > 0 && 'Feature Selection',
+        ].filter(Boolean);
+        const hasIssues = datasetScan && (datasetScan.totalMissing > 0 || datasetScan.totalOutliers > 0 || datasetScan.scaleIssue);
+        return (
+          <div className={`p-3.5 rounded-lg border flex items-center gap-3 ${ppActive.length > 0 ? 'border-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20 dark:border-emerald-800' : hasIssues ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-800' : 'border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-800'}`} data-testid="preprocessing-nudge">
+            <Settings2 className={`h-4 w-4 shrink-0 ${ppActive.length > 0 ? 'text-emerald-600' : hasIssues ? 'text-amber-600' : 'text-blue-500'}`} />
+            <div className="flex-1 min-w-0">
+              {ppActive.length > 0
+                ? <p className="text-sm text-emerald-700 dark:text-emerald-400"><span className="font-medium">Preprocessing active:</span> {ppActive.join(' → ')} will be applied during training.</p>
+                : hasIssues
+                  ? <p className="text-sm text-amber-700 dark:text-amber-400"><span className="font-medium">Data issues detected.</span> Configure preprocessing to improve model accuracy.</p>
+                  : <p className="text-sm text-blue-700 dark:text-blue-400">No preprocessing configured — training will use raw data.</p>
+              }
+            </div>
+            <Button variant="outline" size="sm" className="shrink-0 text-xs h-7 gap-1" onClick={() => setActiveView('preprocess')} data-testid="go-to-preprocess-btn">
+              <Settings2 className="h-3 w-3" />{ppActive.length > 0 ? 'Edit' : 'Configure'}
+            </Button>
+          </div>
+        );
+      })()}
+    </motion.div>}
+
     {columns.length > 0 && <motion.div variants={fadeInUp}><Card><CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5" />Model Configuration</CardTitle>
       <CardDescription>Configure your model by selecting a target variable and algorithm. The system will guide you based on your data.</CardDescription></CardHeader>
       <CardContent>
@@ -238,33 +267,6 @@ export default function AnalysisView() {
           </div>
         </div>
         {datasetScan && datasetScan.score < 70 && <div className="mt-4 p-3 rounded-lg border border-orange-400 bg-orange-50 dark:bg-orange-950/20 text-sm text-orange-700 dark:text-orange-400 flex items-center gap-2" data-testid="training-gate-warning"><AlertCircle className="h-4 w-4 shrink-0" />Dataset health score ({datasetScan.score}/100) is below the recommended threshold (70). Use the auto-clean tools in the Scanner above to improve data quality before training.</div>}
-
-        {/* Preprocessing Nudge */}
-        {(() => {
-          const ppActive = [
-            preprocessConfig.missingValues !== 'none' && 'Missing Values',
-            preprocessConfig.scaling !== 'none' && 'Feature Scaling',
-            preprocessConfig.outlierMethod !== 'none' && 'Outlier Treatment',
-            (preprocessConfig.excludeFeatures?.length || 0) > 0 && 'Feature Selection',
-          ].filter(Boolean);
-          const hasIssues = datasetScan && (datasetScan.totalMissing > 0 || datasetScan.totalOutliers > 0 || datasetScan.scaleIssue);
-          return (
-            <div className={`mt-4 p-3 rounded-lg border flex items-center gap-3 ${ppActive.length > 0 ? 'border-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20 dark:border-emerald-800' : hasIssues ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-800' : 'border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-800'}`} data-testid="preprocessing-nudge">
-              <Settings2 className={`h-4 w-4 shrink-0 ${ppActive.length > 0 ? 'text-emerald-600' : hasIssues ? 'text-amber-600' : 'text-blue-500'}`} />
-              <div className="flex-1 min-w-0">
-                {ppActive.length > 0
-                  ? <p className="text-sm text-emerald-700 dark:text-emerald-400"><span className="font-medium">Preprocessing active:</span> {ppActive.join(' → ')} will be applied during training.</p>
-                  : hasIssues
-                    ? <p className="text-sm text-amber-700 dark:text-amber-400"><span className="font-medium">Data issues detected.</span> Configure preprocessing to improve model accuracy.</p>
-                    : <p className="text-sm text-blue-700 dark:text-blue-400">No preprocessing configured — training will use raw data.</p>
-                }
-              </div>
-              <Button variant="outline" size="sm" className="shrink-0 text-xs h-7 gap-1" onClick={() => setActiveView('preprocess')} data-testid="go-to-preprocess-btn">
-                <Settings2 className="h-3 w-3" />{ppActive.length > 0 ? 'Edit' : 'Configure'}
-              </Button>
-            </div>
-          );
-        })()}
 
         <Button onClick={handleTrain} disabled={isTraining || (datasetScan && datasetScan.score < 70)} className="w-full mt-6 h-12" size="lg" data-testid="start-training-btn">{isTraining ? <><div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Training...</> : <><Play className="h-4 w-4 mr-2" />Start Training</>}</Button>
         </>}

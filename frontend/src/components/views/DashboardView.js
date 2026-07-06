@@ -28,9 +28,38 @@ export default function DashboardView() {
     })
     .slice(0, 5);
 
+  // Derive dashboard stats from leaderboard when no in-session models
+  const hasSessionModels = models.length > 0;
+  const hasHistoricalData = leaderboardEntries.length > 0;
+
+  const lbStats = hasHistoricalData && !hasSessionModels ? (() => {
+    const sorted = [...leaderboardEntries].sort((a, b) => {
+      const sa = a.problem_type === 'classification' ? (a.metrics?.f1 || a.metrics?.accuracy || 0) : (a.metrics?.r2 || 0);
+      const sb = b.problem_type === 'classification' ? (b.metrics?.f1 || b.metrics?.accuracy || 0) : (b.metrics?.r2 || 0);
+      return sb - sa;
+    });
+    const scores = sorted.map(e => e.problem_type === 'classification' ? (e.metrics?.f1 || e.metrics?.accuracy || 0) : (e.metrics?.r2 || 0));
+    const algoCount = {};
+    sorted.forEach(e => { const n = ALGO_NAMES[e.algorithm] || e.algorithm; algoCount[n] = (algoCount[n] || 0) + 1; });
+    const mostUsed = Object.entries(algoCount).sort((a, b) => b[1] - a[1])[0]?.[0] || '--';
+    return {
+      totalModels: sorted.length,
+      avgScore: scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0,
+      highestScore: scores[0] || 0,
+      bestAlgo: ALGO_NAMES[sorted[0]?.algorithm] || sorted[0]?.algorithm || '--',
+      mostUsed,
+      lastTraining: sorted.reduce((latest, e) => {
+        const d = e.created_at ? new Date(e.created_at) : null;
+        return d && (!latest || d > latest) ? d : latest;
+      }, null),
+      entries: sorted,
+    };
+  })() : null;
+
   return (
   <motion.div key="dashboard" variants={staggerContainer} initial="initial" animate="animate" exit="exit" className="space-y-6" data-testid="dashboard-view">
-    {models.length === 0 ? (
+    {!hasSessionModels && !hasHistoricalData ? (
+      /* Truly empty — no models anywhere */
       <motion.div variants={fadeInUp} className="space-y-6">
         <Card className="border-2 border-dashed"><CardContent className="py-16 text-center">
           <Database className="h-14 w-14 text-muted-foreground/30 mx-auto mb-5" />
@@ -54,6 +83,43 @@ export default function DashboardView() {
             </div>
           </CardContent></Card>
         )}
+      </motion.div>
+
+    ) : !hasSessionModels && hasHistoricalData ? (
+      /* Historical data only — show leaderboard-derived dashboard */
+      <motion.div variants={fadeInUp} className="space-y-6">
+        {/* Quick Start CTA */}
+        <Card className="border-2 border-dashed border-primary/30 bg-primary/5"><CardContent className="py-6 text-center">
+          <h3 className="text-base font-semibold mb-1" data-testid="dashboard-resume-title">Welcome back! You have {lbStats.totalModels} trained model{lbStats.totalModels !== 1 ? 's' : ''} from previous sessions.</h3>
+          <p className="text-muted-foreground mb-4 text-sm">Load a saved analysis below to resume, or start a new one.</p>
+          <Button size="lg" onClick={() => setActiveView('analysis')} data-testid="train-new-model-btn"><Zap className="h-4 w-4 mr-2" />New Analysis</Button>
+        </CardContent></Card>
+
+        {/* Stat Cards from leaderboard */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          <StatCard title="Total Models" value={lbStats.totalModels} metricValue={lbStats.totalModels} icon={Database} />
+          <StatCard title="Avg Score" value={`${(lbStats.avgScore * 100).toFixed(1)}%`} metricValue={`${(lbStats.avgScore * 100).toFixed(0)}%`} icon={TrendingUp} />
+          <StatCard title="Best Algorithm" value={lbStats.bestAlgo} icon={Trophy} />
+          <StatCard title="Highest Score" value={`${(lbStats.highestScore * 100).toFixed(1)}%`} metricValue={`${(lbStats.highestScore * 100).toFixed(0)}%`} icon={Sparkles} />
+          <StatCard title="Last Training" value={lbStats.lastTraining ? lbStats.lastTraining.toLocaleDateString() : '--'} icon={Clock} />
+        </div>
+
+        {/* Charts from leaderboard data */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card className="h-[400px]" data-testid="lb-performance-chart"><CardHeader><CardTitle>Model Performance (All Sessions)</CardTitle><CardDescription>Top 15 models by score</CardDescription></CardHeader><CardContent>
+            <ResponsiveContainer width="100%" height={270}><BarChart data={lbStats.entries.slice(0, 15).map((e) => ({
+              name: `${(ALGO_NAMES[e.algorithm] || e.algorithm).substring(0, 12)}`,
+              score: +((e.problem_type === 'classification' ? (e.metrics?.f1 || e.metrics?.accuracy || 0) : (e.metrics?.r2 || 0)) * 100).toFixed(1)
+            }))}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" angle={-30} textAnchor="end" height={80} tick={{fontSize: 10}} /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} /><Tooltip formatter={v => `${v}%`} /><Bar dataKey="score" radius={[4, 4, 0, 0]}>{lbStats.entries.slice(0, 15).map((e, i) => <Cell key={i} fill={ALGO_COLORS[e.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
+          </CardContent></Card>
+
+          <Card className="h-[400px]" data-testid="lb-usage-chart"><CardHeader><CardTitle>Algorithm Usage (All Sessions)</CardTitle><CardDescription>Training frequency per algorithm</CardDescription></CardHeader><CardContent>
+            <ResponsiveContainer width="100%" height={270}><PieChart><Pie data={(() => {
+              const c = {}; lbStats.entries.forEach(e => { const nm = ALGO_NAMES[e.algorithm] || e.algorithm; c[nm] = (c[nm] || 0) + 1; });
+              return Object.entries(c).map(([name, value], i) => ({ name, value, fill: Object.values(ALGO_COLORS)[i % Object.values(ALGO_COLORS).length] }));
+            })()} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label={({name, percent}) => `${name} ${(percent*100).toFixed(0)}%`} /><Tooltip /></PieChart></ResponsiveContainer>
+          </CardContent></Card>
+        </div>
 
         {/* Saved Analyses (from previous sessions) */}
         {historyList.length > 0 && (
