@@ -83,8 +83,9 @@ Build a full-stack AutoML application with client-side ML, model training/compar
 
 ### Dashboard History/Leaderboard Fix (July 6, 2026)
 - **Dashboard now loads history and leaderboard on initial load** — fetches snapshots and leaderboard entries when user lands on Dashboard.
-- **Saved Analyses section**: Shows clickable cards of previous analysis sessions (up to 5) with dataset name, date, and algorithm. Clicking loads the snapshot.
-- **Leaderboard widget visible immediately**: All-Time Leaderboard shows top models across sessions on first visit.
+- **Dashboard shows stats from leaderboard data** — When no in-session models exist but leaderboard has data, shows stat cards (Total Models, Avg Score, Best Algorithm, Highest Score, Last Training), performance bar chart, algorithm usage pie chart, and saved analyses section.
+- **Three dashboard states**: (1) Truly empty, (2) Historical data only (leaderboard-derived), (3) Active session (full in-session dashboard).
+- **Preprocessing nudge repositioned** — Moved from inside the target-column-required block to after the Data Scanner section, visible immediately after loading any dataset (no target selection required).
 
 ## Pending Tasks
 ### P1 - Upcoming
