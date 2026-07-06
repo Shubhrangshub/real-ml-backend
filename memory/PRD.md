@@ -72,6 +72,10 @@ Build a full-stack AutoML application with client-side ML, model training/compar
 ### Employee Dataset Bug Fix (June 25, 2026)
 - **EMP-BUG-01 (FIXED)**: Empty-field prediction returning $151,075 instead of 0. Root cause: Linear Regression intercept produced non-zero output even with all-zero inputs. Fix: Added all-fields-empty guard in `handlePredict` that returns 0 directly with a `toast.warning` before calling the ML engine. Works across all datasets (insurance, employee, etc.).
 
+### SHAP Chart & Header Responsive Fix (June 25, 2026)
+- **SHAP Summary Plot (FIXED)**: Bars weren't diverging from zero due to `stackId="a"` in Recharts causing negative bars to start from end of positive bars. Fix: Removed `stackId` so bars render as grouped bars independently from zero.
+- **Header Toolbar Overlap (FIXED)**: Responsive layout fix — title truncates, dataset badge hidden below xl, button labels icon-only below lg breakpoint.
+
 ## Pending Tasks
 ### P1 - Upcoming
 - Real-time Collaborative Sessions
