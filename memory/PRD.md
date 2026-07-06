@@ -81,6 +81,11 @@ Build a full-stack AutoML application with client-side ML, model training/compar
 - **Preprocessing nudge**: Added in Analysis tab Model Configuration section before Start Training button. Shows green (active), amber (issues detected), or blue (no config) status with a button to navigate to Preprocess.
 - **Preprocessing applied card**: Added in training results section showing what preprocessing steps were executed during training.
 
+### Dashboard History/Leaderboard Fix (July 6, 2026)
+- **Dashboard now loads history and leaderboard on initial load** — fetches snapshots and leaderboard entries when user lands on Dashboard.
+- **Saved Analyses section**: Shows clickable cards of previous analysis sessions (up to 5) with dataset name, date, and algorithm. Clicking loads the snapshot.
+- **Leaderboard widget visible immediately**: All-Time Leaderboard shows top models across sessions on first visit.
+
 ## Pending Tasks
 ### P1 - Upcoming
 - Real-time Collaborative Sessions
