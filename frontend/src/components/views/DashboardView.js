@@ -16,7 +16,7 @@ export default function DashboardView() {
   const {
     models, stats, dataProfile, datasetScan, showGuide, setShowGuide,
     setActiveView, businessInterpretation, topModels, StatCard,
-    leaderboardEntries
+    leaderboardEntries, historyList, historyLoading, handleLoadSnapshot
   } = useApp();
 
   // Top 5 from leaderboard
@@ -53,6 +53,45 @@ export default function DashboardView() {
               <div className="bg-muted/50 rounded-lg p-3"><p className="text-xs text-muted-foreground">Outliers</p><p className="font-bold text-lg">{datasetScan.totalOutliers}</p></div>
             </div>
           </CardContent></Card>
+        )}
+
+        {/* Saved Analyses (from previous sessions) */}
+        {historyList.length > 0 && (
+          <Card data-testid="dashboard-saved-analyses">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base"><Clock className="h-4 w-4 text-blue-500" />Saved Analyses</CardTitle>
+                  <CardDescription className="text-xs">{historyList.length} saved analysis session{historyList.length !== 1 ? 's' : ''} — click to resume</CardDescription>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setActiveView('history')} className="text-xs" data-testid="view-all-history">
+                  View All <ArrowUpRight className="h-3 w-3 ml-1" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="space-y-2">
+                {historyList.slice(0, 5).map((snap, i) => (
+                  <div key={snap.snapshot_id || snap._id || i}
+                    className="flex items-center gap-3 p-2.5 rounded-lg border hover:bg-accent/50 transition-colors cursor-pointer"
+                    onClick={() => handleLoadSnapshot(snap.snapshot_id || snap._id)}
+                    data-testid={`saved-analysis-${i}`}>
+                    <div className="h-8 w-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                      <Database className="h-4 w-4 text-blue-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{snap.dataset_name || snap.name || 'Unnamed Analysis'}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {snap.created_at ? new Date(snap.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                        {snap.state?.trainingResult?.bestModel?.algorithm && ` · ${ALGO_NAMES[snap.state.trainingResult.bestModel.algorithm] || snap.state.trainingResult.bestModel.algorithm}`}
+                      </p>
+                    </div>
+                    <ArrowUpRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         )}
       </motion.div>
     ) : (<>

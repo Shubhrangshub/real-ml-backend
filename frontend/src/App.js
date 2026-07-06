@@ -687,7 +687,7 @@ function AppMain({ authUser, onLogout }) {
   }, [handleLoadSnapshot]);
 
   // Fetch history when switching to history view
-  useEffect(() => { if (activeView === 'history') fetchHistory(); }, [activeView, fetchHistory]);
+  useEffect(() => { if (activeView === 'history' || activeView === 'dashboard') fetchHistory(); }, [activeView, fetchHistory]);
   useEffect(() => { if (activeView === 'leaderboard' || activeView === 'dashboard') fetchLeaderboard(); }, [activeView, fetchLeaderboard]);
 
   // ==================== SAMPLE DATASETS ====================
