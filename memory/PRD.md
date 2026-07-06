@@ -76,6 +76,11 @@ Build a full-stack AutoML application with client-side ML, model training/compar
 - **SHAP Summary Plot (FIXED)**: Bars weren't diverging from zero due to `stackId="a"` in Recharts causing negative bars to start from end of positive bars. Fix: Removed `stackId` so bars render as grouped bars independently from zero.
 - **Header Toolbar Overlap (FIXED)**: Responsive layout fix — title truncates, dataset badge hidden below xl, button labels icon-only below lg breakpoint.
 
+### Preprocessing UX Improvements (June 25, 2026)
+- **"Proceed to Training" button**: Added at bottom of Preprocess tab — shows active step count and navigates to Analysis.
+- **Preprocessing nudge**: Added in Analysis tab Model Configuration section before Start Training button. Shows green (active), amber (issues detected), or blue (no config) status with a button to navigate to Preprocess.
+- **Preprocessing applied card**: Added in training results section showing what preprocessing steps were executed during training.
+
 ## Pending Tasks
 ### P1 - Upcoming
 - Real-time Collaborative Sessions
