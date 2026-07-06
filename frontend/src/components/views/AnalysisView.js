@@ -4,7 +4,7 @@ import {
   Upload, Play, FileText, Target, ChevronRight, AlertCircle, Zap, Activity,
   ShieldAlert, CheckCircle2, XCircle, Eye, Trash2, Brain, Trophy, Download,
   Sparkles, BarChart3, Table2, Layers, Database, GitBranch, Shield, X, Info,
-  Lightbulb, SplitSquareVertical, TrendingUp
+  Lightbulb, SplitSquareVertical, TrendingUp, Settings2, ArrowRight
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,7 +28,8 @@ export default function AnalysisView() {
     setActiveView, setPredictTab, datasetSummary, taskSuggestion, suggestedTarget,
     sampleDatasets, loadSampleDataset, datasetScan, handleDeleteModel, handleDownloadModel,
     setTreeModalAlgo, setTreeModalOpen, MetricCard, TreeNode, columns, error,
-    dataPreview, setTrainingResult, setUnsupervisedResult
+    dataPreview, setTrainingResult, setUnsupervisedResult,
+    preprocessConfig, preprocessLog
   } = useApp();
 
   return (
@@ -237,6 +238,34 @@ export default function AnalysisView() {
           </div>
         </div>
         {datasetScan && datasetScan.score < 70 && <div className="mt-4 p-3 rounded-lg border border-orange-400 bg-orange-50 dark:bg-orange-950/20 text-sm text-orange-700 dark:text-orange-400 flex items-center gap-2" data-testid="training-gate-warning"><AlertCircle className="h-4 w-4 shrink-0" />Dataset health score ({datasetScan.score}/100) is below the recommended threshold (70). Use the auto-clean tools in the Scanner above to improve data quality before training.</div>}
+
+        {/* Preprocessing Nudge */}
+        {(() => {
+          const ppActive = [
+            preprocessConfig.missingValues !== 'none' && 'Missing Values',
+            preprocessConfig.scaling !== 'none' && 'Feature Scaling',
+            preprocessConfig.outlierMethod !== 'none' && 'Outlier Treatment',
+            (preprocessConfig.excludeFeatures?.length || 0) > 0 && 'Feature Selection',
+          ].filter(Boolean);
+          const hasIssues = datasetScan && (datasetScan.totalMissing > 0 || datasetScan.totalOutliers > 0 || datasetScan.scaleIssue);
+          return (
+            <div className={`mt-4 p-3 rounded-lg border flex items-center gap-3 ${ppActive.length > 0 ? 'border-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20 dark:border-emerald-800' : hasIssues ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-800' : 'border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 dark:border-blue-800'}`} data-testid="preprocessing-nudge">
+              <Settings2 className={`h-4 w-4 shrink-0 ${ppActive.length > 0 ? 'text-emerald-600' : hasIssues ? 'text-amber-600' : 'text-blue-500'}`} />
+              <div className="flex-1 min-w-0">
+                {ppActive.length > 0
+                  ? <p className="text-sm text-emerald-700 dark:text-emerald-400"><span className="font-medium">Preprocessing active:</span> {ppActive.join(' → ')} will be applied during training.</p>
+                  : hasIssues
+                    ? <p className="text-sm text-amber-700 dark:text-amber-400"><span className="font-medium">Data issues detected.</span> Configure preprocessing to improve model accuracy.</p>
+                    : <p className="text-sm text-blue-700 dark:text-blue-400">No preprocessing configured — training will use raw data.</p>
+                }
+              </div>
+              <Button variant="outline" size="sm" className="shrink-0 text-xs h-7 gap-1" onClick={() => setActiveView('preprocess')} data-testid="go-to-preprocess-btn">
+                <Settings2 className="h-3 w-3" />{ppActive.length > 0 ? 'Edit' : 'Configure'}
+              </Button>
+            </div>
+          );
+        })()}
+
         <Button onClick={handleTrain} disabled={isTraining || (datasetScan && datasetScan.score < 70)} className="w-full mt-6 h-12" size="lg" data-testid="start-training-btn">{isTraining ? <><div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />Training...</> : <><Play className="h-4 w-4 mr-2" />Start Training</>}</Button>
         </>}
 
@@ -267,6 +296,29 @@ export default function AnalysisView() {
           <div><p className="text-sm font-semibold text-blue-800 dark:text-blue-200">Train/Test Split: {trainingResult.splitInfo?.trainSize} train / {trainingResult.splitInfo?.testSize} test (80/20){trainingResult.evalMode === 'cv' && ' + 5-Fold Cross Validation'}</p>
           <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">{trainingResult.evalMode === 'cv' ? 'Models ranked by 5-fold cross-validation score for reliable evaluation. Test metrics are also shown for reference.' : 'All metrics below are evaluated on the held-out test set for unbiased evaluation'}</p></div>
         </div>
+
+        {/* Preprocessing Applied */}
+        {preprocessLog && preprocessLog.length > 0 && (
+          <div className="p-4 rounded-lg bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-950/20 dark:to-amber-950/20 border border-orange-200 dark:border-orange-800" data-testid="preprocessing-applied-card">
+            <div className="flex items-center gap-2 mb-2">
+              <Settings2 className="h-4 w-4 text-orange-600" />
+              <p className="text-sm font-semibold text-orange-800 dark:text-orange-200">Preprocessing Applied ({preprocessLog.length} step{preprocessLog.length > 1 ? 's' : ''})</p>
+            </div>
+            <div className="space-y-1">
+              {preprocessLog.map((entry, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                  <Badge variant="outline" className="text-[9px] shrink-0 border-orange-300 text-orange-700 dark:text-orange-400">{entry.step}</Badge>
+                  <span className="text-muted-foreground">{entry.message}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-orange-600/70 dark:text-orange-400/60 mt-2 flex items-center gap-1">
+              <ArrowRight className="h-3 w-3" />
+              To compare: retrain without preprocessing to see the difference in metrics.
+            </p>
+          </div>
+        )}
 
         {trainingResult.dataInfo?.removedLeakageColumns?.length > 0 && <Card className="border-2 border-orange-500 bg-orange-50 dark:bg-orange-950" data-testid="leakage-warning"><CardContent className="p-4"><div className="flex items-start gap-3"><AlertCircle className="h-6 w-6 text-orange-600 mt-0.5 shrink-0" /><div><p className="font-semibold text-orange-900 dark:text-orange-100">Data Leakage Prevention</p><div className="flex flex-wrap gap-2 mt-2">{trainingResult.dataInfo.removedLeakageColumns.map((col, idx) => <Badge key={idx} variant="outline" className="bg-orange-100 dark:bg-orange-900">{col}</Badge>)}</div></div></div></CardContent></Card>}
 

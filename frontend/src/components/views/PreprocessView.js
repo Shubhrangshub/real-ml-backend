@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Settings2, Droplets, BarChart3, Scissors, Filter, CheckCircle2, Info, Lightbulb, Sparkles, Check } from 'lucide-react';
+import { Settings2, Droplets, BarChart3, Scissors, Filter, CheckCircle2, Info, Lightbulb, Sparkles, Check, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,7 +31,7 @@ const OUTLIER_OPTIONS = [
 ];
 
 export default function PreprocessView() {
-  const { dataProfile, preprocessConfig, setPreprocessConfig, columns, targetColumn, preprocessLog } = useApp();
+  const { dataProfile, preprocessConfig, setPreprocessConfig, columns, targetColumn, preprocessLog, setActiveView } = useApp();
 
   const totalMissing = Object.values(dataProfile?.missingCounts || {}).reduce((a, b) => a + b, 0);
   const numericCols = dataProfile?.numericColumns || [];
@@ -404,6 +404,30 @@ export default function PreprocessView() {
           </CardContent>
         </Card>
       )}
+
+      {/* Proceed to Training CTA */}
+      <Card className="border-2 border-primary/30 bg-gradient-to-r from-primary/5 to-violet-500/5" data-testid="proceed-to-training-card">
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-violet-500 flex items-center justify-center shrink-0">
+                <Sparkles className="h-5 w-5 text-white" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-bold text-sm">Ready to Train</h3>
+                <p className="text-xs text-muted-foreground truncate">
+                  {activeSteps.length > 0
+                    ? `${activeSteps.length} preprocessing step(s) will be applied during training: ${activeSteps.join(', ')}`
+                    : 'No preprocessing configured — raw data will be used for training'}
+                </p>
+              </div>
+            </div>
+            <Button onClick={() => setActiveView('analysis')} className="shrink-0 gap-2" data-testid="proceed-to-training-btn">
+              Proceed to Training <ArrowRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </motion.div>
   );
 }
