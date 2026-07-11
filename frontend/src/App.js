@@ -1595,10 +1595,9 @@ function AppMain({ authUser, onLogout }) {
   };
 
   // ==================== SUB-COMPONENTS ====================
-  const StatCard = ({ title, value, icon: Icon, metricValue }) => (
-    <motion.div variants={fadeInUp}><Card className="hover:shadow-lg transition-shadow duration-300" data-testid={`stat-card-${title.toLowerCase().replace(/\s+/g, '-')}`}><CardContent className="p-6"><div className="flex items-center justify-between"><div className="space-y-2"><p className="text-sm font-medium text-muted-foreground">{title}</p><div className="flex items-baseline gap-2"><h3 className="text-3xl font-bold tracking-tight" data-testid={`stat-value-${title.toLowerCase().replace(/\s+/g, '-')}`}>{value}</h3>
-      {metricValue !== undefined && <Badge variant={metricValue > 0 ? 'default' : 'secondary'} className="gap-1" data-testid={`stat-trend-${title.toLowerCase().replace(/\s+/g, '-')}`}>{metricValue > 0 ? <><ArrowUpRight className="h-3 w-3" />{`+${metricValue}`}</> : 'N/A'}</Badge>}
-    </div></div><div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center"><Icon className="h-6 w-6 text-primary" /></div></div></CardContent></Card></motion.div>
+  const StatCard = ({ title, value, icon: Icon }) => (
+    <motion.div variants={fadeInUp}><Card className="hover:shadow-md transition-shadow duration-300" data-testid={`stat-card-${title.toLowerCase().replace(/\s+/g, '-')}`}><CardContent className="p-4"><div className="flex items-center justify-between"><div className="space-y-1"><p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</p><h3 className="text-xl font-bold tracking-tight" data-testid={`stat-value-${title.toLowerCase().replace(/\s+/g, '-')}`}>{value}</h3>
+    </div><div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center"><Icon className="h-4.5 w-4.5 text-primary" /></div></div></CardContent></Card></motion.div>
   );
 
   const DataUploadMini = () => (
