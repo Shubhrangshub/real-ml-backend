@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, Cell, PieChart, Pie
+  ResponsiveContainer, Cell, PieChart, Pie, Label
 } from 'recharts';
 import { staggerContainer, fadeInUp, ALGO_NAMES, ALGO_COLORS } from '../../constants';
 import { MetricTip } from '../SmartTooltip';
@@ -87,37 +87,46 @@ export default function DashboardView() {
 
     ) : !hasSessionModels && hasHistoricalData ? (
       /* Historical data only — show leaderboard-derived dashboard */
-      <motion.div variants={fadeInUp} className="space-y-6">
-        {/* Quick Start CTA */}
-        <Card className="border-2 border-dashed border-primary/30 bg-primary/5"><CardContent className="py-6 text-center">
-          <h3 className="text-base font-semibold mb-1" data-testid="dashboard-resume-title">Welcome back! You have {lbStats.totalModels} trained model{lbStats.totalModels !== 1 ? 's' : ''} from previous sessions.</h3>
-          <p className="text-muted-foreground mb-4 text-sm">Load a saved analysis below to resume, or start a new one.</p>
-          <Button size="lg" onClick={() => setActiveView('analysis')} data-testid="train-new-model-btn"><Zap className="h-4 w-4 mr-2" />New Analysis</Button>
-        </CardContent></Card>
+      <motion.div variants={fadeInUp} className="space-y-5">
+        {/* Last Session Context Strip + CTA */}
+        <div className="flex items-center justify-between gap-4 p-3.5 rounded-lg border bg-card" data-testid="dashboard-welcome">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0"><Brain className="h-4 w-4 text-primary" /></div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold" data-testid="dashboard-resume-title">{lbStats.totalModels} model{lbStats.totalModels !== 1 ? 's' : ''} trained across sessions</p>
+              <p className="text-xs text-muted-foreground truncate">
+                Best: {lbStats.bestAlgo} ({(lbStats.highestScore * 100).toFixed(1)}%)
+                {lbStats.lastTraining && ` · Last trained ${lbStats.lastTraining.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`}
+                {historyList.length > 0 && historyList[0]?.dataset_name && ` · ${historyList[0].dataset_name}`}
+              </p>
+            </div>
+          </div>
+          <Button onClick={() => setActiveView('analysis')} data-testid="train-new-model-btn" className="shrink-0 gap-1.5"><Zap className="h-3.5 w-3.5" />New Analysis</Button>
+        </div>
 
         {/* Stat Cards from leaderboard */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-          <StatCard title="Total Models" value={lbStats.totalModels} metricValue={lbStats.totalModels} icon={Database} />
-          <StatCard title="Avg Score" value={`${(lbStats.avgScore * 100).toFixed(1)}%`} metricValue={`${(lbStats.avgScore * 100).toFixed(0)}%`} icon={TrendingUp} />
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+          <StatCard title="Total Models" value={lbStats.totalModels} icon={Database} />
+          <StatCard title="Avg Score" value={`${(lbStats.avgScore * 100).toFixed(1)}%`} icon={TrendingUp} />
           <StatCard title="Best Algorithm" value={lbStats.bestAlgo} icon={Trophy} />
-          <StatCard title="Highest Score" value={`${(lbStats.highestScore * 100).toFixed(1)}%`} metricValue={`${(lbStats.highestScore * 100).toFixed(0)}%`} icon={Sparkles} />
-          <StatCard title="Last Training" value={lbStats.lastTraining ? lbStats.lastTraining.toLocaleDateString() : '--'} icon={Clock} />
+          <StatCard title="Highest Score" value={`${(lbStats.highestScore * 100).toFixed(1)}%`} icon={Sparkles} />
+          <StatCard title="Last Training" value={lbStats.lastTraining ? lbStats.lastTraining.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '--'} icon={Clock} />
         </div>
 
         {/* Charts from leaderboard data */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Card className="h-[400px]" data-testid="lb-performance-chart"><CardHeader><CardTitle>Model Performance (All Sessions)</CardTitle><CardDescription>Top 15 models by score</CardDescription></CardHeader><CardContent>
-            <ResponsiveContainer width="100%" height={270}><BarChart data={lbStats.entries.slice(0, 15).map((e) => ({
+        <div className="grid gap-5 lg:grid-cols-2">
+          <Card data-testid="lb-performance-chart"><CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Model Performance</CardTitle><CardDescription className="text-xs">Top 15 models by score</CardDescription></CardHeader><CardContent>
+            <ResponsiveContainer width="100%" height={240}><BarChart data={lbStats.entries.slice(0, 15).map((e) => ({
               name: `${(ALGO_NAMES[e.algorithm] || e.algorithm).substring(0, 12)}`,
               score: +((e.problem_type === 'classification' ? (e.metrics?.f1 || e.metrics?.accuracy || 0) : (e.metrics?.r2 || 0)) * 100).toFixed(1)
-            }))}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" angle={-30} textAnchor="end" height={80} tick={{fontSize: 10}} /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} /><Tooltip formatter={v => `${v}%`} /><Bar dataKey="score" radius={[4, 4, 0, 0]}>{lbStats.entries.slice(0, 15).map((e, i) => <Cell key={i} fill={ALGO_COLORS[e.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
+            }))}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" angle={-30} textAnchor="end" height={70} tick={{fontSize: 9}} /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{fontSize: 9}} /><Tooltip formatter={v => `${v}%`} /><Bar dataKey="score" radius={[3, 3, 0, 0]}>{lbStats.entries.slice(0, 15).map((e, i) => <Cell key={i} fill={ALGO_COLORS[e.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
           </CardContent></Card>
 
-          <Card className="h-[400px]" data-testid="lb-usage-chart"><CardHeader><CardTitle>Algorithm Usage (All Sessions)</CardTitle><CardDescription>Training frequency per algorithm</CardDescription></CardHeader><CardContent>
-            <ResponsiveContainer width="100%" height={270}><PieChart><Pie data={(() => {
+          <Card data-testid="lb-usage-chart"><CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Algorithm Usage</CardTitle><CardDescription className="text-xs">Training frequency per algorithm</CardDescription></CardHeader><CardContent>
+            <ResponsiveContainer width="100%" height={240}><PieChart><Pie data={(() => {
               const c = {}; lbStats.entries.forEach(e => { const nm = ALGO_NAMES[e.algorithm] || e.algorithm; c[nm] = (c[nm] || 0) + 1; });
               return Object.entries(c).map(([name, value], i) => ({ name, value, fill: Object.values(ALGO_COLORS)[i % Object.values(ALGO_COLORS).length] }));
-            })()} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label={({name, percent}) => `${name} ${(percent*100).toFixed(0)}%`} /><Tooltip /></PieChart></ResponsiveContainer>
+            })()} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({name, percent}) => `${name} ${(percent*100).toFixed(0)}%`} labelLine={false} innerRadius={35}><Label value={`${Object.keys((() => { const c = {}; lbStats.entries.forEach(e => { c[e.algorithm] = 1; }); return c; })()).length}`} position="center" className="text-xl font-bold fill-foreground" /></Pie><Tooltip /></PieChart></ResponsiveContainer>
           </CardContent></Card>
         </div>
 

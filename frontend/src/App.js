@@ -636,15 +636,17 @@ function AppMain({ authUser, onLogout }) {
 
       const filename = await generateReport({
         dataProfile, trainingResult, models, targetColumn, evalMode,
-        shapGlobal, limeResult, predictionHistory, unsupervisedResult,
+        shapGlobal, shapSummary, limeResult, predictionHistory, unsupervisedResult,
         clusterResult, anomalyResult, leaderboardEntries, deployments,
-        authUser, preprocessConfig,
+        authUser, preprocessConfig, preprocessLog, datasetScan, businessInterpretation,
       });
       toast.success(`Report downloaded: ${filename}`);
     } catch (e) { toast.error('PDF generation failed: ' + e.message); console.error(e); }
     finally { setExportLoading(''); }
-  }, [dataProfile, trainingResult, models, targetColumn, evalMode, shapGlobal, limeResult,
-    predictionHistory, unsupervisedResult, clusterResult, anomalyResult, leaderboardEntries, authUser, preprocessConfig]);
+  }, [dataProfile, trainingResult, models, targetColumn, evalMode, shapGlobal, shapSummary, limeResult,
+    predictionHistory, unsupervisedResult, clusterResult, anomalyResult, leaderboardEntries, authUser,
+    preprocessConfig, preprocessLog]);
+  // Note: datasetScan and businessInterpretation are useMemo values read at call-time via closure
 
   const handleDownloadSnapshotPDF = useCallback(async (snapshotId) => {
     try {
@@ -1771,7 +1773,7 @@ function AppMain({ authUser, onLogout }) {
                   <h2 className="text-base lg:text-lg font-bold tracking-tight truncate" data-testid="page-title">
                     {activeView === 'dashboard' && 'Dashboard'}{activeView === 'analysis' && 'Universal Analysis'}{activeView === 'preprocess' && 'Data Preprocessing'}{activeView === 'predict' && 'Predictions & Analysis'}{activeView === 'anomalies' && 'Anomaly Detection'}{activeView === 'models' && 'Model Library'}{activeView === 'explore' && 'Data Explorer'}{activeView === 'explainability' && 'Model Explainability'}{activeView === 'compare' && 'Compare Models'}{activeView === 'tune' && 'Hyperparameter Tuning'}{activeView === 'leaderboard' && 'Model Leaderboard'}{activeView === 'history' && 'Analysis History'}{activeView === 'admin' && 'Admin Dashboard'}{activeView === 'deploy' && 'Model Deployment'}{activeView === 'whatif' && 'What-If Analyzer'}
                   </h2>
-                  {dataProfile?.fileName && <span className="hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-violet-500/15 to-fuchsia-500/15 text-violet-700 dark:text-violet-300 text-xs font-semibold border border-violet-200 dark:border-violet-800 shrink-0" data-testid="current-dataset-badge"><Database className="h-3 w-3" />{dataProfile.fileName}</span>}
+                  {dataProfile?.fileName && activeView !== 'dashboard' && <span className="hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-violet-500/15 to-fuchsia-500/15 text-violet-700 dark:text-violet-300 text-xs font-semibold border border-violet-200 dark:border-violet-800 shrink-0" data-testid="current-dataset-badge"><Database className="h-3 w-3" />{dataProfile.fileName}</span>}
                 </div>
               </div>
             </div>

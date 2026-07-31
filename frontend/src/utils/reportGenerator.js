@@ -147,9 +147,10 @@ function addFooter(doc) {
  */
 export async function generateReport({
   dataProfile, trainingResult, models, targetColumn, evalMode,
-  shapGlobal, limeResult, predictionHistory, unsupervisedResult,
+  shapGlobal, shapSummary, limeResult, predictionHistory, unsupervisedResult,
   clusterResult, anomalyResult, leaderboardEntries, deployments,
-  authUser, preprocessConfig, tuningResults,
+  authUser, preprocessConfig, preprocessLog, datasetScan, businessInterpretation,
+  tuningResults,
 }) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pw = doc.internal.pageSize.getWidth(); // ~210
@@ -240,6 +241,8 @@ export async function generateReport({
   if (models?.length > 1) tocItems.push('Model Comparison');
   if (shapGlobal || models?.some(m => m.featureImportance?.length > 0)) tocItems.push('Feature Importance & Explainability');
   if (limeResult) tocItems.push('LIME Local Interpretation');
+  if (businessInterpretation) tocItems.push('Business Interpretation');
+  if (shapSummary?.length > 0) tocItems.push('SHAP Feature Direction Analysis');
   if (tuningResults || models?.some(m => m.tuned)) tocItems.push('Hyperparameter Tuning Results');
   if (hasUnsupervisedResult) tocItems.push('Unsupervised Analysis Results');
   if (clusterResult && !hasUnsupervisedResult) tocItems.push('Clustering Results');
@@ -352,6 +355,27 @@ export async function generateReport({
     }
   }
 
+  // ---- Data Quality Assessment ----
+  if (datasetScan) {
+    y = ensureSpace(doc, y, 40);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...C.dark);
+    doc.text('Data Quality Assessment', 16, y);
+    y += 6;
+    const qScore = datasetScan.score || 0;
+    const qColor = qScore >= 80 ? C.accent : qScore >= 50 ? C.amber : C.red;
+    drawMetricCard(doc, 16, y, 40, 22, 'Health Score', `${qScore}/100`, qColor);
+    drawMetricCard(doc, 60, y, 35, 22, 'Missing', String(datasetScan.totalMissing || 0), datasetScan.totalMissing > 0 ? C.amber : C.accent);
+    drawMetricCard(doc, 99, y, 35, 22, 'Outliers', String(datasetScan.totalOutliers || 0), datasetScan.totalOutliers > 0 ? C.amber : C.accent);
+    drawMetricCard(doc, 138, y, 35, 22, 'Duplicates', String(datasetScan.duplicateRows || 0), C.blue);
+    y += 28;
+    const statusText = qScore >= 80 ? 'Dataset is in excellent condition for model training.'
+      : qScore >= 50 ? 'Dataset has some quality issues that may affect model performance. Preprocessing is recommended.'
+      : 'Dataset has significant quality concerns. Clean the data before training for reliable results.';
+    y = narrate(doc, y, statusText, mw);
+  }
+
   // ---- Preprocessing Pipeline ----
   if (preprocessConfig && (preprocessConfig.missingValues !== 'none' || preprocessConfig.scaling !== 'none' || preprocessConfig.outlierMethod !== 'none' || (preprocessConfig.excludeFeatures?.length || 0) > 0)) {
     sectionNum++;
@@ -373,9 +397,9 @@ export async function generateReport({
       alternateRowStyles: { fillColor: [255, 251, 235] },
     });
     y = doc.lastAutoTable.finalY + 5;
-    const ppLog = trainingResult?.preprocessLog || [];
+    const ppLog = preprocessLog || trainingResult?.preprocessLog || [];
     if (ppLog.length > 0) {
-      y = narrate(doc, y, 'Preprocessing actions applied: ' + ppLog.map(l => l.message).join('; '), mw);
+      y = narrate(doc, y, 'Preprocessing actions applied during training: ' + ppLog.map(l => l.message).join('; '), mw);
     }
   }
 
@@ -670,6 +694,88 @@ export async function generateReport({
         if (data.section === 'body' && data.column.index === 3) {
           if (data.cell.raw === 'Positive') data.cell.styles.textColor = [16, 185, 129];
           else if (data.cell.raw === 'Negative') data.cell.styles.textColor = [239, 68, 68];
+        }
+      },
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+
+  // ---- Business Interpretation (AI-generated insights) ----
+  if (businessInterpretation) {
+    sectionNum++;
+    y = sectionHeader(doc, y, 'Business Interpretation', sectionNum);
+    y = narrate(doc, y,
+      'The following business-ready interpretation was generated based on the model\'s feature importance and SHAP analysis. ' +
+      'These insights translate statistical results into actionable recommendations.',
+      mw
+    );
+
+    if (businessInterpretation.summary) {
+      y = ensureSpace(doc, y, 15);
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...C.primary);
+      doc.text('Summary', 16, y);
+      y += 5;
+      y = narrate(doc, y, businessInterpretation.summary, mw);
+    }
+
+    if (businessInterpretation.keyDrivers?.length > 0) {
+      y = ensureSpace(doc, y, 15);
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...C.primary);
+      doc.text('Key Drivers', 16, y);
+      y += 5;
+      businessInterpretation.keyDrivers.forEach(d => {
+        y = ensureSpace(doc, y, 10);
+        y = narrate(doc, y, `• ${d.feature || d.name || 'Feature'}: ${d.interpretation || d.description || ''}`, mw - 4);
+      });
+    }
+
+    if (businessInterpretation.recommendations?.length > 0) {
+      y = ensureSpace(doc, y, 15);
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...C.primary);
+      doc.text('Recommendations', 16, y);
+      y += 5;
+      businessInterpretation.recommendations.forEach(r => {
+        y = ensureSpace(doc, y, 8);
+        y = narrate(doc, y, `• ${r}`, mw - 4);
+      });
+    }
+  }
+
+  // ---- SHAP Feature Direction Summary ----
+  if (shapSummary?.length > 0) {
+    y = ensureSpace(doc, y, 30);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...C.dark);
+    doc.text('SHAP Feature Direction Analysis', 16, y);
+    y += 5;
+    y = narrate(doc, y, 'Average positive and negative SHAP values per feature, showing how each feature pushes predictions up or down:', mw);
+
+    const shapRows = shapSummary.slice(0, 15).map(s => [
+      s.feature,
+      s.positive != null ? '+' + fmt(s.positive, 4) : '—',
+      s.negative != null ? fmt(s.negative, 4) : '—',
+      s.positive != null && s.negative != null ? fmt(Math.abs(s.positive) + Math.abs(s.negative), 4) : '—',
+    ]);
+    y = ensureSpace(doc, y, 30);
+    doc.autoTable({
+      startY: y, margin: { left: 16, right: 16 },
+      head: [['Feature', 'Avg Positive Push', 'Avg Negative Pull', 'Total Impact']],
+      body: shapRows,
+      theme: 'grid',
+      styles: { fontSize: 7, cellPadding: 2 },
+      headStyles: { fillColor: C.accent, textColor: C.white, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [240, 253, 244] },
+      didParseCell: (data) => {
+        if (data.section === 'body') {
+          if (data.column.index === 1) data.cell.styles.textColor = [16, 185, 129];
+          if (data.column.index === 2) data.cell.styles.textColor = [239, 68, 68];
         }
       },
     });
