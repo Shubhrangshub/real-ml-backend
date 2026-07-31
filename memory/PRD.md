@@ -81,11 +81,9 @@ Build a full-stack AutoML application with client-side ML, model training/compar
 - **Preprocessing nudge**: Added in Analysis tab Model Configuration section before Start Training button. Shows green (active), amber (issues detected), or blue (no config) status with a button to navigate to Preprocess.
 - **Preprocessing applied card**: Added in training results section showing what preprocessing steps were executed during training.
 
-### Dashboard History/Leaderboard Fix (July 6, 2026)
-- **Dashboard now loads history and leaderboard on initial load** — fetches snapshots and leaderboard entries when user lands on Dashboard.
-- **Dashboard shows stats from leaderboard data** — When no in-session models exist but leaderboard has data, shows stat cards (Total Models, Avg Score, Best Algorithm, Highest Score, Last Training), performance bar chart, algorithm usage pie chart, and saved analyses section.
-- **Three dashboard states**: (1) Truly empty, (2) Historical data only (leaderboard-derived), (3) Active session (full in-session dashboard).
-- **Preprocessing nudge repositioned** — Moved from inside the target-column-required block to after the Data Scanner section, visible immediately after loading any dataset (no target selection required).
+### Dashboard Polish & PDF Report Enhancement (July 31, 2026)
+- **Dashboard polish**: Compact stat cards (text-xl from text-3xl), slimmer context strip replacing dashed welcome banner, donut pie chart with center label, smaller chart titles, dataset badge hidden on Dashboard view.
+- **PDF Report enhancements**: Added Data Quality Assessment section (health score, missing/outliers/duplicates), Business Interpretation section (AI-generated insights with key drivers and recommendations), SHAP Feature Direction Analysis table (positive push / negative pull per feature). Full report now has 17+ sections including Cover, Executive Summary, TOC, Dataset, Preprocessing, Models, Comparison, SHAP, LIME, Business Insights, Tuning, Clustering, Anomalies, Predictions, Leaderboard, Deployments, and Conclusions.
 
 ## Pending Tasks
 ### P1 - Upcoming
