@@ -115,13 +115,14 @@ export default function DashboardView() {
 
         {/* Charts from leaderboard data */}
         {(() => {
-          const barData = lbStats.entries.slice(0, 15).map((e) => ({
-            name: `${(ALGO_NAMES[e.algorithm] || e.algorithm).substring(0, 12)}`,
-            score: +((e.problem_type === 'classification' ? (e.metrics?.f1 || e.metrics?.accuracy || 0) : (e.metrics?.r2 || 0)) * 100).toFixed(1)
+          const barData = lbStats.entries.slice(0, 10).map((e) => ({
+            name: ALGO_NAMES[e.algorithm] || e.algorithm,
+            score: +((e.problem_type === 'classification' ? (e.metrics?.f1 || e.metrics?.accuracy || 0) : (e.metrics?.r2 || 0)) * 100).toFixed(1),
+            algo: e.algorithm,
           }));
           const scores = barData.map(d => d.score);
           const minScore = Math.floor(Math.min(...scores) / 10) * 10;
-          const yMin = Math.max(0, minScore - 5);
+          const xMin = Math.max(0, minScore - 5);
 
           const pieData = (() => {
             const c = {}; lbStats.entries.forEach(e => { const nm = ALGO_NAMES[e.algorithm] || e.algorithm; c[nm] = (c[nm] || 0) + 1; });
@@ -131,22 +132,33 @@ export default function DashboardView() {
 
           return (
             <div className="grid gap-5 lg:grid-cols-2">
-              <Card data-testid="lb-performance-chart"><CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Model Performance</CardTitle><CardDescription className="text-xs">Top 15 models by score</CardDescription></CardHeader><CardContent>
-                <ResponsiveContainer width="100%" height={240}><BarChart data={barData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" angle={-30} textAnchor="end" height={70} tick={{fontSize: 9}} /><YAxis domain={[yMin, 100]} tickFormatter={v => `${v}%`} tick={{fontSize: 9}} /><Tooltip formatter={v => `${v}%`} /><Bar dataKey="score" radius={[3, 3, 0, 0]}>{lbStats.entries.slice(0, 15).map((e, i) => <Cell key={i} fill={ALGO_COLORS[e.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
+              {/* Horizontal Bar Chart — full algorithm names on Y-axis */}
+              <Card data-testid="lb-performance-chart"><CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Model Performance</CardTitle><CardDescription className="text-xs">Top 10 models by score</CardDescription></CardHeader><CardContent>
+                <ResponsiveContainer width="100%" height={Math.max(220, barData.length * 28 + 30)}>
+                  <BarChart data={barData} layout="vertical" margin={{ left: 10, right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" domain={[xMin, 100]} tickFormatter={v => `${v}%`} tick={{fontSize: 9}} />
+                    <YAxis type="category" dataKey="name" width={120} tick={{fontSize: 9}} />
+                    <Tooltip formatter={v => `${v}%`} />
+                    <Bar dataKey="score" radius={[0, 4, 4, 0]} barSize={18}>
+                      {barData.map((d, i) => <Cell key={i} fill={ALGO_COLORS[d.algo] || '#6b7280'} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
               </CardContent></Card>
 
+              {/* Donut Chart with legend below */}
               <Card data-testid="lb-usage-chart"><CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Algorithm Usage</CardTitle><CardDescription className="text-xs">Training frequency per algorithm</CardDescription></CardHeader><CardContent>
-                <div className="flex items-center gap-4">
-                  <div className="w-[180px] h-[180px] shrink-0">
-                    <ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} innerRadius={40} paddingAngle={2} label={false}><Label value={algoCount} position="center" className="text-lg font-bold fill-foreground" /></Pie><Tooltip /></PieChart></ResponsiveContainer>
+                <div className="flex flex-col items-center">
+                  <div className="w-[200px] h-[200px]">
+                    <ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={85} innerRadius={45} paddingAngle={2} label={false}><Label value={algoCount} position="center" className="text-lg font-bold fill-foreground" /></Pie><Tooltip /></PieChart></ResponsiveContainer>
                   </div>
-                  <div className="flex-1 space-y-1.5 overflow-y-auto max-h-[200px]">
+                  <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 mt-3 w-full">
                     {pieData.map((d, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs">
+                      <div key={i} className="flex items-center gap-1.5 text-xs">
                         <div className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: d.fill }} />
-                        <span className="text-muted-foreground truncate flex-1">{d.name}</span>
+                        <span className="text-muted-foreground">{d.name}</span>
                         <span className="font-semibold tabular-nums">{d.value}</span>
-                        <span className="text-muted-foreground w-8 text-right">{Math.round(d.value / lbStats.totalModels * 100)}%</span>
                       </div>
                     ))}
                   </div>
