@@ -1,0 +1,79 @@
+{
+  "summary": "Frontend testing completed for Dashboard chart fixes. Both BAR CHART Y-axis fix and PIE CHART donut+legend fix verified working correctly. All regression tests passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_55.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "BAR CHART FIX VERIFIED: Y-axis values are 85%, 89%, 93%, 97%, 100% - starts at 85%, NOT 0%. Dynamic Y-axis min computed correctly using Math.max(0, Math.floor(minScore / 10) * 10 - 5)",
+    "PIE CHART FIX VERIFIED: Donut chart (180px) on LEFT with center label showing '10' (algorithm count), legend list on RIGHT with color swatches, algorithm names, counts, and percentages. No inline labels overlapping the chart.",
+    "REGRESSION VERIFIED: All 5 stat cards display correctly (Total Models: 225, Avg Score: 44.8%, Best Algorithm: Ridge Regression, Highest Score: 97.8%, Last Training: Jul 31)",
+    "REGRESSION VERIFIED: Context strip shows '225 models trained across sessions' with best model info",
+    "REGRESSION VERIFIED: Saved Analyses section shows 15 saved analysis sessions with View All button",
+    "REGRESSION VERIFIED: All-Time Leaderboard widget visible at bottom of dashboard",
+    "NOTE: Console warnings about chart width/height (-1) appear during initial render but charts display correctly after data loads"
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A - Frontend only testing",
+    "frontend": "100%"
+  },
+  "test_credentials": {
+    "email": "shubhrangshub@gmail.com",
+    "password": "MyNewPass123!"
+  },
+  "seed_data_creation": "None - used existing 225 models in leaderboard",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Dashboard chart fixes verified. Bar chart Y-axis now starts at 85% (not 0%) making differences between high-scoring models visible. Pie chart is now a donut with external legend list (no overlapping labels). User has 225 models in leaderboard and 15 saved analysis sessions.",
+  "features_tested": {
+    "BAR_CHART_YAXIS_FIX": {
+      "status": "PASSED",
+      "location": "DashboardView.js lines 117-136",
+      "data_testids": ["lb-performance-chart"],
+      "description": "Bar chart Y-axis starts near lowest score (auto-scaled), NOT from 0%",
+      "verified_behavior": "Y-axis values: 85%, 89%, 93%, 97%, 100%. Starts at 85% making differences between 90%+ models clearly visible. Dynamic min computed as Math.max(0, Math.floor(minScore / 10) * 10 - 5)"
+    },
+    "PIE_CHART_DONUT_LEGEND_FIX": {
+      "status": "PASSED",
+      "location": "DashboardView.js lines 138-154",
+      "data_testids": ["lb-usage-chart"],
+      "description": "Pie chart displays as donut on LEFT with legend list on RIGHT, no inline labels",
+      "verified_behavior": "180px donut with innerRadius=40, center label shows '10' (algorithm count). Legend list shows 10 algorithms with color swatches, names, counts, and percentages. No inline labels overlapping chart."
+    },
+    "REGRESSION_STAT_CARDS": {
+      "status": "PASSED",
+      "location": "DashboardView.js lines 107-114",
+      "description": "Dashboard stat cards display correctly",
+      "verified_behavior": "5 stat cards: Total Models (225), Avg Score (44.8%), Best Algorithm (Ridge Regression), Highest Score (97.8%), Last Training (Jul 31)"
+    },
+    "REGRESSION_CONTEXT_STRIP": {
+      "status": "PASSED",
+      "location": "DashboardView.js lines 91-105",
+      "data_testids": ["dashboard-welcome"],
+      "description": "Context strip shows session summary",
+      "verified_behavior": "Shows '225 models trained across sessions' with best model info and last training date"
+    },
+    "REGRESSION_SAVED_ANALYSES": {
+      "status": "PASSED",
+      "location": "DashboardView.js lines 159-196",
+      "data_testids": ["dashboard-saved-analyses"],
+      "description": "Saved analyses section displays correctly",
+      "verified_behavior": "Shows 15 saved analysis sessions with View All button"
+    },
+    "REGRESSION_LEADERBOARD_WIDGET": {
+      "status": "PASSED",
+      "location": "DashboardView.js lines 316-354",
+      "data_testids": ["dashboard-leaderboard-widget"],
+      "description": "All-Time Leaderboard widget displays correctly",
+      "verified_behavior": "Widget visible at bottom showing top models across sessions"
+    }
+  }
+}

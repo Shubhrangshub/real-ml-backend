@@ -114,21 +114,47 @@ export default function DashboardView() {
         </div>
 
         {/* Charts from leaderboard data */}
-        <div className="grid gap-5 lg:grid-cols-2">
-          <Card data-testid="lb-performance-chart"><CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Model Performance</CardTitle><CardDescription className="text-xs">Top 15 models by score</CardDescription></CardHeader><CardContent>
-            <ResponsiveContainer width="100%" height={240}><BarChart data={lbStats.entries.slice(0, 15).map((e) => ({
-              name: `${(ALGO_NAMES[e.algorithm] || e.algorithm).substring(0, 12)}`,
-              score: +((e.problem_type === 'classification' ? (e.metrics?.f1 || e.metrics?.accuracy || 0) : (e.metrics?.r2 || 0)) * 100).toFixed(1)
-            }))}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" angle={-30} textAnchor="end" height={70} tick={{fontSize: 9}} /><YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{fontSize: 9}} /><Tooltip formatter={v => `${v}%`} /><Bar dataKey="score" radius={[3, 3, 0, 0]}>{lbStats.entries.slice(0, 15).map((e, i) => <Cell key={i} fill={ALGO_COLORS[e.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
-          </CardContent></Card>
+        {(() => {
+          const barData = lbStats.entries.slice(0, 15).map((e) => ({
+            name: `${(ALGO_NAMES[e.algorithm] || e.algorithm).substring(0, 12)}`,
+            score: +((e.problem_type === 'classification' ? (e.metrics?.f1 || e.metrics?.accuracy || 0) : (e.metrics?.r2 || 0)) * 100).toFixed(1)
+          }));
+          const scores = barData.map(d => d.score);
+          const minScore = Math.floor(Math.min(...scores) / 10) * 10;
+          const yMin = Math.max(0, minScore - 5);
 
-          <Card data-testid="lb-usage-chart"><CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Algorithm Usage</CardTitle><CardDescription className="text-xs">Training frequency per algorithm</CardDescription></CardHeader><CardContent>
-            <ResponsiveContainer width="100%" height={240}><PieChart><Pie data={(() => {
-              const c = {}; lbStats.entries.forEach(e => { const nm = ALGO_NAMES[e.algorithm] || e.algorithm; c[nm] = (c[nm] || 0) + 1; });
-              return Object.entries(c).map(([name, value], i) => ({ name, value, fill: Object.values(ALGO_COLORS)[i % Object.values(ALGO_COLORS).length] }));
-            })()} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({name, percent}) => `${name} ${(percent*100).toFixed(0)}%`} labelLine={false} innerRadius={35}><Label value={`${Object.keys((() => { const c = {}; lbStats.entries.forEach(e => { c[e.algorithm] = 1; }); return c; })()).length}`} position="center" className="text-xl font-bold fill-foreground" /></Pie><Tooltip /></PieChart></ResponsiveContainer>
-          </CardContent></Card>
-        </div>
+          const pieData = (() => {
+            const c = {}; lbStats.entries.forEach(e => { const nm = ALGO_NAMES[e.algorithm] || e.algorithm; c[nm] = (c[nm] || 0) + 1; });
+            return Object.entries(c).sort((a, b) => b[1] - a[1]).map(([name, value], i) => ({ name, value, fill: Object.values(ALGO_COLORS)[i % Object.values(ALGO_COLORS).length] }));
+          })();
+          const algoCount = pieData.length;
+
+          return (
+            <div className="grid gap-5 lg:grid-cols-2">
+              <Card data-testid="lb-performance-chart"><CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Model Performance</CardTitle><CardDescription className="text-xs">Top 15 models by score</CardDescription></CardHeader><CardContent>
+                <ResponsiveContainer width="100%" height={240}><BarChart data={barData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" angle={-30} textAnchor="end" height={70} tick={{fontSize: 9}} /><YAxis domain={[yMin, 100]} tickFormatter={v => `${v}%`} tick={{fontSize: 9}} /><Tooltip formatter={v => `${v}%`} /><Bar dataKey="score" radius={[3, 3, 0, 0]}>{lbStats.entries.slice(0, 15).map((e, i) => <Cell key={i} fill={ALGO_COLORS[e.algorithm] || '#6b7280'} />)}</Bar></BarChart></ResponsiveContainer>
+              </CardContent></Card>
+
+              <Card data-testid="lb-usage-chart"><CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Algorithm Usage</CardTitle><CardDescription className="text-xs">Training frequency per algorithm</CardDescription></CardHeader><CardContent>
+                <div className="flex items-center gap-4">
+                  <div className="w-[180px] h-[180px] shrink-0">
+                    <ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} innerRadius={40} paddingAngle={2} label={false}><Label value={algoCount} position="center" className="text-lg font-bold fill-foreground" /></Pie><Tooltip /></PieChart></ResponsiveContainer>
+                  </div>
+                  <div className="flex-1 space-y-1.5 overflow-y-auto max-h-[200px]">
+                    {pieData.map((d, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <div className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: d.fill }} />
+                        <span className="text-muted-foreground truncate flex-1">{d.name}</span>
+                        <span className="font-semibold tabular-nums">{d.value}</span>
+                        <span className="text-muted-foreground w-8 text-right">{Math.round(d.value / lbStats.totalModels * 100)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent></Card>
+            </div>
+          );
+        })()}
 
         {/* Saved Analyses (from previous sessions) */}
         {historyList.length > 0 && (
